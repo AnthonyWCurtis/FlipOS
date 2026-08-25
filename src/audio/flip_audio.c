@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_audio.h"
+#include "flip_audio_buffer.h"
 #include "flip_settings.h"
 
 #include <errno.h>
@@ -18,6 +19,9 @@
 static int audio_fd = -1;
 static pid_t audio_pid = -1;
 static int speaker_volume = 30;
+
+static flip_audio_config_t audio_config;
+static flip_audio_buffer_t audio_buffer;
 
 /*
  * Miyoo Flip stock RK817 deep-resume workaround.
@@ -204,10 +208,113 @@ static int configure_speaker(void)
     return -1;
 }
 
-int flip_audio_open(void)
+static int audio_transport_write(
+    const int16_t *samples,
+    size_t frames,
+    void *userdata)
 {
-    if (audio_fd >= 0)
-        return 0;
+    (void)userdata;
+
+    if (audio_fd < 0 ||
+        !samples ||
+        frames == 0)
+        return -1;
+
+    /*
+     * Stereo S16_LE:
+     * 2 samples per frame, 2 bytes per sample.
+     */
+    const unsigned char *ptr =
+        (const unsigned char *)samples;
+
+    size_t remaining =
+        frames *
+        FLIP_AUDIO_BUFFER_CHANNELS *
+        sizeof(int16_t);
+
+    while (remaining > 0) {
+
+        ssize_t written =
+            write(
+                audio_fd,
+                ptr,
+                remaining);
+
+        if (written > 0) {
+            ptr += written;
+            remaining -= (size_t)written;
+            continue;
+        }
+
+        if (written < 0 &&
+            errno == EINTR)
+            continue;
+
+        if (written < 0 &&
+            errno == EPIPE) {
+
+            fprintf(
+                stderr,
+                "flip_audio: aplay pipe closed\n");
+
+            close(audio_fd);
+            audio_fd = -1;
+
+            return -1;
+        }
+
+        fprintf(
+            stderr,
+            "flip_audio: write failed: %s\n",
+            strerror(errno));
+
+        close(audio_fd);
+        audio_fd = -1;
+
+        return -1;
+    }
+
+    return 0;
+}
+
+int flip_audio_open(
+    const flip_audio_config_t *config)
+{
+    if (!config ||
+        config->sample_rate != 32768 ||
+        config->channels != 2) {
+
+        fprintf(
+            stderr,
+            "flip_audio: unsupported config "
+            "rate=%u channels=%u\n",
+            config
+                ? config->sample_rate
+                : 0,
+            config
+                ? config->channels
+                : 0);
+
+        return -1;
+    }
+
+    if (audio_fd >= 0) {
+
+        if (audio_config.sample_rate ==
+                config->sample_rate &&
+            audio_config.channels ==
+                config->channels) {
+
+            return 0;
+        }
+
+        fprintf(
+            stderr,
+            "flip_audio: already open with "
+            "different configuration\n");
+
+        return -1;
+    }
 
     flip_settings_t settings;
 
@@ -307,6 +414,10 @@ int flip_audio_open(void)
 
     audio_fd = pipefd[1];
     audio_pid = pid;
+    audio_config = *config;
+
+    flip_audio_buffer_init(
+        &audio_buffer);
 
     /*
      * Give RK817/ASoC time to establish the playback path,
@@ -335,13 +446,15 @@ int flip_audio_open(void)
         stderr,
         "flip_audio: OPEN_OK pid=%d "
         "device=hw:0,0 format=S16_LE "
-        "channels=2 rate=32768\n",
-        (int)audio_pid);
+        "channels=%u rate=%u\n",
+        (int)audio_pid,
+        audio_config.channels,
+        audio_config.sample_rate);
 
     return 0;
 }
 
-size_t flip_audio_write(
+size_t flip_audio_submit(
     const int16_t *samples,
     size_t frames)
 {
@@ -350,61 +463,51 @@ size_t flip_audio_write(
         frames == 0)
         return 0;
 
-    /*
-     * Stereo S16_LE:
-     * 2 samples per frame, 2 bytes per sample.
-     */
-    const unsigned char *ptr =
-        (const unsigned char *)samples;
+    int sink_failed = 0;
 
-    size_t total =
-        frames * 2 * sizeof(int16_t);
+    size_t accepted =
+        flip_audio_buffer_submit(
+            &audio_buffer,
+            samples,
+            frames,
+            audio_transport_write,
+            NULL,
+            &sink_failed);
 
-    size_t remaining =
-        total;
-
-    while (remaining > 0) {
-
-        ssize_t written =
-            write(
-                audio_fd,
-                ptr,
-                remaining);
-
-        if (written > 0) {
-            ptr += written;
-            remaining -= (size_t)written;
-            continue;
-        }
-
-        if (written < 0 &&
-            errno == EINTR)
-            continue;
-
-        if (written < 0 &&
-            errno == EPIPE) {
-
-            fprintf(
-                stderr,
-                "flip_audio: aplay pipe closed\n");
-
-            close(audio_fd);
-            audio_fd = -1;
-
-            return 0;
-        }
+    if (sink_failed) {
 
         fprintf(
             stderr,
-            "flip_audio: write failed: %s\n",
-            strerror(errno));
+            "flip_audio: transport failed; "
+            "continuing silent\n");
 
+        flip_audio_buffer_reset(
+            &audio_buffer);
+    }
+
+    return accepted;
+}
+
+int flip_audio_end_frame(void)
+{
+    if (audio_fd < 0) {
+        flip_audio_buffer_reset(
+            &audio_buffer);
         return 0;
     }
 
-    return frames;
-}
+    if (flip_audio_buffer_flush(
+            &audio_buffer,
+            audio_transport_write,
+            NULL) < 0) {
 
+        flip_audio_buffer_reset(
+            &audio_buffer);
+        return -1;
+    }
+
+    return 0;
+}
 
 int flip_audio_set_volume(int percent)
 {
@@ -457,9 +560,25 @@ int flip_audio_get_volume(void)
 void flip_audio_close(void)
 {
     if (audio_fd >= 0) {
-        close(audio_fd);
-        audio_fd = -1;
+
+        if (flip_audio_buffer_flush(
+                &audio_buffer,
+                audio_transport_write,
+                NULL) < 0) {
+
+            fprintf(
+                stderr,
+                "flip_audio: final flush failed\n");
+        }
+
+        if (audio_fd >= 0) {
+            close(audio_fd);
+            audio_fd = -1;
+        }
     }
+
+    flip_audio_buffer_reset(
+        &audio_buffer);
 
     if (audio_pid > 0) {
 
@@ -490,4 +609,9 @@ void flip_audio_close(void)
 
         audio_pid = -1;
     }
+
+    memset(
+        &audio_config,
+        0,
+        sizeof(audio_config));
 }
