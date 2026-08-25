@@ -76,16 +76,16 @@ Known-good baseline after 4A2A: `04653d7`.
 
 #### Phase 4A2B — Game controls vs system actions
 
-- [ ] Pure logical-controls transformation layer
-- [ ] Normalized game-control state
-- [ ] Shared logical system actions
-- [ ] START+SELECT global exit action
-- [ ] Flip_GB no longer interprets Miyoo-specific system buttons directly
-- [ ] Host unit tests pass
-- [ ] Full WSL build passes
-- [ ] Real-Miyoo-Flip hardware validation passes
+- [x] Pure logical-controls transformation layer
+- [x] Normalized game-control state
+- [x] Shared logical system actions
+- [x] START+SELECT global exit action
+- [x] Flip_GB no longer interprets Miyoo-specific system buttons directly
+- [x] Host unit tests pass
+- [x] Full WSL build passes
+- [x] Real-Miyoo-Flip hardware validation passes
 
-Current development branch: `phase4/input-actions`.
+Hardware-tested code commit: `8938852` (`Separate game controls from system actions`).
 
 ### Phase 4A3 — Global Timing Host
 
