@@ -5,6 +5,7 @@
 #include "flip_power.h"
 #include "flip_audio.h"
 #include "flip_input.h"
+#include "flip_controls.h"
 #include "flip_hotkeys.h"
 
 #include "libretro/libretro.h"
@@ -19,7 +20,9 @@
 #include <string.h>
 #include <time.h>
 
-static flip_input_state_t input_state;
+static flip_input_state_t physical_input;
+static flip_controls_t controls;
+static flip_controls_state_t control_state;
 
 static enum retro_pixel_format pixel_format =
     RETRO_PIXEL_FORMAT_RGB565;
@@ -28,14 +31,6 @@ static const char *rom_path = NULL;
 
 static int fps_overlay_enabled = 0;
 static double fps_overlay_value = 0.0;
-static int previous_r1 = 0;
-static int previous_menu = 0;
-static int menu_pending = 0;
-
-static flip_hotkeys_t global_hotkeys;
-
-static int previous_lid_ready = 0;
-static int previous_lid_closed = 0;
 
 #define FLIPGB_EXIT_SWITCHER 20
 
@@ -572,36 +567,36 @@ static int16_t input_state_cb(
     switch (id) {
 
         case RETRO_DEVICE_ID_JOYPAD_UP:
-            return input_state.down[
-                FLIP_BTN_UP];
+            return control_state.game.down[
+                FLIP_GAME_UP];
 
         case RETRO_DEVICE_ID_JOYPAD_DOWN:
-            return input_state.down[
-                FLIP_BTN_DOWN];
+            return control_state.game.down[
+                FLIP_GAME_DOWN];
 
         case RETRO_DEVICE_ID_JOYPAD_LEFT:
-            return input_state.down[
-                FLIP_BTN_LEFT];
+            return control_state.game.down[
+                FLIP_GAME_LEFT];
 
         case RETRO_DEVICE_ID_JOYPAD_RIGHT:
-            return input_state.down[
-                FLIP_BTN_RIGHT];
+            return control_state.game.down[
+                FLIP_GAME_RIGHT];
 
         case RETRO_DEVICE_ID_JOYPAD_A:
-            return input_state.down[
-                FLIP_BTN_A];
+            return control_state.game.down[
+                FLIP_GAME_A];
 
         case RETRO_DEVICE_ID_JOYPAD_B:
-            return input_state.down[
-                FLIP_BTN_B];
+            return control_state.game.down[
+                FLIP_GAME_B];
 
         case RETRO_DEVICE_ID_JOYPAD_START:
-            return input_state.down[
-                FLIP_BTN_START];
+            return control_state.game.down[
+                FLIP_GAME_START];
 
         case RETRO_DEVICE_ID_JOYPAD_SELECT:
-            return input_state.down[
-                FLIP_BTN_SELECT];
+            return control_state.game.down[
+                FLIP_GAME_SELECT];
 
         default:
             return 0;
@@ -704,9 +699,17 @@ int main(
         rom_path);
 
     memset(
-        &input_state,
+        &physical_input,
         0,
-        sizeof(input_state));
+        sizeof(physical_input));
+
+    memset(
+        &control_state,
+        0,
+        sizeof(control_state));
+
+    flip_controls_init(
+        &controls);
 
     if (flip_video_open() < 0) {
         fprintf(
@@ -715,9 +718,6 @@ int main(
 
         return 2;
     }
-
-    flip_hotkeys_init(
-        &global_hotkeys);
 
     if (flip_input_open() < 0) {
         fprintf(
@@ -895,7 +895,7 @@ int main(
          * and input_state_cb() reads this snapshot.
          */
         if (flip_input_poll(
-                &input_state,
+                &physical_input,
                 0) < 0) {
 
             fprintf(
@@ -905,107 +905,59 @@ int main(
             break;
         }
 
+        if (flip_controls_update(
+                &controls,
+                &physical_input,
+                &control_state) < 0) {
+
+            fprintf(
+                stderr,
+                "FLIPGB: controls update failed\n");
+
+            break;
+        }
+
         retro_run();
 
         /*
-         * FlipOS lid transition detection.
+         * FlipOS logical system actions.
          *
-         * Confirmed Miyoo Flip hall polarity:
-         *   lid_closed=0 -> OPEN
-         *   lid_closed=1 -> CLOSED
-         *
-         * Detection only for this milestone.
-         * No save, suspend or exit occurs here.
+         * Physical button/chord interpretation belongs to
+         * flip_controls. Flip_GB only reacts to the resulting
+         * platform-neutral host actions.
          */
-        if (input_state.lid_ready) {
+        if (control_state.system.lid_changed) {
 
-            if (!previous_lid_ready ||
-                input_state.lid_closed !=
-                    previous_lid_closed) {
+            fprintf(
+                stderr,
+                "FLIPGB_LID %s\n",
+                control_state.system.lid_closed
+                    ? "CLOSED"
+                    : "OPEN");
+        }
+
+        if (control_state.system.suspend_requested) {
+
+            fprintf(
+                stderr,
+                "FLIPGB_LID suspend requested\n");
+
+            if (save_resume_state() < 0) {
 
                 fprintf(
                     stderr,
-                    "FLIPGB_LID %s\n",
-                    input_state.lid_closed
-                        ? "CLOSED"
-                        : "OPEN");
+                    "FLIPGB_LID suspend save failed\n");
 
-                /*
-                 * Lid-close software suspend.
-                 *
-                 * Save through the same proven resume-state
-                 * path used by GameSwitcher, then return exit
-                 * code 20 so the session manager records the
-                 * game as suspended.
-                 */
-                if (previous_lid_ready &&
-                    input_state.lid_closed) {
+            } else {
 
-                    fprintf(
-                        stderr,
-                        "FLIPGB_LID suspend requested\n");
+                flipgb_exit_code =
+                    FLIPGB_EXIT_SWITCHER;
 
-                    if (save_resume_state() < 0) {
-
-                        fprintf(
-                            stderr,
-                            "FLIPGB_LID suspend save failed\n");
-
-                    } else {
-
-                        flipgb_exit_code =
-                            FLIPGB_EXIT_SWITCHER;
-
-                        break;
-                    }
-                }
+                break;
             }
-
-            previous_lid_closed =
-                input_state.lid_closed;
-
-            previous_lid_ready = 1;
         }
 
-        /*
-         * MENU + R1 toggles the FPS overlay.
-         *
-         * Edge-trigger R1 while MENU is held so the
-         * combination toggles only once per press.
-         */
-        int menu_now =
-            input_state.down[FLIP_BTN_MENU];
-
-        int r1_now =
-            input_state.down[FLIP_BTN_R1];
-
-        /*
-         * FlipOS MENU shortcut handling.
-         *
-         * MENU is deferred until release so another button
-         * has time to turn it into a chord.
-         *
-         *   MENU + R1 -> FPS overlay
-         *   MENU alone -> GameSwitcher
-         */
-
-        /*
-         * Fresh MENU press: arm the standalone action.
-         */
-        if (menu_now &&
-            !previous_menu) {
-
-            menu_pending = 1;
-        }
-
-        /*
-         * MENU+R1 consumes the pending MENU action.
-         *
-         * Edge-trigger R1 so the FPS overlay toggles once.
-         */
-        if (menu_now &&
-            r1_now &&
-            !previous_r1) {
+        if (control_state.system.fps_toggle_requested) {
 
             fps_overlay_enabled =
                 !fps_overlay_enabled;
@@ -1013,8 +965,6 @@ int main(
             flip_video_set_fps_overlay(
                 fps_overlay_enabled,
                 fps_overlay_value);
-
-            menu_pending = 0;
 
             fprintf(
                 stderr,
@@ -1024,15 +974,7 @@ int main(
                     : "OFF");
         }
 
-        /*
-         * MENU released without participating in a chord:
-         * suspend into GameSwitcher.
-         */
-        if (!menu_now &&
-            previous_menu &&
-            menu_pending) {
-
-            menu_pending = 0;
+        if (control_state.system.gameswitcher_requested) {
 
             fprintf(
                 stderr,
@@ -1053,47 +995,16 @@ int main(
             }
         }
 
-        /*
-         * Once MENU has been released after a chord,
-         * discard any stale pending state.
-         */
-        if (!menu_now &&
-            previous_menu) {
-
-            menu_pending = 0;
-        }
-
-        previous_menu =
-            menu_now;
-
-        previous_r1 =
-            r1_now;
-
-        /*
-         * FlipOS global hardware controls.
-         *
-         * Volume and brightness policy lives in the
-         * shared hotkey manager rather than this emulator.
-         */
         flip_hotkeys_result_t hotkey_result;
 
-        if (flip_hotkeys_handle(
-                &global_hotkeys,
-                &input_state,
+        if (flip_hotkeys_apply_actions(
+                &control_state.system,
                 &hotkey_result) < 0) {
 
             fprintf(
                 stderr,
                 "FLIPGB: global hotkey handling failed\n");
         }
-
-        /*
-         * MENU+VOL is a global chord. Prevent the pending
-         * standalone MENU action from opening GameSwitcher
-         * when MENU is subsequently released.
-         */
-        if (hotkey_result.menu_consumed)
-            menu_pending = 0;
 
         fps_frames++;
 
@@ -1131,14 +1042,10 @@ int main(
         }
 
         /*
-         * START + SELECT exits the emulator.
-         *
-         * MENU is deliberately reserved as a shortcut modifier
-         * for things such as the FPS overlay and future
-         * save-state/GameSwitcher actions.
+         * START+SELECT is interpreted by the shared controls
+         * layer as a global FlipOS exit request.
          */
-        if (input_state.down[FLIP_BTN_START] &&
-            input_state.down[FLIP_BTN_SELECT]) {
+        if (control_state.system.exit_requested) {
 
             fprintf(
                 stderr,
