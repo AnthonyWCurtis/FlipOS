@@ -20,22 +20,14 @@ void flip_hotkeys_init(
         sizeof(*hotkeys));
 }
 
-int flip_hotkeys_handle(
-    flip_hotkeys_t *hotkeys,
-    const flip_input_state_t *input,
+int flip_hotkeys_apply_actions(
+    const flip_system_actions_t *actions,
     flip_hotkeys_result_t *result)
 {
-    if (!hotkeys ||
-        !input ||
+    if (!actions ||
         !result)
         return -1;
 
-    /*
-     * Service delayed persistence for global settings.
-     *
-     * This is intentionally cheap when nothing is dirty
-     * and avoids SD writes for every volume/brightness step.
-     */
     if (flip_settings_tick() < 0) {
         fprintf(
             stderr,
@@ -46,6 +38,81 @@ int flip_hotkeys_handle(
         result,
         0,
         sizeof(*result));
+
+    if (actions->volume_step != 0) {
+
+        int volume =
+            flip_audio_get_volume() +
+            actions->volume_step * 5;
+
+        if (flip_audio_set_volume(
+                volume) == 0) {
+
+            result->volume_changed = 1;
+
+            flip_osd_show_volume(
+                flip_audio_get_volume());
+        }
+    }
+
+    if (actions->brightness_step != 0) {
+
+        int brightness =
+            flip_settings_get_brightness() +
+            actions->brightness_step * 20;
+
+        if (brightness > 255)
+            brightness = 255;
+
+        if (brightness < 10)
+            brightness = 10;
+
+        if (flip_power_set_brightness(
+                brightness) == 0) {
+
+            if (flip_settings_set_brightness(
+                    brightness) < 0) {
+
+                fprintf(
+                    stderr,
+                    "HOTKEYS: brightness persistence failed\n");
+
+            } else {
+
+                result->brightness_changed = 1;
+            }
+
+            result->menu_consumed = 1;
+
+            flip_osd_show_brightness(
+                brightness);
+
+            fprintf(
+                stderr,
+                "HOTKEYS: brightness=%d\n",
+                brightness);
+        }
+    }
+
+    return 0;
+}
+
+int flip_hotkeys_handle(
+    flip_hotkeys_t *hotkeys,
+    const flip_input_state_t *input,
+    flip_hotkeys_result_t *result)
+{
+    if (!hotkeys ||
+        !input ||
+        !result)
+        return -1;
+
+    flip_system_actions_t actions;
+
+    memset(
+        &actions,
+        0,
+        sizeof(actions));
 
     int menu_now =
         input->down[
@@ -59,67 +126,13 @@ int flip_hotkeys_handle(
         input->down[
             FLIP_BTN_VOL_DOWN];
 
-    /*
-     * FlipOS global hardware controls.
-     *
-     *   VOL+        -> volume up
-     *   VOL-        -> volume down
-     *   MENU+VOL+   -> brightness up
-     *   MENU+VOL-   -> brightness down
-     *
-     * These controls belong to FlipOS rather than
-     * individual emulators.
-     */
-
     if (vol_up_now &&
         !hotkeys->previous_vol_up) {
 
         if (menu_now) {
-
-            int brightness =
-                flip_settings_get_brightness();
-
-            brightness += 20;
-
-            if (brightness > 255)
-                brightness = 255;
-
-            if (flip_power_set_brightness(
-                    brightness) == 0) {
-
-                if (flip_settings_set_brightness(
-                        brightness) < 0) {
-
-                    fprintf(
-                        stderr,
-                        "HOTKEYS: brightness persistence failed\n");
-
-                } else {
-
-                    result->brightness_changed = 1;
-                }
-
-                result->menu_consumed = 1;
-
-                flip_osd_show_brightness(
-                    brightness);
-
-                fprintf(
-                    stderr,
-                    "HOTKEYS: brightness=%d\n",
-                    brightness);
-            }
-
+            actions.brightness_step += 1;
         } else {
-
-            if (flip_audio_set_volume(
-                    flip_audio_get_volume() + 5) == 0) {
-
-                result->volume_changed = 1;
-
-                flip_osd_show_volume(
-                    flip_audio_get_volume());
-            }
+            actions.volume_step += 1;
         }
     }
 
@@ -127,51 +140,9 @@ int flip_hotkeys_handle(
         !hotkeys->previous_vol_down) {
 
         if (menu_now) {
-
-            int brightness =
-                flip_settings_get_brightness();
-
-            brightness -= 20;
-
-            if (brightness < 10)
-                brightness = 10;
-
-            if (flip_power_set_brightness(
-                    brightness) == 0) {
-
-                if (flip_settings_set_brightness(
-                        brightness) < 0) {
-
-                    fprintf(
-                        stderr,
-                        "HOTKEYS: brightness persistence failed\n");
-
-                } else {
-
-                    result->brightness_changed = 1;
-                }
-
-                result->menu_consumed = 1;
-
-                flip_osd_show_brightness(
-                    brightness);
-
-                fprintf(
-                    stderr,
-                    "HOTKEYS: brightness=%d\n",
-                    brightness);
-            }
-
+            actions.brightness_step -= 1;
         } else {
-
-            if (flip_audio_set_volume(
-                    flip_audio_get_volume() - 5) == 0) {
-
-                result->volume_changed = 1;
-
-                flip_osd_show_volume(
-                    flip_audio_get_volume());
-            }
+            actions.volume_step -= 1;
         }
     }
 
@@ -181,5 +152,7 @@ int flip_hotkeys_handle(
     hotkeys->previous_vol_down =
         vol_down_now;
 
-    return 0;
+    return flip_hotkeys_apply_actions(
+        &actions,
+        result);
 }
