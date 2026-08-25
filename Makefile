@@ -2,6 +2,7 @@ CROSS ?= aarch64-linux-gnu-
 
 CC  := $(CROSS)gcc
 CXX := $(CROSS)g++
+HOSTCC ?= gcc
 
 CPPFLAGS := -Iinclude
 CFLAGS   := -O2 -Wall -Wextra -MMD -MP
@@ -16,6 +17,7 @@ COMMON_OBJS := \
 	$(BUILD)/flip_osd.o \
 	$(BUILD)/flip_library.o \
 	$(BUILD)/flip_input.o \
+	$(BUILD)/flip_controls.o \
 	$(BUILD)/flip_drm.o \
 	$(BUILD)/flip_draw.o
 
@@ -43,19 +45,20 @@ GB_LIBRETRO_OBJS := \
 GB_OBJS := \
 	$(BUILD)/flip_gb.o \
 	$(BUILD)/flip_audio.o \
-     $(BUILD)/flip_settings.o \
+	$(BUILD)/flip_settings.o \
 	$(BUILD)/flip_hotkeys.o \
 	$(BUILD)/flip_osd.o \
 	$(BUILD)/flip_video.o \
-        $(BUILD)/flip_power.o \
+	$(BUILD)/flip_power.o \
 	$(BUILD)/flip_input.o \
+	$(BUILD)/flip_controls.o \
 	$(BUILD)/flip_drm.o \
 	$(BUILD)/flip_draw.o \
 	$(GB_LIBRETRO_OBJS)
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb clean clean-objects
+.PHONY: all frontend gb test-controls clean clean-objects
 
 all: frontend gb
 
@@ -63,8 +66,16 @@ frontend: $(BUILD)/flip-frontend
 
 gb: $(BUILD)/flip-gb
 
+test-controls: $(BUILD)/test-flip-controls
+	$(BUILD)/test-flip-controls
+
 $(BUILD):
 	mkdir -p $(BUILD)
+
+$(BUILD)/test-flip-controls: tests/test_flip_controls.c src/runtime/flip_controls.c include/flip_controls.h include/flip_input.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_controls.c src/runtime/flip_controls.c \
+		-o $@
 
 $(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
@@ -73,6 +84,9 @@ $(BUILD)/flip_audio.o: src/audio/flip_audio.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_input.o: src/runtime/flip_input.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_controls.o: src/runtime/flip_controls.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_drm.o: src/hwtest/flip_drm.c | $(BUILD)
@@ -129,7 +143,8 @@ clean:
 		$(BUILD)/*.o \
 		$(BUILD)/*.d \
 		$(BUILD)/flip-frontend \
-		$(BUILD)/flip-gb
+		$(BUILD)/flip-gb \
+		$(BUILD)/test-flip-controls
 
 -include $(DEPS)
 
