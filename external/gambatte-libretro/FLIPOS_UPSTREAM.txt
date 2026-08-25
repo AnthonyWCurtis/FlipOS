@@ -1,0 +1,19 @@
+FlipOS vendored dependency
+
+Project:
+gambatte-libretro
+
+Upstream:
+https://github.com/libretro/gambatte-libretro.git
+
+Vendored upstream commit:
+d9d6cd06382d1ced30de34d56d3609452323dab1
+
+Upstream branch at time of vendoring:
+master
+
+This source is vendored into the FlipOS repository so that FlipOS builds
+against a known, reproducible Gambatte revision.
+
+Do not update this dependency without testing the new revision on real
+Miyoo Flip hardware.

@@ -1,0 +1,241 @@
+#include "flip_draw.h"
+
+#include <stddef.h>
+#include <string.h>
+
+/*
+ * Simple 5x7 built-in font.
+ *
+ * Each glyph is five columns wide.
+ * Bit 0 = top pixel.
+ *
+ * This is intentionally tiny and dependency-free.
+ */
+
+typedef struct {
+    char c;
+    unsigned char col[5];
+} glyph_t;
+
+static const glyph_t font[] = {
+    {' ', {0x00,0x00,0x00,0x00,0x00}},
+    {'0', {0x3e,0x51,0x49,0x45,0x3e}},
+    {'1', {0x00,0x42,0x7f,0x40,0x00}},
+    {'2', {0x42,0x61,0x51,0x49,0x46}},
+    {'3', {0x21,0x41,0x45,0x4b,0x31}},
+    {'4', {0x18,0x14,0x12,0x7f,0x10}},
+    {'5', {0x27,0x45,0x45,0x45,0x39}},
+    {'6', {0x3c,0x4a,0x49,0x49,0x30}},
+    {'7', {0x01,0x71,0x09,0x05,0x03}},
+    {'8', {0x36,0x49,0x49,0x49,0x36}},
+    {'9', {0x06,0x49,0x49,0x29,0x1e}},
+
+    {'A', {0x7e,0x11,0x11,0x11,0x7e}},
+    {'B', {0x7f,0x49,0x49,0x49,0x36}},
+    {'C', {0x3e,0x41,0x41,0x41,0x22}},
+    {'D', {0x7f,0x41,0x41,0x22,0x1c}},
+    {'E', {0x7f,0x49,0x49,0x49,0x41}},
+    {'F', {0x7f,0x09,0x09,0x09,0x01}},
+    {'G', {0x3e,0x41,0x49,0x49,0x7a}},
+    {'H', {0x7f,0x08,0x08,0x08,0x7f}},
+    {'I', {0x00,0x41,0x7f,0x41,0x00}},
+    {'J', {0x20,0x40,0x41,0x3f,0x01}},
+    {'K', {0x7f,0x08,0x14,0x22,0x41}},
+    {'L', {0x7f,0x40,0x40,0x40,0x40}},
+    {'M', {0x7f,0x02,0x0c,0x02,0x7f}},
+    {'N', {0x7f,0x04,0x08,0x10,0x7f}},
+    {'O', {0x3e,0x41,0x41,0x41,0x3e}},
+    {'P', {0x7f,0x09,0x09,0x09,0x06}},
+    {'Q', {0x3e,0x41,0x51,0x21,0x5e}},
+    {'R', {0x7f,0x09,0x19,0x29,0x46}},
+    {'S', {0x46,0x49,0x49,0x49,0x31}},
+    {'T', {0x01,0x01,0x7f,0x01,0x01}},
+    {'U', {0x3f,0x40,0x40,0x40,0x3f}},
+    {'V', {0x1f,0x20,0x40,0x20,0x1f}},
+    {'W', {0x7f,0x20,0x18,0x20,0x7f}},
+    {'X', {0x63,0x14,0x08,0x14,0x63}},
+    {'Y', {0x03,0x04,0x78,0x04,0x03}},
+    {'Z', {0x61,0x51,0x49,0x45,0x43}},
+
+    {'-', {0x08,0x08,0x08,0x08,0x08}},
+    {'+', {0x08,0x08,0x3e,0x08,0x08}},
+    {':', {0x00,0x36,0x36,0x00,0x00}},
+    {'/', {0x20,0x10,0x08,0x04,0x02}},
+    {'.', {0x00,0x60,0x60,0x00,0x00}},
+};
+
+static const unsigned char *find_glyph(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        c -= ('a' - 'A');
+
+    for (size_t i = 0;
+         i < sizeof(font) / sizeof(font[0]);
+         ++i) {
+
+        if (font[i].c == c)
+            return font[i].col;
+    }
+
+    return font[0].col;
+}
+
+static void put_pixel(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    uint32_t colour)
+{
+    if (!drm ||
+        !drm->pixels ||
+        x < 0 ||
+        y < 0 ||
+        x >= (int)drm->width ||
+        y >= (int)drm->height)
+        return;
+
+    uint32_t stride =
+        drm->pitch / sizeof(uint32_t);
+
+    drm->pixels[
+        (size_t)y * stride + (size_t)x
+    ] = colour;
+}
+
+void flip_draw_clear(
+    flip_drm_t *drm,
+    uint32_t colour)
+{
+    if (!drm || !drm->pixels)
+        return;
+
+    uint32_t stride =
+        drm->pitch / sizeof(uint32_t);
+
+    for (uint32_t y = 0;
+         y < drm->height;
+         ++y) {
+
+        for (uint32_t x = 0;
+             x < drm->width;
+             ++x) {
+
+            drm->pixels[
+                (size_t)y * stride + x
+            ] = colour;
+        }
+    }
+}
+
+void flip_draw_rect(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    int w,
+    int h,
+    uint32_t colour)
+{
+    for (int yy = 0; yy < h; ++yy) {
+        for (int xx = 0; xx < w; ++xx) {
+            put_pixel(
+                drm,
+                x + xx,
+                y + yy,
+                colour);
+        }
+    }
+}
+
+void flip_draw_rect_outline(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    int w,
+    int h,
+    int thickness,
+    uint32_t colour)
+{
+    flip_draw_rect(
+        drm,
+        x,
+        y,
+        w,
+        thickness,
+        colour);
+
+    flip_draw_rect(
+        drm,
+        x,
+        y + h - thickness,
+        w,
+        thickness,
+        colour);
+
+    flip_draw_rect(
+        drm,
+        x,
+        y,
+        thickness,
+        h,
+        colour);
+
+    flip_draw_rect(
+        drm,
+        x + w - thickness,
+        y,
+        thickness,
+        h,
+        colour);
+}
+
+void flip_draw_text(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t colour)
+{
+    if (!text || scale <= 0)
+        return;
+
+    int cursor_x = x;
+
+    while (*text) {
+
+        if (*text == '\n') {
+            cursor_x = x;
+            y += 8 * scale;
+            ++text;
+            continue;
+        }
+
+        const unsigned char *glyph =
+            find_glyph(*text);
+
+        for (int col = 0; col < 5; ++col) {
+
+            unsigned char bits =
+                glyph[col];
+
+            for (int row = 0;
+                 row < 7;
+                 ++row) {
+
+                if (!(bits & (1u << row)))
+                    continue;
+
+                flip_draw_rect(
+                    drm,
+                    cursor_x + col * scale,
+                    y + row * scale,
+                    scale,
+                    scale,
+                    colour);
+            }
+        }
+
+        cursor_x += 6 * scale;
+        ++text;
+    }
+}

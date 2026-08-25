@@ -1,0 +1,158 @@
+CROSS ?= aarch64-linux-gnu-
+
+CC  := $(CROSS)gcc
+CXX := $(CROSS)g++
+
+CPPFLAGS := -Iinclude
+CFLAGS   := -O2 -Wall -Wextra -MMD -MP
+CXXFLAGS := -O2 -Wall -Wextra -MMD -MP
+
+BUILD := build
+
+COMMON_OBJS := \
+	$(BUILD)/flip_audio.o \
+	$(BUILD)/flip_settings.o \
+	$(BUILD)/flip_hotkeys.o \
+	$(BUILD)/flip_osd.o \
+	$(BUILD)/flip_library.o \
+	$(BUILD)/flip_input.o \
+	$(BUILD)/flip_drm.o \
+	$(BUILD)/flip_draw.o
+
+RUNTIME_OBJS := \
+	$(BUILD)/flip_emulator_adapter.o \
+	$(BUILD)/flip_system.o \
+	$(BUILD)/flip_session.o \
+	$(BUILD)/flip_power.o
+
+FRONTEND_OBJS := \
+	$(BUILD)/flip_frontend.o \
+	$(RUNTIME_OBJS) \
+	$(COMMON_OBJS)
+
+GB_LIBRETRO_OBJS := \
+	$(BUILD)/libretro_file_stream.o \
+	$(BUILD)/libretro_file_path.o \
+	$(BUILD)/libretro_file_path_io.o \
+	$(BUILD)/libretro_stdstring.o \
+	$(BUILD)/libretro_encoding_utf.o \
+	$(BUILD)/libretro_compat_strl.o \
+	$(BUILD)/libretro_rtime.o \
+	$(BUILD)/libretro_vfs.o
+
+GB_OBJS := \
+	$(BUILD)/flip_gb.o \
+	$(BUILD)/flip_audio.o \
+     $(BUILD)/flip_settings.o \
+	$(BUILD)/flip_hotkeys.o \
+	$(BUILD)/flip_osd.o \
+	$(BUILD)/flip_video.o \
+        $(BUILD)/flip_power.o \
+	$(BUILD)/flip_input.o \
+	$(BUILD)/flip_drm.o \
+	$(BUILD)/flip_draw.o \
+	$(GB_LIBRETRO_OBJS)
+
+DEPS := $(wildcard $(BUILD)/*.d)
+
+.PHONY: all frontend gb clean clean-objects
+
+all: frontend gb
+
+frontend: $(BUILD)/flip-frontend
+
+gb: $(BUILD)/flip-gb
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_audio.o: src/audio/flip_audio.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_input.o: src/hwtest/flip_input.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_drm.o: src/hwtest/flip_drm.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_draw.o: src/hwtest/flip_draw.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_power.o: src/runtime/flip_power.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_settings.o: src/runtime/flip_settings.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_hotkeys.o: src/runtime/flip_hotkeys.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_osd.o: src/runtime/flip_osd.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_video.o: src/runtime/flip_video.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_emulator_adapter.o: src/runtime/flip_emulator_adapter.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_gb.o: src/emulators/flip_gb.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip-frontend: $(FRONTEND_OBJS)
+	$(CC) -static -o $@ $^ -lm
+
+$(BUILD)/flip-gb: $(GB_OBJS) $(BUILD)/libgambatte_libretro.a
+	$(CXX) -static -o $@ \
+		$(GB_OBJS) \
+		$(BUILD)/libgambatte_libretro.a \
+		-pthread \
+		-lm
+
+clean-objects:
+	rm -f $(BUILD)/*.o $(BUILD)/*.d
+
+clean:
+	rm -f \
+		$(BUILD)/*.o \
+		$(BUILD)/*.d \
+		$(BUILD)/flip-frontend \
+		$(BUILD)/flip-gb
+
+-include $(DEPS)
+
+$(BUILD)/libretro_file_stream.o: external/gambatte-libretro/libgambatte/libretro-common/streams/file_stream.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/libretro_file_path.o: external/gambatte-libretro/libgambatte/libretro-common/file/file_path.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/libretro_file_path_io.o: external/gambatte-libretro/libgambatte/libretro-common/file/file_path_io.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/libretro_stdstring.o: external/gambatte-libretro/libgambatte/libretro-common/string/stdstring.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/libretro_encoding_utf.o: external/gambatte-libretro/libgambatte/libretro-common/encodings/encoding_utf.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/libretro_compat_strl.o: external/gambatte-libretro/libgambatte/libretro-common/compat/compat_strl.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/libretro_rtime.o: external/gambatte-libretro/libgambatte/libretro-common/time/rtime.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/libretro_vfs.o: external/gambatte-libretro/libgambatte/libretro-common/vfs/vfs_implementation.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
