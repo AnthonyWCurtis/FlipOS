@@ -6,6 +6,7 @@
 #include "flip_audio.h"
 #include "flip_input.h"
 #include "flip_controls.h"
+#include "flip_timing.h"
 #include "flip_hotkeys.h"
 
 #include "libretro/libretro.h"
@@ -23,6 +24,7 @@
 static flip_input_state_t physical_input;
 static flip_controls_t controls;
 static flip_controls_state_t control_state;
+static flip_timing_t timing;
 
 static enum retro_pixel_format pixel_format =
     RETRO_PIXEL_FORMAT_RGB565;
@@ -349,27 +351,7 @@ static int load_resume_state(void)
     return 1;
 }
 
-static void timespec_add_ns(
-    struct timespec *t,
-    long long ns)
-{
-    t->tv_nsec += ns;
 
-    while (t->tv_nsec >= 1000000000L) {
-        t->tv_nsec -= 1000000000L;
-        t->tv_sec++;
-    }
-}
-
-static int timespec_after(
-    const struct timespec *a,
-    const struct timespec *b)
-{
-    if (a->tv_sec != b->tv_sec)
-        return a->tv_sec > b->tv_sec;
-
-    return a->tv_nsec > b->tv_nsec;
-}
 
 
 static bool env_cb(unsigned cmd, void *data)
@@ -851,39 +833,37 @@ int main(
         av.timing.sample_rate);
 
     /*
-     * Libretro cores do not pace themselves.
-     *
-     * Gambatte reports the rate it expects via
-     * retro_get_system_av_info(). Drive retro_run()
-     * from an absolute CLOCK_MONOTONIC schedule so
-     * emulation speed is independent of RK3566 CPU speed.
+     * Libretro cores report their desired frame rate, while
+     * the shared FlipOS Timing Host owns the actual monotonic
+     * pacing schedule. The GB-specific fallback remains here.
      */
     double fps = av.timing.fps;
 
     if (fps < 1.0)
         fps = 59.7275;
 
-    long long frame_ns =
-        (long long)(1000000000.0 / fps + 0.5);
+    if (flip_timing_init(
+            &timing,
+            fps) < 0) {
 
-    struct timespec next_frame;
-    clock_gettime(
-        CLOCK_MONOTONIC,
-        &next_frame);
+        fprintf(
+            stderr,
+            "FLIPGB: timing initialization failed\n");
+
+        unload_rom(&game);
+        retro_deinit();
+        flip_audio_close();
+        flip_input_close();
+        flip_video_close();
+
+        return 6;
+    }
 
     fprintf(
         stderr,
         "FLIPGB: frame pacing fps=%.6f period_ns=%lld\n",
         fps,
-        frame_ns);
-
-    unsigned long long fps_frames = 0;
-    double measured_fps = 0.0;
-
-    struct timespec fps_started;
-    clock_gettime(
-        CLOCK_MONOTONIC,
-        &fps_started);
+        timing.frame_period_ns);
 
     while (1) {
 
@@ -1006,24 +986,21 @@ int main(
                 "FLIPGB: global hotkey handling failed\n");
         }
 
-        fps_frames++;
+        double measured_fps = 0.0;
 
-        struct timespec fps_now;
-        clock_gettime(
-            CLOCK_MONOTONIC,
-            &fps_now);
+        int fps_result =
+            flip_timing_record_frame(
+                &timing,
+                &measured_fps);
 
-        double fps_elapsed =
-            (double)(fps_now.tv_sec - fps_started.tv_sec) +
-            (double)(fps_now.tv_nsec - fps_started.tv_nsec) /
-            1000000000.0;
+        if (fps_result < 0) {
+            fprintf(
+                stderr,
+                "FLIPGB: timing FPS measurement failed\n");
+            break;
+        }
 
-        if (fps_elapsed >= 1.0) {
-
-            measured_fps =
-                (double)fps_frames /
-                fps_elapsed;
-
+        if (fps_result > 0) {
             fps_overlay_value =
                 measured_fps;
 
@@ -1036,9 +1013,6 @@ int main(
                 "FLIPGB_FPS %.3f target=%.3f\n",
                 measured_fps,
                 fps);
-
-            fps_frames = 0;
-            fps_started = fps_now;
         }
 
         /*
@@ -1060,44 +1034,18 @@ int main(
             break;
         }
 
-        timespec_add_ns(
-            &next_frame,
-            frame_ns);
+        int wait_result =
+            flip_timing_wait_frame(
+                &timing);
 
-        /*
-         * Absolute sleeps avoid accumulating the execution
-         * time of retro_run() as timing drift.
-         */
-        clock_nanosleep(
-            CLOCK_MONOTONIC,
-            TIMER_ABSTIME,
-            &next_frame,
-            NULL);
+        if (wait_result < 0) {
+            fprintf(
+                stderr,
+                "FLIPGB: timing wait failed\n");
+            break;
+        }
 
-        /*
-         * If execution ever falls more than roughly one frame
-         * behind, restart the schedule instead of attempting an
-         * uncontrolled catch-up burst.
-         */
-        struct timespec now;
-
-        clock_gettime(
-            CLOCK_MONOTONIC,
-            &now);
-
-        struct timespec late_limit =
-            next_frame;
-
-        timespec_add_ns(
-            &late_limit,
-            frame_ns);
-
-        if (timespec_after(
-                &now,
-                &late_limit)) {
-
-            next_frame = now;
-
+        if (wait_result > 0) {
             fprintf(
                 stderr,
                 "FLIPGB: frame schedule resync\n");
