@@ -4,11 +4,19 @@
 #include <stddef.h>
 #include <stdint.h>
 
-int flip_audio_open(void);
+typedef struct {
+    unsigned sample_rate;
+    unsigned channels;
+} flip_audio_config_t;
 
-size_t flip_audio_write(
+int flip_audio_open(
+    const flip_audio_config_t *config);
+
+size_t flip_audio_submit(
     const int16_t *samples,
     size_t frames);
+
+int flip_audio_end_frame(void);
 
 void flip_audio_close(void);
 
