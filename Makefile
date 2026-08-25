@@ -72,7 +72,7 @@ $(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
 $(BUILD)/flip_audio.o: src/audio/flip_audio.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/flip_input.o: src/hwtest/flip_input.c | $(BUILD)
+$(BUILD)/flip_input.o: src/runtime/flip_input.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_drm.o: src/hwtest/flip_drm.c | $(BUILD)
