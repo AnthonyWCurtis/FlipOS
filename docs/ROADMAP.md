@@ -89,13 +89,18 @@ Hardware-tested code commit: `8938852` (`Separate game controls from system acti
 
 ### Phase 4A3 — Global Timing Host
 
-- [ ] Move frame pacing out of Flip_GB
-- [ ] Monotonic absolute frame schedule
-- [ ] Sleep/resync policy
-- [ ] FPS measurement
-- [ ] Shared pacing policy
+- [x] Move frame pacing out of Flip_GB
+- [x] Monotonic absolute frame schedule
+- [x] Sleep/resync policy
+- [x] FPS measurement
+- [x] Shared pacing policy
+- [x] Host unit tests pass
+- [x] Full WSL build passes
+- [x] Real-Miyoo-Flip hardware validation passes
 
-Timing Host must precede major Audio Host redesign because A/V sync issues have already been observed.
+Hardware-tested code commit: `ae8ac10` (`Move frame pacing into timing host`).
+
+Timing Host precedes major Audio Host redesign because A/V sync issues have already been observed.
 
 ### Phase 4A4 — Global Audio Host
 
