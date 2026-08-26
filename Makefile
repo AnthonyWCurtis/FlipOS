@@ -14,6 +14,7 @@ BUILD := build
 COMMON_OBJS := \
 	$(BUILD)/flip_audio.o \
 	$(BUILD)/flip_audio_buffer.o \
+	$(BUILD)/flip_audio_resampler.o \
 	$(BUILD)/flip_settings.o \
 	$(BUILD)/flip_hotkeys.o \
 	$(BUILD)/flip_osd.o \
@@ -53,6 +54,7 @@ GB_OBJS := \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_audio.o \
 	$(BUILD)/flip_audio_buffer.o \
+	$(BUILD)/flip_audio_resampler.o \
 	$(BUILD)/flip_settings.o \
 	$(BUILD)/flip_hotkeys.o \
 	$(BUILD)/flip_osd.o \
@@ -68,7 +70,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio test-lifecycle test-core test-core-host test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -84,6 +86,9 @@ test-timing: $(BUILD)/test-flip-timing
 
 test-audio: $(BUILD)/test-flip-audio
 	$(BUILD)/test-flip-audio
+
+test-audio-resampler: $(BUILD)/test-flip-audio-resampler
+	$(BUILD)/test-flip-audio-resampler
 
 test-lifecycle: $(BUILD)/test-flip-lifecycle
 	$(BUILD)/test-flip-lifecycle
@@ -105,6 +110,7 @@ test-architecture:
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
 	python3 tests/test_audio_callback_diagnostics_architecture.py
+	python3 tests/test_audio_rate_conversion_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -122,6 +128,11 @@ $(BUILD)/test-flip-timing: tests/test_flip_timing.c src/runtime/flip_timing.c in
 $(BUILD)/test-flip-audio: tests/test_flip_audio_buffer.c src/audio/flip_audio_buffer.c src/audio/flip_audio_buffer.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Isrc/audio \
 		tests/test_flip_audio_buffer.c src/audio/flip_audio_buffer.c \
+		-o $@
+
+$(BUILD)/test-flip-audio-resampler: tests/test_flip_audio_resampler.c src/audio/flip_audio_resampler.c include/flip_audio_resampler.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_audio_resampler.c src/audio/flip_audio_resampler.c \
 		-o $@
 
 $(BUILD)/test-flip-lifecycle: tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_timing.c include/flip_lifecycle.h | $(BUILD)
@@ -157,6 +168,9 @@ $(BUILD)/flip_audio.o: src/audio/flip_audio.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_audio_buffer.o: src/audio/flip_audio_buffer.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_audio_resampler.o: src/audio/flip_audio_resampler.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_input.o: src/runtime/flip_input.c | $(BUILD)
@@ -244,6 +258,7 @@ clean:
 		$(BUILD)/test-flip-controls \
 		$(BUILD)/test-flip-timing \
 		$(BUILD)/test-flip-audio \
+		$(BUILD)/test-flip-audio-resampler \
 		$(BUILD)/test-flip-lifecycle \
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
