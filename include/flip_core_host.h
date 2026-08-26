@@ -1,0 +1,32 @@
+#ifndef FLIP_CORE_HOST_H
+#define FLIP_CORE_HOST_H
+
+#include "flip_core.h"
+
+typedef int (*flip_core_host_state_fn)(
+    flip_core_adapter_t *core,
+    void *userdata);
+
+typedef struct {
+    flip_core_adapter_t *core;
+    const char *rom_path;
+
+    double fallback_fps;
+
+    flip_core_host_state_fn save_state;
+    flip_core_host_state_fn restore_state;
+    void *state_userdata;
+} flip_core_host_config_t;
+
+/*
+ * Run one emulator process through the shared FlipOS host path.
+ *
+ * Returns 0 when the host ran and shut down cleanly. The
+ * lifecycle-selected process exit code is written to exit_code.
+ * Startup/runtime failures return -1 after best-effort cleanup.
+ */
+int flip_core_host_run(
+    const flip_core_host_config_t *config,
+    int *exit_code);
+
+#endif
