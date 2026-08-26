@@ -154,3 +154,25 @@ int flip_core_unserialize(
         data,
         size);
 }
+
+void *flip_core_save_memory_data(
+    flip_core_adapter_t *adapter)
+{
+    if (!adapter ||
+        !adapter->save_memory_data)
+        return NULL;
+
+    return adapter->save_memory_data(
+        adapter->userdata);
+}
+
+size_t flip_core_save_memory_size(
+    flip_core_adapter_t *adapter)
+{
+    if (!adapter ||
+        !adapter->save_memory_size)
+        return 0;
+
+    return adapter->save_memory_size(
+        adapter->userdata);
+}
