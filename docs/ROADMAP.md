@@ -117,7 +117,7 @@ Timing Host precedes major Audio Host redesign because A/V sync issues have alre
 
 Hardware-tested code commit: `5df7461` (`Route Gambatte audio through audio host`).
 
-Current strategy: synchronous per-frame staging into the proven `aplay`/RK817 path at 32768 Hz stereo S16_LE. Unsupported source rates are rejected until a real second core requires resampling. Deep-resume RK817 recovery remains limited to the exact confirmed broken `17=06 38=00 40=69` signature. Hardware logging has also observed `17=40 38=00 40=a5` during working playback, so that state is recorded as an alternate observed working state and must not trigger speculative recovery writes.
+Current strategy: emulator cores retain their native source rate; the shared Audio Host converts to the verified Miyoo Flip physical playback rate. Gambatte remains 32768 Hz stereo S16_LE and is streamed through the persistent linear resampler to `aplay`/RK817 at exactly 32000 Hz. Hardware verification showed the previous 32768-to-32000 clock mismatch caused progressive synchronous-write backpressure; after conversion, long-run transport writes remained sub-millisecond and frame pacing returned to target. Deep-resume RK817 recovery remains limited to the exact confirmed broken `17=06 38=00 40=69` signature. Hardware logging has also observed `17=40 38=00 40=a5` during working playback, so that state remains an alternate observed working state and must not trigger speculative recovery writes.
 
 ### Phase 4A5 — Lifecycle Host
 
@@ -136,14 +136,21 @@ Lifecycle policy now lives in the shared host while core serialization remains i
 
 ### Phase 4B — Common Core Adapter API
 
-- [ ] Define true core-facing FlipOS adapter interface
-- [ ] Init/load/run/unload
-- [ ] Video translation
-- [ ] Audio translation
-- [ ] Input mapping
-- [ ] Serialize/unserialize
-- [ ] Core/system information
-- [ ] Clarify/rename existing frontend session executable adapter if needed
+- [x] Define true core-facing FlipOS adapter interface
+- [x] Init/load/run/unload
+- [x] Video translation
+- [x] Audio translation
+- [x] Input mapping
+- [x] Serialize/unserialize
+- [x] Core/system information
+- [x] Clarify/rename existing frontend session executable adapter if needed
+- [x] Shared Core Host owns reusable frame orchestration
+- [x] Gambatte isolated behind a thin core adapter
+- [x] Flip_GB reduced to composition and temporary GB persistence
+- [x] Full native regression suite and ARM64 static build pass
+- [x] Real-Miyoo-Flip hardware validation passes
+
+Hardware-tested code commit: `98db8c3` (`Merge branch 'phase4/audio-rate-conversion' into phase4/core-adapter-api`). The tested `flip-gb` SHA-256 was `ce34d47740f07583c008456b3ef271a6239030e97fa975944c3c776cc5cd13d2`. Hardware acceptance included normal GB launch/runtime paths, lifecycle/resume behavior, exact RK817 deep-resume recovery, verified physical `rate: 32000`, stable long-run audio transport with no progressive backlog, and frame pacing at the expected ~59.7 FPS target.
 
 ## Phase 5 — Save / State Architecture
 
