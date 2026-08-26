@@ -232,7 +232,8 @@ int flip_controls_update(
 int flip_audio_open(const flip_audio_config_t *config)
 {
     assert(config != NULL);
-    assert(config->sample_rate == 32768);
+    assert(config->source_sample_rate == 32768);
+    assert(config->output_sample_rate == 32000);
     assert(config->channels == 2);
     event("audio_open");
     return 0;
