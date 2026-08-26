@@ -137,7 +137,7 @@ static int save_state(
 {
     (void)core;
     (void)userdata;
-    event("save");
+    event("save_state");
     return 0;
 }
 
@@ -149,6 +149,26 @@ static int restore_state(
     (void)userdata;
     event("restore");
     return restore_result;
+}
+
+static int load_save(
+    flip_core_adapter_t *core,
+    void *userdata)
+{
+    (void)core;
+    (void)userdata;
+    event("load_save");
+    return 0;
+}
+
+static int commit_save(
+    flip_core_adapter_t *core,
+    void *userdata)
+{
+    (void)core;
+    (void)userdata;
+    event("commit_save");
+    return 0;
 }
 
 /* Production-host dependencies are replaced by link-time test stubs. */
@@ -394,6 +414,23 @@ static void assert_before(const char *first, const char *second)
     assert(a < b);
 }
 
+static flip_core_host_config_t make_config(flip_core_adapter_t *core)
+{
+    flip_core_host_config_t config = {
+        .core = core,
+        .rom_path = "/roms/test.gb",
+        .fallback_fps = 59.7275,
+        .save_state = save_state,
+        .restore_state = restore_state,
+        .state_userdata = NULL,
+        .load_save = load_save,
+        .commit_save = commit_save,
+        .save_userdata = NULL,
+    };
+
+    return config;
+}
+
 static void test_host_owns_frame_order_and_exit_code(void)
 {
     reset_test();
@@ -401,20 +438,15 @@ static void test_host_owns_frame_order_and_exit_code(void)
     fake_core_t fake;
     memset(&fake, 0, sizeof(fake));
     flip_core_adapter_t core = make_core(&fake);
-
-    flip_core_host_config_t config = {
-        .core = &core,
-        .rom_path = "/roms/test.gb",
-        .fallback_fps = 59.7275,
-        .save_state = save_state,
-        .restore_state = restore_state,
-        .state_userdata = NULL,
-    };
+    flip_core_host_config_t config = make_config(&core);
 
     int exit_code = -1;
     assert(flip_core_host_run(&config, &exit_code) == 0);
     assert(exit_code == 0);
 
+    assert_before("core_load", "load_save");
+    assert_before("load_save", "restore");
+    assert_before("restore", "poll");
     assert_before("poll", "controls");
     assert_before("controls", "core_input");
     assert_before("core_input", "core_frame");
@@ -423,8 +455,9 @@ static void test_host_owns_frame_order_and_exit_code(void)
     assert_before("life_immediate", "hotkeys");
     assert_before("hotkeys", "timing_record");
     assert_before("timing_record", "life_after");
-    assert_before("life_after", "save");
-    assert_before("save", "core_unload");
+    assert_before("life_after", "commit_save");
+    assert_before("commit_save", "save_state");
+    assert_before("save_state", "core_unload");
     assert_before("core_unload", "core_deinit");
     assert_before("core_deinit", "shutdown");
 }
@@ -436,15 +469,7 @@ static void test_resume_resync_only_after_actual_restore(void)
     fake_core_t fake;
     memset(&fake, 0, sizeof(fake));
     flip_core_adapter_t core = make_core(&fake);
-
-    flip_core_host_config_t config = {
-        .core = &core,
-        .rom_path = "/roms/test.gb",
-        .fallback_fps = 59.7275,
-        .save_state = save_state,
-        .restore_state = restore_state,
-        .state_userdata = NULL,
-    };
+    flip_core_host_config_t config = make_config(&core);
 
     int exit_code;
 
@@ -455,11 +480,12 @@ static void test_resume_resync_only_after_actual_restore(void)
     reset_test();
     memset(&fake, 0, sizeof(fake));
     core = make_core(&fake);
-    config.core = &core;
+    config = make_config(&core);
     restore_result = 1;
 
     assert(flip_core_host_run(&config, &exit_code) == 0);
     assert(resume_calls == 1);
+    assert_before("load_save", "restore");
     assert_before("restore", "resume");
     assert_before("resume", "poll");
 }
