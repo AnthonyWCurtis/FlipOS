@@ -162,13 +162,13 @@ $(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_h
 
 $(BUILD)/test-flip-state: tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
-		-DFLIP_STATE_ROOT='\"/tmp/flipos-state-test\"' -Iinclude \
+		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' -Iinclude \
 		tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
 $(BUILD)/test-flip-save: tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c include/flip_save.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
-		-DFLIP_SAVE_ROOT='\"/tmp/flipos-save-test\"' -Iinclude \
+		-DFLIP_SAVE_ROOT='"/tmp/flipos-save-test"' -Iinclude \
 		tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c \
 		-o $@
 
