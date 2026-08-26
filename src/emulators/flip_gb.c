@@ -7,6 +7,7 @@
 #include "flip_input.h"
 #include "flip_controls.h"
 #include "flip_timing.h"
+#include "flip_lifecycle.h"
 #include "flip_hotkeys.h"
 
 #include "libretro/libretro.h"
@@ -33,8 +34,6 @@ static const char *rom_path = NULL;
 
 static int fps_overlay_enabled = 0;
 static double fps_overlay_value = 0.0;
-
-#define FLIPGB_EXIT_SWITCHER 20
 
 
 #define GB_STATE_DIR \
@@ -228,6 +227,14 @@ static int save_resume_state(void)
         size);
 
     return 0;
+}
+
+static int lifecycle_save_cb(
+    void *userdata)
+{
+    (void)userdata;
+
+    return save_resume_state();
 }
 
 static int load_resume_state(void)
@@ -865,9 +872,12 @@ int main(
 
         unload_rom(&game);
         retro_deinit();
-        flip_audio_close();
-        flip_input_close();
-        flip_video_close();
+
+        if (flip_lifecycle_shutdown_shared() < 0) {
+            fprintf(
+                stderr,
+                "FLIPGB: shared lifecycle cleanup warning\n");
+        }
 
         return 6;
     }
@@ -877,6 +887,17 @@ int main(
         "FLIPGB: frame pacing fps=%.6f period_ns=%lld\n",
         fps,
         timing.frame_period_ns);
+
+    if (resume_result > 0) {
+
+        if (flip_lifecycle_resume_timing(
+                &timing) < 0) {
+
+            fprintf(
+                stderr,
+                "FLIPGB: lifecycle timing resync failed\n");
+        }
+    }
 
     while (1) {
 
@@ -930,35 +951,28 @@ int main(
          * flip_controls. Flip_GB only reacts to the resulting
          * platform-neutral host actions.
          */
-        if (control_state.system.lid_changed) {
+        flip_lifecycle_result_t
+            lifecycle_immediate;
 
+        int lifecycle_result =
+            flip_lifecycle_handle(
+                &control_state.system,
+                FLIP_LIFECYCLE_CHECKPOINT_IMMEDIATE,
+                lifecycle_save_cb,
+                NULL,
+                &lifecycle_immediate);
+
+        if (lifecycle_result < 0) {
             fprintf(
                 stderr,
-                "FLIPGB_LID %s\n",
-                control_state.system.lid_closed
-                    ? "CLOSED"
-                    : "OPEN");
+                "FLIPGB: lifecycle immediate handling failed\n");
+            break;
         }
 
-        if (control_state.system.suspend_requested) {
-
-            fprintf(
-                stderr,
-                "FLIPGB_LID suspend requested\n");
-
-            if (save_resume_state() < 0) {
-
-                fprintf(
-                    stderr,
-                    "FLIPGB_LID suspend save failed\n");
-
-            } else {
-
-                flipgb_exit_code =
-                    FLIPGB_EXIT_SWITCHER;
-
-                break;
-            }
+        if (lifecycle_immediate.should_exit) {
+            flipgb_exit_code =
+                lifecycle_immediate.exit_code;
+            break;
         }
 
         if (control_state.system.fps_toggle_requested) {
@@ -976,27 +990,6 @@ int main(
                 fps_overlay_enabled
                     ? "ON"
                     : "OFF");
-        }
-
-        if (control_state.system.gameswitcher_requested) {
-
-            fprintf(
-                stderr,
-                "FLIPGB: GameSwitcher requested\n");
-
-            if (save_resume_state() < 0) {
-
-                fprintf(
-                    stderr,
-                    "FLIPGB_STATE: switcher save failed\n");
-
-            } else {
-
-                flipgb_exit_code =
-                    FLIPGB_EXIT_SWITCHER;
-
-                break;
-            }
         }
 
         flip_hotkeys_result_t hotkey_result;
@@ -1039,22 +1032,27 @@ int main(
                 fps);
         }
 
-        /*
-         * START+SELECT is interpreted by the shared controls
-         * layer as a global FlipOS exit request.
-         */
-        if (control_state.system.exit_requested) {
+        flip_lifecycle_result_t
+            lifecycle_after_frame;
 
+        lifecycle_result =
+            flip_lifecycle_handle(
+                &control_state.system,
+                FLIP_LIFECYCLE_CHECKPOINT_AFTER_FRAME,
+                lifecycle_save_cb,
+                NULL,
+                &lifecycle_after_frame);
+
+        if (lifecycle_result < 0) {
             fprintf(
                 stderr,
-                "FLIPGB: START+SELECT exit\n");
+                "FLIPGB: lifecycle after-frame handling failed\n");
+            break;
+        }
 
-            if (save_resume_state() < 0) {
-                fprintf(
-                    stderr,
-                    "FLIPGB_STATE: exit save failed\n");
-            }
-
+        if (lifecycle_after_frame.should_exit) {
+            flipgb_exit_code =
+                lifecycle_after_frame.exit_code;
             break;
         }
 
@@ -1080,10 +1078,11 @@ int main(
 
     retro_deinit();
 
-    flip_audio_close();
-
-    flip_input_close();
-    flip_video_close();
+    if (flip_lifecycle_shutdown_shared() < 0) {
+        fprintf(
+            stderr,
+            "FLIPGB: shared lifecycle cleanup warning\n");
+    }
 
     fprintf(
         stderr,
