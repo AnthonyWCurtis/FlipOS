@@ -2,6 +2,7 @@
 
 #include "flip_audio.h"
 #include "flip_audio_buffer.h"
+#include "flip_audio_resampler.h"
 #include "flip_settings.h"
 
 #include <errno.h>
@@ -23,6 +24,10 @@ static int speaker_volume = 30;
 
 static flip_audio_config_t audio_config;
 static flip_audio_buffer_t audio_buffer;
+static flip_audio_resampler_t audio_resampler;
+static int16_t audio_resample_buffer[
+    FLIP_AUDIO_BUFFER_FRAMES *
+    FLIP_AUDIO_BUFFER_CHANNELS];
 
 static flip_audio_diag_snapshot_t audio_diag;
 static int audio_diag_submit_active = 0;
@@ -335,15 +340,19 @@ int flip_audio_open(
     const flip_audio_config_t *config)
 {
     if (!config ||
-        config->sample_rate != 32768 ||
+        config->source_sample_rate == 0 ||
+        config->output_sample_rate != 32000 ||
         config->channels != 2) {
 
         fprintf(
             stderr,
             "flip_audio: unsupported config "
-            "rate=%u channels=%u\n",
+            "source_rate=%u output_rate=%u channels=%u\n",
             config
-                ? config->sample_rate
+                ? config->source_sample_rate
+                : 0,
+            config
+                ? config->output_sample_rate
                 : 0,
             config
                 ? config->channels
@@ -354,8 +363,10 @@ int flip_audio_open(
 
     if (audio_fd >= 0) {
 
-        if (audio_config.sample_rate ==
-                config->sample_rate &&
+        if (audio_config.source_sample_rate ==
+                config->source_sample_rate &&
+            audio_config.output_sample_rate ==
+                config->output_sample_rate &&
             audio_config.channels ==
                 config->channels) {
 
@@ -366,6 +377,19 @@ int flip_audio_open(
             stderr,
             "flip_audio: already open with "
             "different configuration\n");
+
+        return -1;
+    }
+
+    if (flip_audio_resampler_init(
+            &audio_resampler,
+            config->source_sample_rate,
+            config->output_sample_rate,
+            config->channels) < 0) {
+
+        fprintf(
+            stderr,
+            "flip_audio: resampler initialization failed\n");
 
         return -1;
     }
@@ -391,7 +415,7 @@ int flip_audio_open(
      *   RK817 internal codec
      *   S16_LE
      *   stereo
-     *   32768 Hz
+     *   32000 Hz physical PCM rate
      */
     if (configure_speaker() < 0) {
         fprintf(
@@ -406,6 +430,8 @@ int flip_audio_open(
             stderr,
             "flip_audio: pipe failed: %s\n",
             strerror(errno));
+        flip_audio_resampler_reset(
+            &audio_resampler);
         return -1;
     }
 
@@ -414,6 +440,14 @@ int flip_audio_open(
      * with SIGPIPE.
      */
     signal(SIGPIPE, SIG_IGN);
+
+    char output_rate_text[16];
+
+    snprintf(
+        output_rate_text,
+        sizeof(output_rate_text),
+        "%u",
+        config->output_sample_rate);
 
     pid_t pid = fork();
 
@@ -425,6 +459,8 @@ int flip_audio_open(
 
         close(pipefd[0]);
         close(pipefd[1]);
+        flip_audio_resampler_reset(
+            &audio_resampler);
 
         return -1;
     }
@@ -454,7 +490,7 @@ int flip_audio_open(
             "-c",
             "2",
             "-r",
-            "32768",
+            output_rate_text,
             "-B",
             "50000",
             "-F",
@@ -502,10 +538,11 @@ int flip_audio_open(
         stderr,
         "flip_audio: OPEN_OK pid=%d "
         "device=hw:0,0 format=S16_LE "
-        "channels=%u rate=%u\n",
+        "channels=%u source_rate=%u output_rate=%u\n",
         (int)audio_pid,
         audio_config.channels,
-        audio_config.sample_rate);
+        audio_config.source_sample_rate,
+        audio_config.output_sample_rate);
 
     return 0;
 }
@@ -520,20 +557,54 @@ size_t flip_audio_submit(
         return 0;
 
     int sink_failed = 0;
+    size_t source_accepted = 0;
 
     uint64_t submit_start_us =
         audio_diag_monotonic_us();
 
     audio_diag_submit_active = 1;
 
-    size_t accepted =
-        flip_audio_buffer_submit(
-            &audio_buffer,
-            samples,
-            frames,
-            audio_transport_write,
-            NULL,
-            &sink_failed);
+    while (source_accepted < frames &&
+           !sink_failed) {
+
+        size_t consumed = 0;
+
+        size_t produced =
+            flip_audio_resampler_process(
+                &audio_resampler,
+                samples +
+                    source_accepted *
+                    FLIP_AUDIO_BUFFER_CHANNELS,
+                frames - source_accepted,
+                &consumed,
+                audio_resample_buffer,
+                FLIP_AUDIO_BUFFER_FRAMES);
+
+        if (produced > 0) {
+            size_t output_accepted =
+                flip_audio_buffer_submit(
+                    &audio_buffer,
+                    audio_resample_buffer,
+                    produced,
+                    audio_transport_write,
+                    NULL,
+                    &sink_failed);
+
+            if (output_accepted != produced)
+                sink_failed = 1;
+        }
+
+        source_accepted += consumed;
+
+        if (consumed == 0 &&
+            produced == 0) {
+
+            fprintf(
+                stderr,
+                "flip_audio: resampler made no progress\n");
+            sink_failed = 1;
+        }
+    }
 
     audio_diag_submit_active = 0;
 
@@ -555,9 +626,11 @@ size_t flip_audio_submit(
 
         flip_audio_buffer_reset(
             &audio_buffer);
+        flip_audio_resampler_reset(
+            &audio_resampler);
     }
 
-    return accepted;
+    return source_accepted;
 }
 
 int flip_audio_end_frame(void)
@@ -565,6 +638,8 @@ int flip_audio_end_frame(void)
     if (audio_fd < 0) {
         flip_audio_buffer_reset(
             &audio_buffer);
+        flip_audio_resampler_reset(
+            &audio_resampler);
         return 0;
     }
 
@@ -575,6 +650,8 @@ int flip_audio_end_frame(void)
 
         flip_audio_buffer_reset(
             &audio_buffer);
+        flip_audio_resampler_reset(
+            &audio_resampler);
         return -1;
     }
 
@@ -670,6 +747,8 @@ void flip_audio_close(void)
 
     flip_audio_buffer_reset(
         &audio_buffer);
+    flip_audio_resampler_reset(
+        &audio_resampler);
 
     if (audio_pid > 0) {
 
