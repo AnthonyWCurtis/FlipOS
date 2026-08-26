@@ -45,6 +45,9 @@ int main(void)
         timing.frame_period_ns ==
         16742706LL);
 
+    assert(
+        timing.last_late_ns == 0);
+
     /*
      * Force an elapsed FPS window without making the
      * host test sleep for a real second.
@@ -74,7 +77,8 @@ int main(void)
 
     /*
      * A deadline many seconds in the past must return
-     * immediately and restart the absolute schedule.
+     * immediately, report the lateness, and restart the
+     * absolute schedule exactly as before.
      */
     assert(
         clock_gettime(
@@ -89,6 +93,10 @@ int main(void)
         flip_timing_wait_frame(
             &timing) == 1);
 
+    assert(
+        timing.last_late_ns >
+        4000000000LL);
+
     timing.fps_frames = 42;
     timing.measured_fps = 42.0;
 
@@ -101,6 +109,9 @@ int main(void)
 
     assert(
         timing.measured_fps == 0.0);
+
+    assert(
+        timing.last_late_ns == 0);
 
     puts(
         "flip_timing tests passed");
