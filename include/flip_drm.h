@@ -37,6 +37,16 @@ typedef struct {
     int front_index;
     int back_index;
 
+    /*
+     * Phase 4B diagnostics only. These values describe the most
+     * recent successful flip_drm_present() call and do not alter
+     * page-flip or pacing behaviour.
+     */
+    uint64_t last_present_us;
+    uint64_t last_flip_ioctl_us;
+    uint64_t last_flip_wait_us;
+    uint64_t last_flip_read_us;
+
 } flip_drm_t;
 
 int flip_drm_open(flip_drm_t *drm);
