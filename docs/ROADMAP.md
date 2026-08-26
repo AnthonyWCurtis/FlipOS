@@ -154,18 +154,43 @@ Hardware-tested code commit: `98db8c3` (`Merge branch 'phase4/audio-rate-convers
 
 ## Phase 5 — Save / State Architecture
 
-- [ ] Shared State Manager
-- [ ] State path generation
-- [ ] ROM identity/hash
-- [ ] Atomic state write
-- [ ] fsync/rename safety
-- [ ] Restore validation
-- [ ] Shared serialization storage
-- [ ] Session-owned save/restore policy
-- [ ] Save Safety / Recovery design
-- [ ] Rotating save backups
-- [ ] Previous-known-good save
+### Phase 5A — Shared State Manager
+
+- [x] Shared State Manager
+- [x] State path generation
+- [x] ROM identity/hash
+- [x] Atomic state write
+- [x] File-data fsync + rename safety
+- [x] Restore validation
+- [x] Shared serialization storage
+- [x] Preserve legacy GB `.state` identity and raw core payload format
+- [x] Previous-known-good state semantics
+- [x] Current-state corruption fallback to `.state.prev`
+- [x] Failed save leaves committed state recoverable
+- [x] GB persistence removed from `flip_gb.c` and routed through State Manager
+- [x] Existing Lifecycle Host save/restore policy and exit-code-20 behavior preserved
+- [x] Full native regression suite and ARM64 static build pass
+- [x] Real-Miyoo-Flip hardware validation passes
+
+Hardware-tested code commit: `cf05ce6` (`Update GB architecture test for State Manager`). The exact tested `flip-gb` SHA-256 was `a5ae2985c56a3cf0b6558afdfe3dde8a86885f1e248bde4fc3a33d0b7ab54feb`.
+
+Hardware acceptance verified direct restore of a pre-Phase-5 legacy GB state, creation of a new current state while preserving the successfully restored legacy state as `.state.prev`, controlled truncation of the current state with successful fallback to `.state.prev`, normal START+SELECT save/exit, lid suspend/resume save and restore, and the GameSwitcher save path. Audio regression checks confirmed Gambatte remained at 32768 Hz source rate with RK817 output at 32000 Hz, exact-signature deep-resume recovery still triggered only for `17=06 38=00 40=69`, audio reopened successfully after resume, and frame pacing remained around the established ~59.7 FPS target with no resync storm or renewed audio-write backlog.
+
+The State Manager owns state identity, storage, validation, recovery and atomic file transactions. Lifecycle policy remains outside the State Manager. On FAT32/vfat, FlipOS requires file-data `fsync()` before rename but does not claim journaled filesystem durability.
+
+### Phase 5B — Save Data Protection
+
+- [ ] Battery-backed SRAM / `.sav` protection architecture
+- [ ] Atomic `.sav` handling
+- [ ] Backup/recovery policy for long-play save data
+- [ ] Validate core-specific save-data behavior before generalizing
+
+### Phase 5C — Recovery Tooling / Policy
+
+- [ ] Save Safety / Recovery design for user-facing tooling
+- [ ] Rotating backups if justified by tested policy
 - [ ] Recovery UI/tool
+- [ ] Manual restore workflow
 
 ## Phase 6 — Global GameSwitcher / Session Manager
 
