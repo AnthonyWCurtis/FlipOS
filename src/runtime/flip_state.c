@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 
 static uint64_t flip_state_path_hash(const char *text)
@@ -157,9 +158,8 @@ flip_state_restore_result_t flip_state_restore(
     flip_core_adapter_t *core,
     flip_state_context_t *context)
 {
-    if (!core || !context) {
+    if (!core || !context)
         return FLIP_STATE_RESTORE_ERROR;
-    }
 
     context->current_was_restored = 0;
 
