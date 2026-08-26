@@ -10,6 +10,9 @@ typedef struct {
     struct timespec fps_started;
     unsigned long long fps_frames;
     double measured_fps;
+
+    /* Diagnostic only: lateness relative to the last absolute deadline. */
+    long long last_late_ns;
 } flip_timing_t;
 
 int flip_timing_init(flip_timing_t *timing, double target_fps);
