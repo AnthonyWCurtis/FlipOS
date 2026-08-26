@@ -71,7 +71,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-save test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -102,6 +102,9 @@ test-core-host: $(BUILD)/test-flip-core-host
 
 test-state: $(BUILD)/test-flip-state
 	$(BUILD)/test-flip-state
+
+test-save: $(BUILD)/test-flip-save
+	$(BUILD)/test-flip-save
 
 test-perf-diag: $(BUILD)/test-flip-perf-diag
 	$(BUILD)/test-flip-perf-diag
@@ -159,8 +162,14 @@ $(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_h
 
 $(BUILD)/test-flip-state: tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
-		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' -Iinclude \
+		-DFLIP_STATE_ROOT='\"/tmp/flipos-state-test\"' -Iinclude \
 		tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c \
+		-o $@
+
+$(BUILD)/test-flip-save: tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c include/flip_save.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_SAVE_ROOT='\"/tmp/flipos-save-test\"' -Iinclude \
+		tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c \
 		-o $@
 
 $(BUILD)/test-flip-perf-diag: tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c include/flip_perf_diag.h | $(BUILD)
@@ -304,5 +313,6 @@ clean:
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
 		$(BUILD)/test-flip-state \
+		$(BUILD)/test-flip-save \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
