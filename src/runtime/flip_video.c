@@ -11,8 +11,8 @@ static flip_drm_t video_drm;
 
 static int video_open = 0;
 
-static int fps_overlay_enabled = 0;
-static double fps_overlay_value = 0.0;
+static int perf_overlay_enabled = 0;
+static flip_telemetry_snapshot_t perf_overlay_snapshot;
 
 static const uint8_t *fps_glyph(
     char c)
@@ -61,8 +61,28 @@ static const uint8_t *fps_glyph(
         0x0e,0x11,0x11,0x0f,0x01,0x01,0x0e
     };
 
+    static const uint8_t a[7] = {
+        0x0e,0x11,0x11,0x1f,0x11,0x11,0x11
+    };
+
+    static const uint8_t b[7] = {
+        0x1e,0x11,0x11,0x1e,0x11,0x11,0x1e
+    };
+
+    static const uint8_t c_glyph[7] = {
+        0x0e,0x11,0x10,0x10,0x10,0x11,0x0e
+    };
+
     static const uint8_t f[7] = {
         0x1f,0x10,0x10,0x1e,0x10,0x10,0x10
+    };
+
+    static const uint8_t g[7] = {
+        0x0e,0x11,0x10,0x17,0x11,0x11,0x0f
+    };
+
+    static const uint8_t m[7] = {
+        0x11,0x1b,0x15,0x15,0x11,0x11,0x11
     };
 
     static const uint8_t p[7] = {
@@ -73,8 +93,24 @@ static const uint8_t *fps_glyph(
         0x0f,0x10,0x10,0x0e,0x01,0x01,0x1e
     };
 
+    static const uint8_t t[7] = {
+        0x1f,0x04,0x04,0x04,0x04,0x04,0x04
+    };
+
+    static const uint8_t u[7] = {
+        0x11,0x11,0x11,0x11,0x11,0x11,0x0e
+    };
+
     static const uint8_t dot[7] = {
         0x00,0x00,0x00,0x00,0x00,0x06,0x06
+    };
+
+    static const uint8_t dash[7] = {
+        0x00,0x00,0x00,0x1f,0x00,0x00,0x00
+    };
+
+    static const uint8_t percent[7] = {
+        0x19,0x19,0x02,0x04,0x08,0x13,0x13
     };
 
     switch (c) {
@@ -88,10 +124,19 @@ static const uint8_t *fps_glyph(
         case '7': return seven;
         case '8': return eight;
         case '9': return nine;
+        case 'A': return a;
+        case 'B': return b;
+        case 'C': return c_glyph;
         case 'F': return f;
+        case 'G': return g;
+        case 'M': return m;
         case 'P': return p;
         case 'S': return s;
+        case 'T': return t;
+        case 'U': return u;
         case '.': return dot;
+        case '-': return dash;
+        case '%': return percent;
         default:  return space;
     }
 }
@@ -217,11 +262,29 @@ void flip_video_set_fps_overlay(
     int enabled,
     double fps)
 {
-    fps_overlay_enabled =
+    perf_overlay_enabled =
         enabled ? 1 : 0;
 
-    fps_overlay_value =
-        fps;
+    perf_overlay_snapshot.fps = fps;
+    perf_overlay_snapshot.fps_valid = 1;
+}
+
+void flip_video_set_perf_overlay(
+    int enabled,
+    const flip_telemetry_snapshot_t *snapshot)
+{
+    perf_overlay_enabled =
+        enabled ? 1 : 0;
+
+    if (snapshot) {
+        perf_overlay_snapshot =
+            *snapshot;
+    } else {
+        memset(
+            &perf_overlay_snapshot,
+            0,
+            sizeof(perf_overlay_snapshot));
+    }
 }
 
 int flip_video_submit(
@@ -306,11 +369,11 @@ int flip_video_submit(
                     (p >> 11) &
                     0x1f;
 
-                uint32_t g =
+                uint32_t g_value =
                     (p >> 5) &
                     0x3f;
 
-                uint32_t b =
+                uint32_t b_value =
                     p &
                     0x1f;
 
@@ -318,18 +381,18 @@ int flip_video_submit(
                     (r << 3) |
                     (r >> 2);
 
-                g =
-                    (g << 2) |
-                    (g >> 4);
+                g_value =
+                    (g_value << 2) |
+                    (g_value >> 4);
 
-                b =
-                    (b << 3) |
-                    (b >> 2);
+                b_value =
+                    (b_value << 3) |
+                    (b_value >> 2);
 
                 uint32_t rgb =
                     (r << 16) |
-                    (g << 8) |
-                    b;
+                    (g_value << 8) |
+                    b_value;
 
                 int dx =
                     x0 +
@@ -424,20 +487,22 @@ int flip_video_submit(
         return -1;
     }
 
-    if (fps_overlay_enabled) {
+    if (perf_overlay_enabled) {
+        char lines[
+            FLIP_TELEMETRY_OVERLAY_LINES]
+            [FLIP_TELEMETRY_OVERLAY_LINE_LENGTH];
 
-        char fps_text[32];
+        flip_telemetry_format_overlay(
+            &perf_overlay_snapshot,
+            lines);
 
-        snprintf(
-            fps_text,
-            sizeof(fps_text),
-            "FPS %.1f",
-            fps_overlay_value);
-
-        const int box_x = 90;
-        const int box_y = 36;
-        const int box_w = 140;
-        const int box_h = 32;
+        const int box_x = 8;
+        const int box_y = 8;
+        const int box_w = 190;
+        const int box_h = 100;
+        const int text_x = box_x + 8;
+        const int text_y = box_y + 6;
+        const int line_step = 18;
 
         uint32_t stride =
             video_drm.pitch /
@@ -462,13 +527,20 @@ int flip_video_submit(
             }
         }
 
-        fps_draw_text(
-            &video_drm,
-            box_x + 8,
-            box_y + 8,
-            fps_text,
-            2,
-            0x00ffffff);
+        for (int line = 0;
+             line < FLIP_TELEMETRY_OVERLAY_LINES;
+             ++line) {
+
+            fps_draw_text(
+                &video_drm,
+                text_x,
+                text_y +
+                    line *
+                    line_step,
+                lines[line],
+                2,
+                0x00ffffff);
+        }
     }
 
     /*
