@@ -13,6 +13,10 @@ typedef struct {
 
     double fallback_fps;
 
+    flip_core_host_state_fn load_save;
+    flip_core_host_state_fn commit_save;
+    void *save_userdata;
+
     flip_core_host_state_fn save_state;
     flip_core_host_state_fn restore_state;
     void *state_userdata;
