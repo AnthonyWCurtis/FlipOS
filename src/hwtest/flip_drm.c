@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DRM_DEVICE "/dev/dri/card0"
@@ -126,6 +127,28 @@ struct drm_mode_crtc_page_flip {
     uint32_t reserved;
     uint64_t user_data;
 };
+
+static uint64_t monotonic_us(void)
+{
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+
+    return
+        (uint64_t)now.tv_sec * 1000000ULL +
+        (uint64_t)now.tv_nsec / 1000ULL;
+}
+
+static uint64_t elapsed_us(uint64_t start_us)
+{
+    uint64_t now_us = monotonic_us();
+
+    if (now_us < start_us)
+        return 0;
+
+    return now_us - start_us;
+}
 
 static void update_aliases(flip_drm_t *drm)
 {
@@ -467,6 +490,14 @@ int flip_drm_present(flip_drm_t *drm)
         !drm->pixels)
         return -1;
 
+    drm->last_present_us = 0;
+    drm->last_flip_ioctl_us = 0;
+    drm->last_flip_wait_us = 0;
+    drm->last_flip_read_us = 0;
+
+    uint64_t present_start_us =
+        monotonic_us();
+
     struct drm_mode_crtc_page_flip flip;
     memset(
         &flip,
@@ -484,10 +515,18 @@ int flip_drm_present(flip_drm_t *drm)
 
     flip.user_data = 1;
 
+    uint64_t ioctl_start_us =
+        monotonic_us();
+
     if (ioctl(
             drm->fd,
             DRM_IOCTL_MODE_PAGE_FLIP,
             &flip) < 0) {
+
+        drm->last_flip_ioctl_us =
+            elapsed_us(ioctl_start_us);
+        drm->last_present_us =
+            elapsed_us(present_start_us);
 
         fprintf(
             stderr,
@@ -497,6 +536,9 @@ int flip_drm_present(flip_drm_t *drm)
 
         return -1;
     }
+
+    drm->last_flip_ioctl_us =
+        elapsed_us(ioctl_start_us);
 
     /*
      * Wait for the kernel's flip-complete event.
@@ -511,6 +553,9 @@ int flip_drm_present(flip_drm_t *drm)
         POLLIN;
 
     pfd.revents = 0;
+
+    uint64_t wait_start_us =
+        monotonic_us();
 
     while (1) {
 
@@ -527,6 +572,11 @@ int flip_drm_present(flip_drm_t *drm)
             errno == EINTR)
             continue;
 
+        drm->last_flip_wait_us =
+            elapsed_us(wait_start_us);
+        drm->last_present_us =
+            elapsed_us(present_start_us);
+
         fprintf(
             stderr,
             "flip_drm: page-flip poll failed: %s\n",
@@ -535,11 +585,17 @@ int flip_drm_present(flip_drm_t *drm)
         return -1;
     }
 
+    drm->last_flip_wait_us =
+        elapsed_us(wait_start_us);
+
     /*
      * Consume the DRM event. We currently only ever have one
      * outstanding page flip.
      */
     unsigned char event_buf[256];
+
+    uint64_t read_start_us =
+        monotonic_us();
 
     ssize_t got =
         read(
@@ -547,7 +603,13 @@ int flip_drm_present(flip_drm_t *drm)
             event_buf,
             sizeof(event_buf));
 
+    drm->last_flip_read_us =
+        elapsed_us(read_start_us);
+
     if (got <= 0) {
+
+        drm->last_present_us =
+            elapsed_us(present_start_us);
 
         fprintf(
             stderr,
@@ -571,6 +633,9 @@ int flip_drm_present(flip_drm_t *drm)
         old_front;
 
     update_aliases(drm);
+
+    drm->last_present_us =
+        elapsed_us(present_start_us);
 
     return 0;
 }
