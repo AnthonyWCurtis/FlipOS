@@ -104,13 +104,20 @@ Timing Host precedes major Audio Host redesign because A/V sync issues have alre
 
 ### Phase 4A4 — Global Audio Host
 
-- [ ] ALSA/RK817 lifecycle ownership
-- [ ] Shared audio buffering
-- [ ] Sample handling
-- [ ] Resampling strategy if required
-- [ ] Latency strategy
-- [ ] Suspend/resume recovery
-- [ ] A/V synchronization policy
+- [x] ALSA/RK817 lifecycle ownership
+- [x] Shared audio buffering
+- [x] Sample handling
+- [x] Resampling strategy if required
+- [x] Latency strategy
+- [x] Suspend/resume recovery
+- [x] A/V synchronization policy
+- [x] Host unit tests pass
+- [x] Full WSL build passes
+- [x] Real-Miyoo-Flip hardware validation passes
+
+Hardware-tested code commit: `5df7461` (`Route Gambatte audio through audio host`).
+
+Current strategy: synchronous per-frame staging into the proven `aplay`/RK817 path at 32768 Hz stereo S16_LE. Unsupported source rates are rejected until a real second core requires resampling. Deep-resume RK817 recovery is limited to the exact confirmed broken signature.
 
 ### Phase 4A5 — Lifecycle Host
 
