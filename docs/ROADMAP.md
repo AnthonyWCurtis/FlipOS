@@ -180,10 +180,29 @@ The State Manager owns state identity, storage, validation, recovery and atomic 
 
 ### Phase 5B — Save Data Protection
 
-- [ ] Battery-backed SRAM / `.sav` protection architecture
-- [ ] Atomic `.sav` handling
-- [ ] Backup/recovery policy for long-play save data
-- [ ] Validate core-specific save-data behavior before generalizing
+- [x] Battery-backed SRAM / `.sav` protection architecture
+- [x] Atomic `.sav` handling
+- [x] Backup/recovery policy for long-play save data
+- [x] Validate core-specific save-data behavior before generalizing
+- [x] Generic Core Adapter battery-memory access
+- [x] Gambatte `RETRO_MEMORY_SAVE_RAM` bridge
+- [x] Shared Save Manager path generation and exact-size validation
+- [x] Protected `.sav.prev` previous-known-good copy
+- [x] Invalid current `.sav` fallback to `.sav.prev`
+- [x] Controlled lifecycle saves commit cartridge SRAM before emulator state
+- [x] One-launch `--no-resume` path loads `.sav` while skipping `.state` restore
+- [x] Normal launch loads `.sav` before automatic `.state` restore
+- [x] START+SELECT, lid suspend/resume and GameSwitcher save paths preserve both `.sav` and `.state`
+- [x] Full native regression suite and ARM64 static build pass
+- [x] Real-Miyoo-Flip hardware validation passes
+
+Hardware-tested code commit: `c716cda55c932b82a351155228ce490f77bbf448` (`Add boot without resume state option`). The exact tested `flip-gb` SHA-256 was `c65bab4b84d04dc7dddbac3167aa6deb7b5254cde67b95f5cba1f844ecd88722`.
+
+Hardware acceptance used Pokemon Yellow on the real Miyoo Flip. Gambatte exposed `RETRO_MEMORY_SAVE_RAM` as exactly 32768 bytes, and a normal in-game Pokemon save produced a 32768-byte hashed `.sav`. A later protected commit created a 32768-byte `.sav.prev`. The `--no-resume` path loaded cartridge SRAM independently of emulator state, while the normal path logged `LOAD_CURRENT_OK` before `RESTORE_CURRENT_OK` and resumed the saved state normally. A deliberately truncated current `.sav` produced `LOAD_PREVIOUS_OK size=32768`; controlled exit then rebuilt a valid 32768-byte current save from the protected previous copy. Host backups confirmed the known-good cartridge-save SHA-256 `70c90f16530b74668488825d9eb8b3fe43293f2aa66c42a4102e715ecc889048` during the recovery test.
+
+Lifecycle regression on the same candidate verified lid-close save, deep suspend/resume, START+SELECT exit and GameSwitcher request paths all committed both cartridge `.sav` and emulator `.state` successfully. GameSwitcher returned control to the frontend with `flip-gb` gone. Deep resume encountered the confirmed broken RK817 signature `17=06 38=00 40=69`; exact-signature recovery applied successfully, audio reopened at Gambatte 32768 Hz source -> RK817 32000 Hz output, and frame pacing returned to the established ~59.7 FPS target.
+
+The Save Manager owns cartridge-save identity, storage, structural validation, protected-current/previous transactions and recovery. Emulator state and cartridge save remain separate: `.sav` is authoritative long-term cartridge progress, while `.state` is the automatic instant-resume snapshot. State restore does not itself write protected `.sav` data. FAT32/vfat protection relies on staged file writes, file-data `fsync()` and rename; FlipOS does not claim journaled filesystem durability.
 
 ### Phase 5C — Recovery Tooling / Policy
 
