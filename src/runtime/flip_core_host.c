@@ -5,6 +5,7 @@
 #include "flip_hotkeys.h"
 #include "flip_input.h"
 #include "flip_lifecycle.h"
+#include "flip_telemetry.h"
 #include "flip_timing.h"
 #include "flip_video.h"
 
@@ -52,6 +53,38 @@ static int cleanup_core(
     }
 
     return 0;
+}
+
+static void log_telemetry(
+    const flip_telemetry_snapshot_t *snapshot)
+{
+    if (!snapshot)
+        return;
+
+    fprintf(
+        stderr,
+        "FLIP_TELEMETRY: fps=%.3f cpu=%.1f cpu_mhz=%llu gpu=%.1f gpu_mhz=%llu temp_c=%.1f bat=%d\n",
+        snapshot->fps_valid
+            ? snapshot->fps
+            : -1.0,
+        snapshot->cpu_percent_valid
+            ? snapshot->cpu_percent
+            : -1.0,
+        snapshot->cpu_khz_valid
+            ? snapshot->cpu_khz / 1000ULL
+            : 0ULL,
+        snapshot->gpu_percent_valid
+            ? snapshot->gpu_percent
+            : -1.0,
+        snapshot->gpu_hz_valid
+            ? snapshot->gpu_hz / 1000000ULL
+            : 0ULL,
+        snapshot->temp_valid
+            ? (double)snapshot->temp_millic / 1000.0
+            : -1.0,
+        snapshot->battery_valid
+            ? snapshot->battery_percent
+            : -1);
 }
 
 int flip_core_host_run(
@@ -187,6 +220,22 @@ int flip_core_host_run(
         fps,
         timing.frame_period_ns);
 
+    flip_telemetry_t telemetry;
+    int telemetry_ready =
+        flip_telemetry_init(
+            &telemetry) == 0;
+
+    if (telemetry_ready) {
+        flip_telemetry_sample(
+            &telemetry,
+            0.0,
+            0);
+    } else {
+        fprintf(
+            stderr,
+            "FLIP_TELEMETRY: initialization failed\n");
+    }
+
     int restore_result = 0;
 
     if (config->restore_state) {
@@ -232,8 +281,7 @@ int flip_core_host_run(
 
     flip_controls_init(&controls);
 
-    int fps_overlay_enabled = 0;
-    double fps_overlay_value = 0.0;
+    int perf_overlay_enabled = 0;
 
     persistence_bridge_t bridge = {
         .config = config,
@@ -316,17 +364,20 @@ int flip_core_host_run(
         }
 
         if (control_state.system.fps_toggle_requested) {
-            fps_overlay_enabled =
-                !fps_overlay_enabled;
+            perf_overlay_enabled =
+                !perf_overlay_enabled;
 
-            flip_video_set_fps_overlay(
-                fps_overlay_enabled,
-                fps_overlay_value);
+            flip_video_set_perf_overlay(
+                perf_overlay_enabled,
+                telemetry_ready
+                    ? flip_telemetry_snapshot(
+                        &telemetry)
+                    : NULL);
 
             fprintf(
                 stderr,
-                "FLIP_CORE_HOST: FPS overlay %s\n",
-                fps_overlay_enabled
+                "FLIP_CORE_HOST: performance overlay %s\n",
+                perf_overlay_enabled
                     ? "ON"
                     : "OFF");
         }
@@ -358,12 +409,23 @@ int flip_core_host_run(
         }
 
         if (fps_result > 0) {
-            fps_overlay_value =
-                measured_fps;
+            if (telemetry_ready) {
+                if (flip_telemetry_sample(
+                        &telemetry,
+                        measured_fps,
+                        1) == 0) {
 
-            flip_video_set_fps_overlay(
-                fps_overlay_enabled,
-                fps_overlay_value);
+                    const flip_telemetry_snapshot_t *snapshot =
+                        flip_telemetry_snapshot(
+                            &telemetry);
+
+                    flip_video_set_perf_overlay(
+                        perf_overlay_enabled,
+                        snapshot);
+
+                    log_telemetry(snapshot);
+                }
+            }
 
             fprintf(
                 stderr,
