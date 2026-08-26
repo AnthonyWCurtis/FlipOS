@@ -251,6 +251,18 @@ int flip_audio_end_frame(void)
     return 0;
 }
 
+void flip_audio_diag_snapshot(flip_audio_diag_snapshot_t *snapshot)
+{
+    if (!snapshot)
+        return;
+
+    memset(snapshot, 0, sizeof(*snapshot));
+}
+
+void flip_audio_diag_reset(void)
+{
+}
+
 void flip_audio_close(void)
 {
     event("audio_close");
