@@ -20,15 +20,27 @@ forbidden = [
     "flip_core_serialize_size(",
     "flip_core_serialize(",
     "flip_core_unserialize(",
+    "retro_get_memory_data(",
+    "retro_get_memory_size(",
+    "fopen(",
+    "fwrite(",
+    "rename(",
 ]
 
 required = [
     '#include "flip_core.h"',
     '#include "flip_core_host.h"',
     '#include "flip_gambatte_core.h"',
+    '#include "flip_save.h"',
     '#include "flip_state.h"',
     "flip_gambatte_core_adapter()",
     "flip_core_host_run(",
+    "flip_save_context_init(",
+    "flip_save_load(",
+    "flip_save_commit(",
+    ".load_save =",
+    ".commit_save =",
+    ".save_userdata =",
     "flip_state_context_init(",
     "flip_state_save(",
     "flip_state_restore(",
@@ -38,7 +50,7 @@ errors = []
 
 for token in forbidden:
     if token in text:
-        errors.append(f"forbidden host/core detail remains: {token}")
+        errors.append(f"forbidden host/core/storage detail remains: {token}")
 
 for token in required:
     if token not in text:
