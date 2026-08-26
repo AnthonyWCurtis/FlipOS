@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "flip_core_host.h"
 
 #include "flip_audio.h"
@@ -5,12 +7,15 @@
 #include "flip_hotkeys.h"
 #include "flip_input.h"
 #include "flip_lifecycle.h"
+#include "flip_perf_diag.h"
 #include "flip_telemetry.h"
 #include "flip_timing.h"
 #include "flip_video.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 typedef struct {
     const flip_core_host_config_t *config;
@@ -65,6 +70,80 @@ static void log_telemetry(
             ? (double)snapshot->temp_millic / 1000.0
             : -1.0,
         snapshot->battery_valid ? snapshot->battery_percent : -1);
+}
+
+static uint64_t monotonic_us(void)
+{
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+
+    return
+        (uint64_t)now.tv_sec * 1000000ULL +
+        (uint64_t)now.tv_nsec / 1000ULL;
+}
+
+static uint64_t elapsed_us(uint64_t start_us)
+{
+    uint64_t now_us = monotonic_us();
+
+    if (now_us < start_us)
+        return 0;
+
+    return now_us - start_us;
+}
+
+static void log_perf_diag(
+    const flip_perf_diag_t *diag,
+    double measured_fps)
+{
+    if (!diag || diag->frames == 0)
+        return;
+
+    fprintf(
+        stderr,
+        "FLIP_PERF: fps=%.3f frames=%llu "
+        "input_avg_us=%llu input_max_us=%llu "
+        "controls_avg_us=%llu controls_max_us=%llu "
+        "core_input_avg_us=%llu core_input_max_us=%llu "
+        "core_run_avg_us=%llu core_run_max_us=%llu "
+        "audio_avg_us=%llu audio_max_us=%llu "
+        "host_avg_us=%llu host_max_us=%llu "
+        "late_avg_us=%llu late_max_us=%llu "
+        "late_frames=%llu resyncs=%llu\n",
+        measured_fps,
+        (unsigned long long)diag->frames,
+        (unsigned long long)flip_perf_metric_avg_us(
+            &diag->input,
+            diag->frames),
+        (unsigned long long)diag->input.max_us,
+        (unsigned long long)flip_perf_metric_avg_us(
+            &diag->controls,
+            diag->frames),
+        (unsigned long long)diag->controls.max_us,
+        (unsigned long long)flip_perf_metric_avg_us(
+            &diag->core_input,
+            diag->frames),
+        (unsigned long long)diag->core_input.max_us,
+        (unsigned long long)flip_perf_metric_avg_us(
+            &diag->core_run,
+            diag->frames),
+        (unsigned long long)diag->core_run.max_us,
+        (unsigned long long)flip_perf_metric_avg_us(
+            &diag->audio,
+            diag->frames),
+        (unsigned long long)diag->audio.max_us,
+        (unsigned long long)flip_perf_metric_avg_us(
+            &diag->host,
+            diag->frames),
+        (unsigned long long)diag->host.max_us,
+        (unsigned long long)flip_perf_metric_avg_us(
+            &diag->late,
+            diag->late_frames),
+        (unsigned long long)diag->late.max_us,
+        (unsigned long long)diag->late_frames,
+        (unsigned long long)diag->resyncs);
 }
 
 int flip_core_host_run(
@@ -178,9 +257,11 @@ int flip_core_host_run(
     int telemetry_ready =
         flip_telemetry_init(&telemetry) == 0;
 
-    if (!telemetry_ready) {
+    if (!telemetry_ready)
         fprintf(stderr, "FLIP_TELEMETRY: initialization failed\n");
-    }
+
+    flip_perf_diag_t perf_diag;
+    flip_perf_diag_reset(&perf_diag);
 
     int restore_result = 0;
 
@@ -200,9 +281,8 @@ int flip_core_host_run(
     if (restore_result > 0) {
         fprintf(stderr, "FLIP_CORE_HOST: resumed saved session\n");
 
-        if (flip_lifecycle_resume_timing(&timing) < 0) {
+        if (flip_lifecycle_resume_timing(&timing) < 0)
             fprintf(stderr, "FLIP_CORE_HOST: resume timing resync failed\n");
-        }
     }
 
     flip_input_state_t physical_input;
@@ -223,40 +303,71 @@ int flip_core_host_run(
     };
 
     while (1) {
-        if (flip_input_poll(&physical_input, 0) < 0) {
+        uint64_t frame_start_us = monotonic_us();
+        uint64_t stage_start_us = frame_start_us;
+
+        int input_result =
+            flip_input_poll(&physical_input, 0);
+
+        uint64_t input_us = elapsed_us(stage_start_us);
+
+        if (input_result < 0) {
             fprintf(stderr, "FLIP_CORE_HOST: input poll failed\n");
             host_result = -1;
             break;
         }
 
-        if (flip_controls_update(
+        stage_start_us = monotonic_us();
+
+        int controls_result =
+            flip_controls_update(
                 &controls,
                 &physical_input,
-                &control_state) < 0) {
+                &control_state);
 
+        uint64_t controls_us = elapsed_us(stage_start_us);
+
+        if (controls_result < 0) {
             fprintf(stderr, "FLIP_CORE_HOST: controls update failed\n");
             host_result = -1;
             break;
         }
 
-        if (flip_core_set_input(
-                config->core,
-                &control_state.game) < 0) {
+        stage_start_us = monotonic_us();
 
+        int core_input_result =
+            flip_core_set_input(
+                config->core,
+                &control_state.game);
+
+        uint64_t core_input_us = elapsed_us(stage_start_us);
+
+        if (core_input_result < 0) {
             fprintf(stderr, "FLIP_CORE_HOST: core input update failed\n");
             host_result = -1;
             break;
         }
 
-        if (flip_core_run_frame(config->core) < 0) {
+        stage_start_us = monotonic_us();
+
+        int core_run_result =
+            flip_core_run_frame(config->core);
+
+        uint64_t core_run_us = elapsed_us(stage_start_us);
+
+        if (core_run_result < 0) {
             fprintf(stderr, "FLIP_CORE_HOST: core frame failed\n");
             host_result = -1;
             break;
         }
 
-        if (flip_audio_end_frame() < 0) {
+        stage_start_us = monotonic_us();
+
+        int audio_result = flip_audio_end_frame();
+        uint64_t audio_us = elapsed_us(stage_start_us);
+
+        if (audio_result < 0)
             fprintf(stderr, "FLIP_CORE_HOST: audio frame flush failed\n");
-        }
 
         flip_lifecycle_result_t lifecycle_immediate;
 
@@ -340,7 +451,7 @@ int flip_core_host_run(
                     flip_telemetry_snapshot(&telemetry);
 
                 flip_video_set_perf_overlay(
-                    perf_overlay_enabled,
+                    1,
                     snapshot);
 
                 log_telemetry(snapshot);
@@ -376,6 +487,8 @@ int flip_core_host_run(
             break;
         }
 
+        uint64_t host_us = elapsed_us(frame_start_us);
+
         int wait_result = flip_timing_wait_frame(&timing);
 
         if (wait_result < 0) {
@@ -384,8 +497,34 @@ int flip_core_host_run(
             break;
         }
 
-        if (wait_result > 0) {
+        uint64_t late_us =
+            timing.last_late_ns > 0
+                ? (uint64_t)timing.last_late_ns / 1000ULL
+                : 0;
+
+        /*
+         * core_run_us includes the core and any callbacks it invokes,
+         * including video submission. If this bucket contains the
+         * spikes, the next probe will split presentation from emulation.
+         */
+        flip_perf_diag_record_frame(
+            &perf_diag,
+            input_us,
+            controls_us,
+            core_input_us,
+            core_run_us,
+            0,
+            audio_us,
+            host_us,
+            late_us,
+            wait_result > 0);
+
+        if (wait_result > 0)
             fprintf(stderr, "FLIP_CORE_HOST: frame schedule resync\n");
+
+        if (fps_result > 0) {
+            log_perf_diag(&perf_diag, measured_fps);
+            flip_perf_diag_reset(&perf_diag);
         }
     }
 
