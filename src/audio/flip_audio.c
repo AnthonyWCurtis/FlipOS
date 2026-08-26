@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
+#include <time.h>
 
 static int audio_fd = -1;
 static pid_t audio_pid = -1;
@@ -22,6 +23,47 @@ static int speaker_volume = 30;
 
 static flip_audio_config_t audio_config;
 static flip_audio_buffer_t audio_buffer;
+
+static flip_audio_diag_snapshot_t audio_diag;
+static int audio_diag_submit_active = 0;
+
+static uint64_t audio_diag_monotonic_us(void)
+{
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+
+    return
+        (uint64_t)now.tv_sec * 1000000ULL +
+        (uint64_t)now.tv_nsec / 1000ULL;
+}
+
+static uint64_t audio_diag_elapsed_us(uint64_t start_us)
+{
+    uint64_t now_us = audio_diag_monotonic_us();
+
+    if (now_us < start_us)
+        return 0;
+
+    return now_us - start_us;
+}
+
+static void audio_diag_record_transport_write(
+    uint64_t start_us)
+{
+    if (!audio_diag_submit_active)
+        return;
+
+    uint64_t elapsed =
+        audio_diag_elapsed_us(start_us);
+
+    audio_diag.transport_write_total_us += elapsed;
+    audio_diag.transport_write_count++;
+
+    if (elapsed > audio_diag.transport_write_max_us)
+        audio_diag.transport_write_max_us = elapsed;
+}
 
 /*
  * Miyoo Flip stock RK817 deep-resume workaround.
@@ -232,6 +274,9 @@ static int audio_transport_write(
         FLIP_AUDIO_BUFFER_CHANNELS *
         sizeof(int16_t);
 
+    uint64_t transport_start_us =
+        audio_diag_monotonic_us();
+
     while (remaining > 0) {
 
         ssize_t written =
@@ -260,6 +305,9 @@ static int audio_transport_write(
             close(audio_fd);
             audio_fd = -1;
 
+            audio_diag_record_transport_write(
+                transport_start_us);
+
             return -1;
         }
 
@@ -271,8 +319,14 @@ static int audio_transport_write(
         close(audio_fd);
         audio_fd = -1;
 
+        audio_diag_record_transport_write(
+            transport_start_us);
+
         return -1;
     }
+
+    audio_diag_record_transport_write(
+        transport_start_us);
 
     return 0;
 }
@@ -419,6 +473,8 @@ int flip_audio_open(
     flip_audio_buffer_init(
         &audio_buffer);
 
+    flip_audio_diag_reset();
+
     /*
      * Give RK817/ASoC time to establish the playback path,
      * then repair the confirmed deep-resume codec state if
@@ -465,6 +521,11 @@ size_t flip_audio_submit(
 
     int sink_failed = 0;
 
+    uint64_t submit_start_us =
+        audio_diag_monotonic_us();
+
+    audio_diag_submit_active = 1;
+
     size_t accepted =
         flip_audio_buffer_submit(
             &audio_buffer,
@@ -473,6 +534,17 @@ size_t flip_audio_submit(
             audio_transport_write,
             NULL,
             &sink_failed);
+
+    audio_diag_submit_active = 0;
+
+    uint64_t submit_us =
+        audio_diag_elapsed_us(submit_start_us);
+
+    audio_diag.submit_total_us += submit_us;
+    audio_diag.submit_count++;
+
+    if (submit_us > audio_diag.submit_max_us)
+        audio_diag.submit_max_us = submit_us;
 
     if (sink_failed) {
 
@@ -507,6 +579,25 @@ int flip_audio_end_frame(void)
     }
 
     return 0;
+}
+
+void flip_audio_diag_snapshot(
+    flip_audio_diag_snapshot_t *snapshot)
+{
+    if (!snapshot)
+        return;
+
+    *snapshot = audio_diag;
+}
+
+void flip_audio_diag_reset(void)
+{
+    memset(
+        &audio_diag,
+        0,
+        sizeof(audio_diag));
+
+    audio_diag_submit_active = 0;
 }
 
 int flip_audio_set_volume(int percent)

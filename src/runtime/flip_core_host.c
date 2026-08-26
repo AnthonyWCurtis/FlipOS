@@ -94,6 +94,46 @@ static uint64_t elapsed_us(uint64_t start_us)
     return now_us - start_us;
 }
 
+static void log_audio_diag(void)
+{
+    flip_audio_diag_snapshot_t audio_diag;
+
+    memset(
+        &audio_diag,
+        0,
+        sizeof(audio_diag));
+
+    flip_audio_diag_snapshot(&audio_diag);
+
+    uint64_t submit_avg_us =
+        audio_diag.submit_count > 0
+            ? audio_diag.submit_total_us /
+                audio_diag.submit_count
+            : 0;
+
+    uint64_t write_avg_us =
+        audio_diag.transport_write_count > 0
+            ? audio_diag.transport_write_total_us /
+                audio_diag.transport_write_count
+            : 0;
+
+    fprintf(
+        stderr,
+        "FLIP_AUDIO_PERF: submits=%llu "
+        "submit_avg_us=%llu submit_max_us=%llu "
+        "writes=%llu write_avg_us=%llu "
+        "write_max_us=%llu write_total_us=%llu\n",
+        (unsigned long long)audio_diag.submit_count,
+        (unsigned long long)submit_avg_us,
+        (unsigned long long)audio_diag.submit_max_us,
+        (unsigned long long)audio_diag.transport_write_count,
+        (unsigned long long)write_avg_us,
+        (unsigned long long)audio_diag.transport_write_max_us,
+        (unsigned long long)audio_diag.transport_write_total_us);
+
+    flip_audio_diag_reset();
+}
+
 static void log_perf_diag(
     const flip_perf_diag_t *diag,
     double measured_fps)
@@ -262,6 +302,7 @@ int flip_core_host_run(
 
     flip_perf_diag_t perf_diag;
     flip_perf_diag_reset(&perf_diag);
+    flip_audio_diag_reset();
 
     int restore_result = 0;
 
@@ -523,6 +564,7 @@ int flip_core_host_run(
             fprintf(stderr, "FLIP_CORE_HOST: frame schedule resync\n");
 
         if (fps_result > 0) {
+            log_audio_diag();
             log_perf_diag(&perf_diag, measured_fps);
             flip_perf_diag_reset(&perf_diag);
         }

@@ -9,6 +9,16 @@ typedef struct {
     unsigned channels;
 } flip_audio_config_t;
 
+typedef struct {
+    uint64_t submit_total_us;
+    uint64_t submit_max_us;
+    uint64_t submit_count;
+
+    uint64_t transport_write_total_us;
+    uint64_t transport_write_max_us;
+    uint64_t transport_write_count;
+} flip_audio_diag_snapshot_t;
+
 int flip_audio_open(
     const flip_audio_config_t *config);
 
@@ -17,6 +27,11 @@ size_t flip_audio_submit(
     size_t frames);
 
 int flip_audio_end_frame(void);
+
+void flip_audio_diag_snapshot(
+    flip_audio_diag_snapshot_t *snapshot);
+
+void flip_audio_diag_reset(void);
 
 void flip_audio_close(void);
 
