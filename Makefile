@@ -50,6 +50,7 @@ GB_OBJS := \
 	$(BUILD)/flip_gambatte_core.o \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
+	$(BUILD)/flip_state.o \
 	$(BUILD)/flip_perf_diag.o \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_audio.o \
@@ -70,7 +71,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -99,6 +100,9 @@ test-core: $(BUILD)/test-flip-core
 test-core-host: $(BUILD)/test-flip-core-host
 	$(BUILD)/test-flip-core-host
 
+test-state: $(BUILD)/test-flip-state
+	$(BUILD)/test-flip-state
+
 test-perf-diag: $(BUILD)/test-flip-perf-diag
 	$(BUILD)/test-flip-perf-diag
 
@@ -111,6 +115,7 @@ test-architecture:
 	python3 tests/test_core_host_diagnostics_architecture.py
 	python3 tests/test_audio_callback_diagnostics_architecture.py
 	python3 tests/test_audio_rate_conversion_architecture.py
+	python3 tests/test_state_manager_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -151,6 +156,12 @@ $(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_h
 		src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c \
 		-o $@
 
+$(BUILD)/test-flip-state: tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' -Iinclude \
+		tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c \
+		-o $@
+
 $(BUILD)/test-flip-perf-diag: tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c include/flip_perf_diag.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c \
@@ -183,6 +194,9 @@ $(BUILD)/flip_core.o: src/runtime/flip_core.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_core_host.o: src/runtime/flip_core_host.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_state.o: src/runtime/flip_state.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_perf_diag.o: src/runtime/flip_perf_diag.c | $(BUILD)
@@ -262,6 +276,7 @@ clean:
 		$(BUILD)/test-flip-lifecycle \
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
+		$(BUILD)/test-flip-state \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
 
