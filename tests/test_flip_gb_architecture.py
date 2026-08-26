@@ -17,17 +17,21 @@ forbidden = [
     "flip_timing_wait_frame(",
     "flip_lifecycle_handle(",
     "RETRO_DEVICE_ID_JOYPAD_",
+    "flip_core_serialize_size(",
+    "flip_core_serialize(",
+    "flip_core_unserialize(",
 ]
 
 required = [
     '#include "flip_core.h"',
     '#include "flip_core_host.h"',
     '#include "flip_gambatte_core.h"',
+    '#include "flip_state.h"',
     "flip_gambatte_core_adapter()",
     "flip_core_host_run(",
-    "flip_core_serialize_size(",
-    "flip_core_serialize(",
-    "flip_core_unserialize(",
+    "flip_state_context_init(",
+    "flip_state_save(",
+    "flip_state_restore(",
 ]
 
 errors = []
@@ -38,7 +42,7 @@ for token in forbidden:
 
 for token in required:
     if token not in text:
-        errors.append(f"required 4B composition token missing: {token}")
+        errors.append(f"required composition token missing: {token}")
 
 if errors:
     for error in errors:
