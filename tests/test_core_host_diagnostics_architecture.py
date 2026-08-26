@@ -11,6 +11,13 @@ assert "FLIP_PERF:" in SOURCE
 assert "flip_perf_diag_record_frame" in SOURCE
 assert "last_late_ns" in TIMING_HEADER
 
+assert "flip_core_save_memory_size(" in SOURCE, (
+    "core host must inspect battery-backed save memory after game load"
+)
+assert "FLIP_SAVE: battery_memory size=%zu" in SOURCE, (
+    "core host must log battery-backed save memory size for hardware validation"
+)
+
 while_pos = SOURCE.index("while (1)")
 prefix = SOURCE[:while_pos]
 
