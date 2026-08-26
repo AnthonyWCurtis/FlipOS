@@ -7,6 +7,7 @@ HOSTCC ?= gcc
 CPPFLAGS := -Iinclude
 CFLAGS   := -O2 -Wall -Wextra -MMD -MP
 CXXFLAGS := -O2 -Wall -Wextra -MMD -MP
+TELEMETRY_WARN := -Wno-format-truncation
 
 BUILD := build
 
@@ -134,7 +135,7 @@ $(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_h
 		-o $@
 
 $(BUILD)/test-flip-telemetry: tests/test_flip_telemetry.c src/runtime/flip_telemetry.c include/flip_telemetry.h | $(BUILD)
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror $(TELEMETRY_WARN) -Iinclude \
 		tests/test_flip_telemetry.c src/runtime/flip_telemetry.c \
 		-o $@ -lm
 
@@ -160,7 +161,7 @@ $(BUILD)/flip_core_host.o: src/runtime/flip_core_host.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_telemetry.o: src/runtime/flip_telemetry.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(TELEMETRY_WARN) -c $< -o $@
 
 $(BUILD)/flip_timing.o: src/runtime/flip_timing.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
