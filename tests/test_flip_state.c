@@ -44,7 +44,7 @@ static void test_legacy_gb_state_path_uses_frozen_fnv1a_identity(void)
 
     assert(strcmp(
         path,
-        FLIP_STATE_ROOT "/gb/cd6eacde6a72323b.state") == 0);
+        FLIP_STATE_ROOT "/gb/792f9628ba43b7d9.state") == 0);
 }
 
 static void test_state_sibling_paths_share_legacy_primary_identity(void)
@@ -64,7 +64,7 @@ static void test_state_sibling_paths_share_legacy_primary_identity(void)
         sizeof(path)) == 0);
     assert(strcmp(
         path,
-        FLIP_STATE_ROOT "/gb/cd6eacde6a72323b.state.tmp") == 0);
+        FLIP_STATE_ROOT "/gb/792f9628ba43b7d9.state.tmp") == 0);
 
     assert(flip_state_test_build_path(
         &context,
@@ -73,7 +73,7 @@ static void test_state_sibling_paths_share_legacy_primary_identity(void)
         sizeof(path)) == 0);
     assert(strcmp(
         path,
-        FLIP_STATE_ROOT "/gb/cd6eacde6a72323b.state.prev") == 0);
+        FLIP_STATE_ROOT "/gb/792f9628ba43b7d9.state.prev") == 0);
 
     assert(flip_state_test_build_path(
         &context,
@@ -82,7 +82,7 @@ static void test_state_sibling_paths_share_legacy_primary_identity(void)
         sizeof(path)) == 0);
     assert(strcmp(
         path,
-        FLIP_STATE_ROOT "/gb/cd6eacde6a72323b.state.prev.tmp") == 0);
+        FLIP_STATE_ROOT "/gb/792f9628ba43b7d9.state.prev.tmp") == 0);
 }
 
 int main(void)
