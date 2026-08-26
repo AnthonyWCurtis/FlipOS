@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static uint64_t flip_save_path_hash(const char *text)
 {
@@ -68,6 +69,120 @@ typedef enum {
     FLIP_SAVE_CANDIDATE_INVALID = 2,
     FLIP_SAVE_CANDIDATE_ERROR = 3
 } flip_save_candidate_result_t;
+
+static int ensure_directory(const char *path)
+{
+    if (mkdir(path, 0777) < 0 && errno != EEXIST)
+        return -1;
+
+    return 0;
+}
+
+static int ensure_save_directories(const flip_save_context_t *context)
+{
+    if (!context || !context->system_id)
+        return -1;
+
+    if (ensure_directory(FLIP_SAVE_ROOT) < 0)
+        return -1;
+
+    char system_dir[512];
+    int written = snprintf(
+        system_dir,
+        sizeof(system_dir),
+        FLIP_SAVE_ROOT "/%s",
+        context->system_id);
+
+    if (written < 0 || (size_t)written >= sizeof(system_dir))
+        return -1;
+
+    return ensure_directory(system_dir);
+}
+
+static int verify_regular_file_size(const char *path, size_t expected_size)
+{
+    struct stat st;
+
+    if (stat(path, &st) < 0)
+        return -1;
+
+    if (!S_ISREG(st.st_mode) ||
+        st.st_size < 0 ||
+        (size_t)st.st_size != expected_size)
+        return -1;
+
+    return 0;
+}
+
+static int write_synced_file(
+    const char *path,
+    const void *data,
+    size_t size)
+{
+    FILE *file = fopen(path, "wb");
+    if (!file)
+        return -1;
+
+    int ok = fwrite(data, 1, size, file) == size;
+
+    if (ok && fflush(file) != 0)
+        ok = 0;
+
+    if (ok && fsync(fileno(file)) < 0)
+        ok = 0;
+
+    if (fclose(file) != 0)
+        ok = 0;
+
+    if (!ok || verify_regular_file_size(path, size) < 0) {
+        unlink(path);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int copy_synced_file(
+    const char *source_path,
+    const char *tmp_path,
+    const char *final_path,
+    size_t size)
+{
+    unsigned char *buffer = malloc(size);
+    if (!buffer)
+        return -1;
+
+    FILE *source = fopen(source_path, "rb");
+    if (!source) {
+        free(buffer);
+        return -1;
+    }
+
+    int ok = fread(buffer, 1, size, source) == size;
+    if (ok && fgetc(source) != EOF)
+        ok = 0;
+    if (fclose(source) != 0)
+        ok = 0;
+
+    if (!ok) {
+        free(buffer);
+        return -1;
+    }
+
+    if (write_synced_file(tmp_path, buffer, size) < 0) {
+        free(buffer);
+        return -1;
+    }
+
+    free(buffer);
+
+    if (rename(tmp_path, final_path) < 0) {
+        unlink(tmp_path);
+        return -1;
+    }
+
+    return 0;
+}
 
 static flip_save_candidate_result_t load_candidate(
     const char *path,
@@ -181,7 +296,74 @@ int flip_save_commit(
     flip_core_adapter_t *core,
     const flip_save_context_t *context)
 {
-    (void)core;
-    (void)context;
-    return -1;
+    if (!core || !context || !context->system_id || !context->rom_path)
+        return -1;
+
+    void *memory = flip_core_save_memory_data(core);
+    size_t memory_size = flip_core_save_memory_size(core);
+
+    if (!memory || memory_size == 0) {
+        fprintf(stderr, "FLIP_SAVE: SAVE_NO_MEMORY\n");
+        return 0;
+    }
+
+    if (ensure_save_directories(context) < 0) {
+        fprintf(stderr, "FLIP_SAVE: SAVE_FAILED stage=mkdir\n");
+        return -1;
+    }
+
+    char current_path[512];
+    char previous_path[512];
+    char current_tmp_path[512];
+    char previous_tmp_path[512];
+
+    if (flip_save_test_build_path(context, ".sav", current_path, sizeof(current_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.prev", previous_path, sizeof(previous_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.tmp", current_tmp_path, sizeof(current_tmp_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.prev.tmp", previous_tmp_path, sizeof(previous_tmp_path)) < 0) {
+        fprintf(stderr, "FLIP_SAVE: SAVE_FAILED stage=path\n");
+        return -1;
+    }
+
+    /*
+     * Stage and sync the replacement before touching either protected file.
+     * This guarantees write/open/fsync/verification failures preserve both
+     * the current and previous cartridge saves.
+     */
+    if (write_synced_file(current_tmp_path, memory, memory_size) < 0) {
+        fprintf(
+            stderr,
+            "FLIP_SAVE: SAVE_FAILED stage=write path=%s error=%s\n",
+            current_tmp_path,
+            strerror(errno));
+        return -1;
+    }
+
+    int current_is_valid =
+        verify_regular_file_size(current_path, memory_size) == 0;
+
+    if (current_is_valid) {
+        if (copy_synced_file(
+                current_path,
+                previous_tmp_path,
+                previous_path,
+                memory_size) < 0) {
+            fprintf(stderr, "FLIP_SAVE: SAVE_FAILED stage=previous\n");
+            unlink(current_tmp_path);
+            return -1;
+        }
+    }
+
+    if (rename(current_tmp_path, current_path) < 0) {
+        fprintf(
+            stderr,
+            "FLIP_SAVE: SAVE_FAILED stage=rename path=%s error=%s\n",
+            current_path,
+            strerror(errno));
+        unlink(current_tmp_path);
+        return -1;
+    }
+
+    fprintf(stderr, "FLIP_SAVE: SAVE_OK path=%s size=%zu\n", current_path, memory_size);
+    return 0;
 }
