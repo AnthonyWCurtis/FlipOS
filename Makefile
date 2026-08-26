@@ -45,7 +45,9 @@ GB_LIBRETRO_OBJS := \
 
 GB_OBJS := \
 	$(BUILD)/flip_gb.o \
+	$(BUILD)/flip_gambatte_core.o \
 	$(BUILD)/flip_core.o \
+	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_audio.o \
 	$(BUILD)/flip_audio_buffer.o \
 	$(BUILD)/flip_settings.o \
@@ -63,7 +65,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio test-lifecycle test-core clean clean-objects
+.PHONY: all frontend gb test-controls test-timing test-audio test-lifecycle test-core test-core-host test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -85,6 +87,12 @@ test-lifecycle: $(BUILD)/test-flip-lifecycle
 
 test-core: $(BUILD)/test-flip-core
 	$(BUILD)/test-flip-core
+
+test-core-host: $(BUILD)/test-flip-core-host
+	$(BUILD)/test-flip-core-host
+
+test-architecture:
+	python3 tests/test_flip_gb_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -114,6 +122,11 @@ $(BUILD)/test-flip-core: tests/test_flip_core.c src/runtime/flip_core.c include/
 		tests/test_flip_core.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-flip-core-host: tests/test_flip_core_host.c src/runtime/flip_core.c src/runtime/flip_core_host.c include/flip_core_host.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_core_host.c src/runtime/flip_core.c src/runtime/flip_core_host.c \
+		-o $@
+
 $(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -130,6 +143,9 @@ $(BUILD)/flip_controls.o: src/runtime/flip_controls.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_core.o: src/runtime/flip_core.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_core_host.o: src/runtime/flip_core_host.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_timing.o: src/runtime/flip_timing.c | $(BUILD)
@@ -171,6 +187,9 @@ $(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
 $(BUILD)/flip_emulator_adapter.o: src/runtime/flip_emulator_adapter.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_gambatte_core.o: src/emulators/flip_gambatte_core.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_gb.o: src/emulators/flip_gb.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -197,7 +216,8 @@ clean:
 		$(BUILD)/test-flip-timing \
 		$(BUILD)/test-flip-audio \
 		$(BUILD)/test-flip-lifecycle \
-		$(BUILD)/test-flip-core
+		$(BUILD)/test-flip-core \
+		$(BUILD)/test-flip-core-host
 
 -include $(DEPS)
 
