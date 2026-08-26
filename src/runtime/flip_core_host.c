@@ -28,6 +28,13 @@ static int lifecycle_save_bridge(void *userdata)
     if (!bridge || !bridge->config || !bridge->config->save_state)
         return -1;
 
+    if (bridge->config->commit_save &&
+        bridge->config->commit_save(
+            bridge->config->core,
+            bridge->config->save_userdata) < 0) {
+        return -1;
+    }
+
     return bridge->config->save_state(
         bridge->config->core,
         bridge->config->state_userdata);
@@ -243,6 +250,15 @@ int flip_core_host_run(
         stderr,
         "FLIP_SAVE: battery_memory size=%zu\n",
         battery_memory_size);
+
+    if (config->load_save &&
+        config->load_save(
+            config->core,
+            config->save_userdata) < 0) {
+        fprintf(stderr, "FLIP_CORE_HOST: cartridge save load failed\n");
+        host_result = -1;
+        goto cleanup;
+    }
 
     flip_core_info_t info;
     memset(&info, 0, sizeof(info));
