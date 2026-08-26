@@ -48,6 +48,7 @@ GB_OBJS := \
 	$(BUILD)/flip_gambatte_core.o \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
+	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_audio.o \
 	$(BUILD)/flip_audio_buffer.o \
 	$(BUILD)/flip_settings.o \
@@ -65,7 +66,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio test-lifecycle test-core test-core-host test-architecture clean clean-objects
+.PHONY: all frontend gb test-controls test-timing test-audio test-lifecycle test-core test-core-host test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -91,8 +92,12 @@ test-core: $(BUILD)/test-flip-core
 test-core-host: $(BUILD)/test-flip-core-host
 	$(BUILD)/test-flip-core-host
 
+test-telemetry: $(BUILD)/test-flip-telemetry
+	$(BUILD)/test-flip-telemetry
+
 test-architecture:
 	python3 tests/test_flip_gb_architecture.py
+	python3 tests/test_session_adapter_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -122,10 +127,16 @@ $(BUILD)/test-flip-core: tests/test_flip_core.c src/runtime/flip_core.c include/
 		tests/test_flip_core.c src/runtime/flip_core.c \
 		-o $@
 
-$(BUILD)/test-flip-core-host: tests/test_flip_core_host.c src/runtime/flip_core.c src/runtime/flip_core_host.c include/flip_core_host.h | $(BUILD)
+$(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c src/runtime/flip_core.c src/runtime/flip_core_host.c include/flip_core_host.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
-		tests/test_flip_core_host.c src/runtime/flip_core.c src/runtime/flip_core_host.c \
+		tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c \
+		src/runtime/flip_core.c src/runtime/flip_core_host.c \
 		-o $@
+
+$(BUILD)/test-flip-telemetry: tests/test_flip_telemetry.c src/runtime/flip_telemetry.c include/flip_telemetry.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_telemetry.c src/runtime/flip_telemetry.c \
+		-o $@ -lm
 
 $(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
@@ -146,6 +157,9 @@ $(BUILD)/flip_core.o: src/runtime/flip_core.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_core_host.o: src/runtime/flip_core_host.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_telemetry.o: src/runtime/flip_telemetry.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_timing.o: src/runtime/flip_timing.c | $(BUILD)
@@ -217,7 +231,8 @@ clean:
 		$(BUILD)/test-flip-audio \
 		$(BUILD)/test-flip-lifecycle \
 		$(BUILD)/test-flip-core \
-		$(BUILD)/test-flip-core-host
+		$(BUILD)/test-flip-core-host \
+		$(BUILD)/test-flip-telemetry
 
 -include $(DEPS)
 
