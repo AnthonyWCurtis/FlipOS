@@ -1,6 +1,7 @@
 #include "flip_core.h"
 #include "flip_core_host.h"
 #include "flip_gambatte_core.h"
+#include "flip_save.h"
 #include "flip_state.h"
 
 #include <stdio.h>
@@ -42,6 +43,36 @@ static int load_resume_state(
     }
 }
 
+static int load_battery_save(
+    flip_core_adapter_t *core,
+    void *userdata)
+{
+    flip_save_context_t *context = userdata;
+    flip_save_load_result_t result =
+        flip_save_load(core, context);
+
+    switch (result) {
+    case FLIP_SAVE_LOAD_NO_MEMORY:
+    case FLIP_SAVE_LOAD_NO_SAVE:
+    case FLIP_SAVE_LOAD_CURRENT:
+    case FLIP_SAVE_LOAD_PREVIOUS:
+        return 0;
+
+    case FLIP_SAVE_LOAD_UNUSABLE:
+    case FLIP_SAVE_LOAD_ERROR:
+    default:
+        return -1;
+    }
+}
+
+static int commit_battery_save(
+    flip_core_adapter_t *core,
+    void *userdata)
+{
+    flip_save_context_t *context = userdata;
+    return flip_save_commit(core, context);
+}
+
 int main(
     int argc,
     char **argv)
@@ -55,9 +86,15 @@ int main(
     }
 
     flip_state_context_t state_context;
+    flip_save_context_t save_context;
 
     flip_state_context_init(
         &state_context,
+        "gb",
+        argv[1]);
+
+    flip_save_context_init(
+        &save_context,
         "gb",
         argv[1]);
 
@@ -73,6 +110,9 @@ int main(
         .core = core,
         .rom_path = state_context.rom_path,
         .fallback_fps = 59.7275,
+        .load_save = load_battery_save,
+        .commit_save = commit_battery_save,
+        .save_userdata = &save_context,
         .save_state = save_resume_state,
         .restore_state = load_resume_state,
         .state_userdata = &state_context,
