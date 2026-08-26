@@ -52,6 +52,12 @@ typedef struct {
         void *userdata,
         const void *data,
         size_t size);
+
+    void *(*save_memory_data)(
+        void *userdata);
+
+    size_t (*save_memory_size)(
+        void *userdata);
 } flip_core_adapter_t;
 
 int flip_core_validate(
@@ -93,5 +99,11 @@ int flip_core_unserialize(
     flip_core_adapter_t *adapter,
     const void *data,
     size_t size);
+
+void *flip_core_save_memory_data(
+    flip_core_adapter_t *adapter);
+
+size_t flip_core_save_memory_size(
+    flip_core_adapter_t *adapter);
 
 #endif
