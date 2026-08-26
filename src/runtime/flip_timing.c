@@ -33,6 +33,16 @@ static int timespec_after(
     return a->tv_nsec > b->tv_nsec;
 }
 
+static long long timespec_diff_ns(
+    const struct timespec *start,
+    const struct timespec *end)
+{
+    return
+        (long long)(end->tv_sec - start->tv_sec) *
+            1000000000LL +
+        (long long)(end->tv_nsec - start->tv_nsec);
+}
+
 static double timespec_elapsed_seconds(
     const struct timespec *start,
     const struct timespec *end)
@@ -60,6 +70,7 @@ int flip_timing_resync(
     timing->fps_started = now;
     timing->fps_frames = 0;
     timing->measured_fps = 0.0;
+    timing->last_late_ns = 0;
 
     return 0;
 }
@@ -168,6 +179,15 @@ int flip_timing_wait_frame(
             CLOCK_MONOTONIC,
             &now) < 0)
         return -1;
+
+    timing->last_late_ns =
+        timespec_after(
+            &now,
+            &timing->next_frame)
+        ? timespec_diff_ns(
+            &timing->next_frame,
+            &now)
+        : 0;
 
     late_limit =
         timing->next_frame;
