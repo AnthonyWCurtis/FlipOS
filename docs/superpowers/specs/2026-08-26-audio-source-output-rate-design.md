@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved architecture for resolving the confirmed Miyoo Flip audio-rate mismatch.
+Hardware verified on the Miyoo Flip on 2026-08-26.
 
 ## Confirmed Problem
 
@@ -104,7 +104,7 @@ No broader codec writes are introduced.
 
 ## Verification
 
-Software verification must cover:
+Software verification covers:
 
 - equal-rate identity;
 - exact 32768 -> 32000 long-term frame count;
@@ -115,16 +115,46 @@ Software verification must cover:
 - Audio Host source/output configuration separation;
 - physical 32000 Hz transport policy.
 
-Hardware acceptance requires a run longer than the previous approximately 16-second backlog onset and confirmation that:
+### Hardware verification — 2026-08-26
 
-- `/proc/asound/card0/pcm0p/sub0/hw_params` reports `rate: 32000`;
-- backlog does not progressively grow;
-- audio pitch and speed remain correct;
-- no progressive A/V drift appears;
-- synchronous transport stalls materially reduce;
-- FPS and resync behavior materially improve;
-- suspend/resume audio recovery remains correct;
-- GameSwitcher and exit behavior remain unchanged.
+Verified on the real Miyoo Flip using Pokémon Yellow with the Phase 4B diagnostic instrumentation enabled.
+
+Observed live PCM state:
+
+```text
+aplay -q -D hw:0,0 -t raw -f S16_LE -c 2 -r 32000 -B 50000 -F 10000
+rate: 32000 (32000/1)
+period_size: 320
+buffer_size: 1600
+state: RUNNING
+```
+
+Long-run current-session diagnostics after the previous approximately 16-second backlog onset showed:
+
+- measured FPS averaged approximately 59.727, matching the 59.7275 target;
+- zero frame-schedule resyncs across the captured current-session windows;
+- synchronous transport `write_max_us` remained in the tens to hundreds of microseconds, with the captured worst value below 0.5 ms;
+- the previous 10–19 ms transport stalls did not recur;
+- ALSA buffer occupancy moved in both directions during repeated one-second sampling rather than progressively filling;
+- audio pitch, speed and synchronization were subjectively confirmed correct with no reported crackling or progressive drift.
+
+Deep-suspend/resume was also verified. After lid close/open the exact confirmed broken RK817 signature was observed:
+
+```text
+0x17 = 0x06
+0x38 = 0x00
+0x40 = 0x69
+```
+
+The existing restricted recovery path applied successfully, playback reopened as:
+
+```text
+source_rate=32768 output_rate=32000
+```
+
+and the saved session resumed with correct audio and low transport-write latency.
+
+Result: the 32768 Hz source / 32000 Hz hardware clock-domain mismatch is considered hardware resolved.
 
 ## Safety and Scope
 
