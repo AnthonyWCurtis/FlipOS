@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "flip_video.h"
 
 #include "flip_drm.h"
@@ -6,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static flip_drm_t video_drm;
 
@@ -13,6 +16,132 @@ static int video_open = 0;
 
 static int perf_overlay_enabled = 0;
 static flip_telemetry_snapshot_t perf_overlay_snapshot;
+
+typedef struct {
+    uint64_t sum_us;
+    uint64_t max_us;
+} video_perf_metric_t;
+
+typedef struct {
+    uint64_t frames;
+    video_perf_metric_t video;
+    video_perf_metric_t compose;
+    video_perf_metric_t present;
+    video_perf_metric_t flip_ioctl;
+    video_perf_metric_t flip_wait;
+    video_perf_metric_t flip_read;
+} video_perf_diag_t;
+
+static video_perf_diag_t video_perf_diag;
+static uint64_t video_perf_interval_start_us = 0;
+
+static uint64_t monotonic_us(void)
+{
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+
+    return
+        (uint64_t)now.tv_sec * 1000000ULL +
+        (uint64_t)now.tv_nsec / 1000ULL;
+}
+
+static uint64_t elapsed_us(uint64_t start_us)
+{
+    uint64_t now_us = monotonic_us();
+
+    if (now_us < start_us)
+        return 0;
+
+    return now_us - start_us;
+}
+
+static void video_perf_add(
+    video_perf_metric_t *metric,
+    uint64_t us)
+{
+    metric->sum_us += us;
+
+    if (us > metric->max_us)
+        metric->max_us = us;
+}
+
+static uint64_t video_perf_avg(
+    const video_perf_metric_t *metric,
+    uint64_t frames)
+{
+    if (!metric || frames == 0)
+        return 0;
+
+    return metric->sum_us / frames;
+}
+
+static void video_perf_record_frame(
+    uint64_t video_us,
+    uint64_t compose_us)
+{
+    video_perf_diag.frames++;
+
+    video_perf_add(&video_perf_diag.video, video_us);
+    video_perf_add(&video_perf_diag.compose, compose_us);
+    video_perf_add(&video_perf_diag.present, video_drm.last_present_us);
+    video_perf_add(&video_perf_diag.flip_ioctl, video_drm.last_flip_ioctl_us);
+    video_perf_add(&video_perf_diag.flip_wait, video_drm.last_flip_wait_us);
+    video_perf_add(&video_perf_diag.flip_read, video_drm.last_flip_read_us);
+
+    uint64_t now_us = monotonic_us();
+
+    if (video_perf_interval_start_us == 0) {
+        video_perf_interval_start_us = now_us;
+        return;
+    }
+
+    if (now_us - video_perf_interval_start_us < 1000000ULL)
+        return;
+
+    fprintf(
+        stderr,
+        "FLIP_VIDEO_PERF: frames=%llu "
+        "video_avg_us=%llu video_max_us=%llu "
+        "compose_avg_us=%llu compose_max_us=%llu "
+        "present_avg_us=%llu present_max_us=%llu "
+        "flip_ioctl_avg_us=%llu flip_ioctl_max_us=%llu "
+        "flip_wait_avg_us=%llu flip_wait_max_us=%llu "
+        "flip_read_avg_us=%llu flip_read_max_us=%llu\n",
+        (unsigned long long)video_perf_diag.frames,
+        (unsigned long long)video_perf_avg(
+            &video_perf_diag.video,
+            video_perf_diag.frames),
+        (unsigned long long)video_perf_diag.video.max_us,
+        (unsigned long long)video_perf_avg(
+            &video_perf_diag.compose,
+            video_perf_diag.frames),
+        (unsigned long long)video_perf_diag.compose.max_us,
+        (unsigned long long)video_perf_avg(
+            &video_perf_diag.present,
+            video_perf_diag.frames),
+        (unsigned long long)video_perf_diag.present.max_us,
+        (unsigned long long)video_perf_avg(
+            &video_perf_diag.flip_ioctl,
+            video_perf_diag.frames),
+        (unsigned long long)video_perf_diag.flip_ioctl.max_us,
+        (unsigned long long)video_perf_avg(
+            &video_perf_diag.flip_wait,
+            video_perf_diag.frames),
+        (unsigned long long)video_perf_diag.flip_wait.max_us,
+        (unsigned long long)video_perf_avg(
+            &video_perf_diag.flip_read,
+            video_perf_diag.frames),
+        (unsigned long long)video_perf_diag.flip_read.max_us);
+
+    memset(
+        &video_perf_diag,
+        0,
+        sizeof(video_perf_diag));
+
+    video_perf_interval_start_us = now_us;
+}
 
 static const uint8_t *fps_glyph(
     char c)
@@ -232,6 +361,12 @@ int flip_video_open(void)
         return -1;
     }
 
+    memset(
+        &video_perf_diag,
+        0,
+        sizeof(video_perf_diag));
+    video_perf_interval_start_us = 0;
+
     video_open = 1;
 
     fprintf(
@@ -301,6 +436,11 @@ int flip_video_submit(
 
         return -1;
     }
+
+    uint64_t video_start_us =
+        monotonic_us();
+    uint64_t compose_start_us =
+        video_start_us;
 
     uint32_t *dst =
         video_drm.pixels;
@@ -550,6 +690,19 @@ int flip_video_submit(
     flip_osd_draw(
         &video_drm);
 
-    return flip_drm_present(
-        &video_drm);
+    uint64_t compose_us =
+        elapsed_us(compose_start_us);
+
+    int present_result =
+        flip_drm_present(
+            &video_drm);
+
+    uint64_t video_us =
+        elapsed_us(video_start_us);
+
+    video_perf_record_frame(
+        video_us,
+        compose_us);
+
+    return present_result;
 }
