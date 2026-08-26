@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
+import runpy
 
 SOURCE = Path("src/runtime/flip_core_host.c").read_text()
 TIMING_HEADER = Path("include/flip_timing.h").read_text()
@@ -23,6 +24,11 @@ overlay_guard = SOURCE.rfind("perf_overlay_enabled", fps_block, telemetry_sample
 
 assert overlay_guard >= fps_block, (
     "periodic telemetry sampling must be guarded by perf_overlay_enabled"
+)
+
+runpy.run_path(
+    "tests/test_video_present_diagnostics_architecture.py",
+    run_name="__main__",
 )
 
 print("core host diagnostics boundary passed")
