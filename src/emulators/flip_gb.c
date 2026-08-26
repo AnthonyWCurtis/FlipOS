@@ -5,6 +5,7 @@
 #include "flip_state.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static int save_resume_state(
     flip_core_adapter_t *core,
@@ -77,12 +78,26 @@ int main(
     int argc,
     char **argv)
 {
-    if (argc < 2) {
+    if (argc < 2 || argc > 3) {
         fprintf(
             stderr,
-            "Usage: %s game.gb\n",
+            "Usage: %s game.gb [--no-resume]\n",
             argv[0]);
         return 1;
+    }
+
+    int skip_resume = 0;
+
+    if (argc == 3) {
+        if (strcmp(argv[2], "--no-resume") != 0) {
+            fprintf(
+                stderr,
+                "Usage: %s game.gb [--no-resume]\n",
+                argv[0]);
+            return 1;
+        }
+
+        skip_resume = 1;
     }
 
     flip_state_context_t state_context;
@@ -100,8 +115,9 @@ int main(
 
     fprintf(
         stderr,
-        "FLIPGB: rom=%s\n",
-        state_context.rom_path);
+        "FLIPGB: rom=%s%s\n",
+        state_context.rom_path,
+        skip_resume ? " no-resume=1" : "");
 
     flip_core_adapter_t *core =
         flip_gambatte_core_adapter();
@@ -114,7 +130,7 @@ int main(
         .commit_save = commit_battery_save,
         .save_userdata = &save_context,
         .save_state = save_resume_state,
-        .restore_state = load_resume_state,
+        .restore_state = skip_resume ? NULL : load_resume_state,
         .state_userdata = &state_context,
     };
 
