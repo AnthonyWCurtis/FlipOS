@@ -117,15 +117,22 @@ Timing Host precedes major Audio Host redesign because A/V sync issues have alre
 
 Hardware-tested code commit: `5df7461` (`Route Gambatte audio through audio host`).
 
-Current strategy: synchronous per-frame staging into the proven `aplay`/RK817 path at 32768 Hz stereo S16_LE. Unsupported source rates are rejected until a real second core requires resampling. Deep-resume RK817 recovery is limited to the exact confirmed broken signature.
+Current strategy: synchronous per-frame staging into the proven `aplay`/RK817 path at 32768 Hz stereo S16_LE. Unsupported source rates are rejected until a real second core requires resampling. Deep-resume RK817 recovery remains limited to the exact confirmed broken `17=06 38=00 40=69` signature. Hardware logging has also observed `17=40 38=00 40=a5` during working playback, so that state is recorded as an alternate observed working state and must not trigger speculative recovery writes.
 
 ### Phase 4A5 — Lifecycle Host
 
-- [ ] Start/suspend/resume/exit policy
-- [ ] GameSwitcher request handling
-- [ ] Lid transitions
-- [ ] Cleanup ordering
-- [ ] Timing resync after lifecycle interruption
+- [x] Start/suspend/resume/exit policy
+- [x] GameSwitcher request handling
+- [x] Lid transitions
+- [x] Cleanup ordering
+- [x] Timing resync after lifecycle interruption
+- [x] Host unit tests pass
+- [x] Full WSL build passes
+- [x] Real-Miyoo-Flip hardware validation passes
+
+Hardware-tested code commit: `bbe6456` (`Route emulator lifecycle through lifecycle host`).
+
+Lifecycle policy now lives in the shared host while core serialization remains in the GB adapter until the Phase 5 State Manager work. Suspend/GameSwitcher require a successful save before returning exit code 20; normal START+SELECT exit still attempts a save but exits even if that save fails. Shared cleanup order is settings flush, audio close, input close, then video close, and restored sessions explicitly resync the Timing Host before entering the frame loop.
 
 ### Phase 4B — Common Core Adapter API
 
