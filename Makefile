@@ -23,7 +23,7 @@ COMMON_OBJS := \
 	$(BUILD)/flip_draw.o
 
 RUNTIME_OBJS := \
-	$(BUILD)/flip_emulator_adapter.o \
+	$(BUILD)/flip_session_adapter.o \
 	$(BUILD)/flip_system.o \
 	$(BUILD)/flip_session.o \
 	$(BUILD)/flip_power.o
@@ -184,7 +184,7 @@ $(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
 $(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/flip_emulator_adapter.o: src/runtime/flip_emulator_adapter.c | $(BUILD)
+$(BUILD)/flip_session_adapter.o: src/runtime/flip_session_adapter.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_gambatte_core.o: src/emulators/flip_gambatte_core.c | $(BUILD)

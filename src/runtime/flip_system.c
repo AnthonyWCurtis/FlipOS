@@ -29,7 +29,7 @@ static flip_system_t systems[] = {
                 sizeof(gb_extensions) /
                 sizeof(gb_extensions[0])),
 
-        .adapter = NULL
+        .session_adapter = NULL
     }
 };
 
@@ -49,10 +49,10 @@ prepare_system(
     if (!system)
         return NULL;
 
-    if (!system->adapter) {
+    if (!system->session_adapter) {
 
-        system->adapter =
-            flip_emulator_adapter_for_system(
+        system->session_adapter =
+            flip_session_adapter_for_system(
                 system->id);
     }
 
@@ -89,11 +89,11 @@ int flip_system_resume_available(
     const char *rom_path)
 {
     if (!system ||
-        !system->adapter ||
-        !system->adapter->resume_available)
+        !system->session_adapter ||
+        !system->session_adapter->resume_available)
         return 0;
 
-    return system->adapter->resume_available(
+    return system->session_adapter->resume_available(
         rom_path);
 }
 

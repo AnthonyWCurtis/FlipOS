@@ -1,4 +1,4 @@
-#include "flip_emulator_adapter.h"
+#include "flip_session_adapter.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -77,15 +77,15 @@ gb_resume_available(
         R_OK) == 0;
 }
 
-static const flip_emulator_adapter_t
-gb_adapter = {
+static const flip_session_adapter_t
+gb_session_adapter = {
     .system = "GB",
     .map_exit_code = gb_map_exit_code,
     .resume_available = gb_resume_available
 };
 
-const flip_emulator_adapter_t *
-flip_emulator_adapter_for_system(
+const flip_session_adapter_t *
+flip_session_adapter_for_system(
     const char *system)
 {
     if (!system)
@@ -93,9 +93,9 @@ flip_emulator_adapter_for_system(
 
     if (strcmp(
             system,
-            gb_adapter.system) == 0) {
+            gb_session_adapter.system) == 0) {
 
-        return &gb_adapter;
+        return &gb_session_adapter;
     }
 
     return NULL;

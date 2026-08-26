@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session.h"
-#include "flip_emulator_adapter.h"
+#include "flip_session_adapter.h"
 #include "flip_system.h"
 #include "flip_input.h"
 
@@ -942,17 +942,17 @@ int flip_session_launch(
         result->exit_code =
             exit_code;
 
-        const flip_emulator_adapter_t *adapter =
+        const flip_session_adapter_t *session_adapter =
             metadata &&
             metadata->system
-                ? metadata->system->adapter
+                ? metadata->system->session_adapter
                 : NULL;
 
-        if (adapter &&
-            adapter->map_exit_code) {
+        if (session_adapter &&
+            session_adapter->map_exit_code) {
 
             result->action =
-                adapter->map_exit_code(
+                session_adapter->map_exit_code(
                     exit_code);
 
         } else {

@@ -1,7 +1,7 @@
 #ifndef FLIP_SYSTEM_H
 #define FLIP_SYSTEM_H
 
-#include "flip_emulator_adapter.h"
+#include "flip_session_adapter.h"
 
 typedef struct flip_system {
     const char *id;
@@ -13,7 +13,7 @@ typedef struct flip_system {
     const char *const *rom_extensions;
     int rom_extension_count;
 
-    const flip_emulator_adapter_t *adapter;
+    const flip_session_adapter_t *session_adapter;
 } flip_system_t;
 
 const flip_system_t *
