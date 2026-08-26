@@ -506,7 +506,7 @@ static void audio_sample_cb(
     frame[0] = left;
     frame[1] = right;
 
-    flip_audio_write(
+    flip_audio_submit(
         frame,
         1);
 }
@@ -515,7 +515,7 @@ static size_t audio_batch_cb(
     const int16_t *data,
     size_t frames)
 {
-    return flip_audio_write(
+    return flip_audio_submit(
         data,
         frames);
 }
@@ -728,13 +728,6 @@ int main(
     retro_set_input_state(
         input_state_cb);
 
-    if (flip_audio_open() < 0) {
-        fprintf(
-            stderr,
-            "FLIPGB: audio initialization failed; "
-            "continuing silent\n");
-    }
-
     retro_init();
 
     struct retro_system_info info;
@@ -833,6 +826,26 @@ int main(
         av.timing.sample_rate);
 
     /*
+     * The core reports its source audio rate. Physical PCM
+     * configuration and RK817 transport belong to FlipOS.
+     */
+    flip_audio_config_t audio_config = {
+        .sample_rate =
+            (unsigned)(
+                av.timing.sample_rate + 0.5),
+        .channels = 2,
+    };
+
+    if (flip_audio_open(
+            &audio_config) < 0) {
+
+        fprintf(
+            stderr,
+            "FLIPGB: audio initialization failed; "
+            "continuing silent\n");
+    }
+
+    /*
      * Libretro cores report their desired frame rate, while
      * the shared FlipOS Timing Host owns the actual monotonic
      * pacing schedule. The GB-specific fallback remains here.
@@ -898,6 +911,17 @@ int main(
         }
 
         retro_run();
+
+        /*
+         * Flush all PCM produced by this emulated frame before
+         * handling lifecycle/system actions for that frame.
+         */
+        if (flip_audio_end_frame() < 0) {
+
+            fprintf(
+                stderr,
+                "FLIPGB: audio frame flush failed\n");
+        }
 
         /*
          * FlipOS logical system actions.
