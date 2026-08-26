@@ -116,6 +116,7 @@ test-architecture:
 	python3 tests/test_audio_callback_diagnostics_architecture.py
 	python3 tests/test_audio_rate_conversion_architecture.py
 	python3 tests/test_state_manager_architecture.py
+	python3 tests/test_gambatte_save_memory_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -190,6 +191,36 @@ $(BUILD)/flip_input.o: src/runtime/flip_input.c | $(BUILD)
 $(BUILD)/flip_controls.o: src/runtime/flip_controls.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_settings.o: src/runtime/flip_settings.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_hotkeys.o: src/runtime/flip_hotkeys.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_osd.o: src/runtime/flip_osd.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_session_adapter.o: src/runtime/flip_session_adapter.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_power.o: src/runtime/flip_power.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_gb.o: src/emulators/flip_gb.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_gambatte_core.o: src/emulators/flip_gambatte_core.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_core.o: src/runtime/flip_core.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -205,6 +236,9 @@ $(BUILD)/flip_perf_diag.o: src/runtime/flip_perf_diag.c | $(BUILD)
 $(BUILD)/flip_telemetry.o: src/runtime/flip_telemetry.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(TELEMETRY_WARN) -c $< -o $@
 
+$(BUILD)/flip_video.o: src/runtime/flip_video.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_timing.o: src/runtime/flip_timing.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -216,71 +250,6 @@ $(BUILD)/flip_drm.o: src/hwtest/flip_drm.c | $(BUILD)
 
 $(BUILD)/flip_draw.o: src/hwtest/flip_draw.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_power.o: src/runtime/flip_power.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_settings.o: src/runtime/flip_settings.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_hotkeys.o: src/runtime/flip_hotkeys.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_osd.o: src/runtime/flip_osd.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_video.o: src/runtime/flip_video.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_session_adapter.o: src/runtime/flip_session_adapter.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_gambatte_core.o: src/emulators/flip_gambatte_core.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip_gb.o: src/emulators/flip_gb.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/flip-frontend: $(FRONTEND_OBJS)
-	$(CC) -static -o $@ $^ -lm
-
-$(BUILD)/flip-gb: $(GB_OBJS) $(BUILD)/libgambatte_libretro.a
-	$(CXX) -static -o $@ \
-		$(GB_OBJS) \
-		$(BUILD)/libgambatte_libretro.a \
-		-pthread \
-		-lm
-
-clean-objects:
-	rm -f $(BUILD)/*.o $(BUILD)/*.d
-
-clean:
-	rm -f \
-		$(BUILD)/*.o \
-		$(BUILD)/*.d \
-		$(BUILD)/flip-frontend \
-		$(BUILD)/flip-gb \
-		$(BUILD)/test-flip-controls \
-		$(BUILD)/test-flip-timing \
-		$(BUILD)/test-flip-audio \
-		$(BUILD)/test-flip-audio-resampler \
-		$(BUILD)/test-flip-lifecycle \
-		$(BUILD)/test-flip-core \
-		$(BUILD)/test-flip-core-host \
-		$(BUILD)/test-flip-state \
-		$(BUILD)/test-flip-perf-diag \
-		$(BUILD)/test-flip-telemetry
-
--include $(DEPS)
 
 $(BUILD)/libretro_file_stream.o: external/gambatte-libretro/libgambatte/libretro-common/streams/file_stream.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
@@ -305,3 +274,35 @@ $(BUILD)/libretro_rtime.o: external/gambatte-libretro/libgambatte/libretro-commo
 
 $(BUILD)/libretro_vfs.o: external/gambatte-libretro/libgambatte/libretro-common/vfs/vfs_implementation.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
+
+$(BUILD)/flip-frontend: $(FRONTEND_OBJS)
+	$(CC) -static -o $@ $(FRONTEND_OBJS) -lm
+
+$(BUILD)/flip-gb: $(GB_OBJS) $(BUILD)/libgambatte_libretro.a
+	$(CXX) -static -o $@ \
+		$(GB_OBJS) \
+		$(BUILD)/libgambatte_libretro.a \
+		-pthread \
+		-lm
+
+-include $(DEPS)
+
+clean-objects:
+	rm -f $(BUILD)/*.o $(BUILD)/*.d
+
+clean:
+	rm -f \
+		$(BUILD)/*.o \
+		$(BUILD)/*.d \
+		$(BUILD)/flip-frontend \
+		$(BUILD)/flip-gb \
+		$(BUILD)/test-flip-controls \
+		$(BUILD)/test-flip-timing \
+		$(BUILD)/test-flip-audio \
+		$(BUILD)/test-flip-audio-resampler \
+		$(BUILD)/test-flip-lifecycle \
+		$(BUILD)/test-flip-core \
+		$(BUILD)/test-flip-core-host \
+		$(BUILD)/test-flip-state \
+		$(BUILD)/test-flip-perf-diag \
+		$(BUILD)/test-flip-telemetry
