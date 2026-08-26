@@ -55,13 +55,14 @@ GB_OBJS := \
 	$(BUILD)/flip_input.o \
 	$(BUILD)/flip_controls.o \
 	$(BUILD)/flip_timing.o \
+	$(BUILD)/flip_lifecycle.o \
 	$(BUILD)/flip_drm.o \
 	$(BUILD)/flip_draw.o \
 	$(GB_LIBRETRO_OBJS)
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio clean clean-objects
+.PHONY: all frontend gb test-controls test-timing test-audio test-lifecycle clean clean-objects
 
 all: frontend gb
 
@@ -77,6 +78,9 @@ test-timing: $(BUILD)/test-flip-timing
 
 test-audio: $(BUILD)/test-flip-audio
 	$(BUILD)/test-flip-audio
+
+test-lifecycle: $(BUILD)/test-flip-lifecycle
+	$(BUILD)/test-flip-lifecycle
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -96,6 +100,11 @@ $(BUILD)/test-flip-audio: tests/test_flip_audio_buffer.c src/audio/flip_audio_bu
 		tests/test_flip_audio_buffer.c src/audio/flip_audio_buffer.c \
 		-o $@
 
+$(BUILD)/test-flip-lifecycle: tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_timing.c include/flip_lifecycle.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_timing.c \
+		-o $@
+
 $(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -112,6 +121,9 @@ $(BUILD)/flip_controls.o: src/runtime/flip_controls.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_timing.o: src/runtime/flip_timing.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_lifecycle.o: src/runtime/flip_lifecycle.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_drm.o: src/hwtest/flip_drm.c | $(BUILD)
@@ -171,7 +183,8 @@ clean:
 		$(BUILD)/flip-gb \
 		$(BUILD)/test-flip-controls \
 		$(BUILD)/test-flip-timing \
-		$(BUILD)/test-flip-audio
+		$(BUILD)/test-flip-audio \
+		$(BUILD)/test-flip-lifecycle
 
 -include $(DEPS)
 
