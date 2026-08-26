@@ -5,9 +5,11 @@
 #include <strings.h>
 
 static const char *const gb_extensions[] = {
-    ".gb",
-    ".gbc",
-    ".dmg"
+    ".gb"
+};
+
+static const char *const gbc_extensions[] = {
+    ".gbc"
 };
 
 static flip_system_t systems[] = {
@@ -30,6 +32,26 @@ static flip_system_t systems[] = {
                 sizeof(gb_extensions[0])),
 
         .session_adapter = NULL
+    },
+    {
+        .id = "GBC",
+        .display_name = "Game Boy Color",
+
+        .runner =
+            "/mnt/SDCARD/flipos-dev/bin/flip-gb",
+
+        .rom_directory =
+            "/mnt/SDCARD/Roms/GBC",
+
+        .rom_extensions =
+            gbc_extensions,
+
+        .rom_extension_count =
+            (int)(
+                sizeof(gbc_extensions) /
+                sizeof(gbc_extensions[0])),
+
+        .session_adapter = NULL
     }
 };
 
@@ -40,7 +62,7 @@ static flip_system_t systems[] = {
  * Resolve runtime-owned fields for a registry entry.
  *
  * Keeping this in one place means callers do not need
- * to know how emulator adapters are attached.
+ * to know how session adapters are attached.
  */
 static const flip_system_t *
 prepare_system(
@@ -134,7 +156,6 @@ int flip_system_supports_path(
 
     return 0;
 }
-
 
 int flip_system_count(void)
 {
