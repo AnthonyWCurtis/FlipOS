@@ -67,6 +67,31 @@ static void write_bytes(
     assert(fclose(file) == 0);
 }
 
+static void read_bytes(
+    const flip_save_context_t *context,
+    const char *suffix,
+    unsigned char *data,
+    size_t size)
+{
+    char path[640];
+    assert(flip_save_test_build_path(context, suffix, path, sizeof(path)) == 0);
+    FILE *file = fopen(path, "rb");
+    assert(file != NULL);
+    assert(fread(data, 1, size, file) == size);
+    assert(fgetc(file) == EOF);
+    assert(fclose(file) == 0);
+}
+
+static int path_exists(
+    const flip_save_context_t *context,
+    const char *suffix)
+{
+    char path[640];
+    struct stat st;
+    assert(flip_save_test_build_path(context, suffix, path, sizeof(path)) == 0);
+    return stat(path, &st) == 0;
+}
+
 static void test_paths_use_frozen_rom_identity(void)
 {
     flip_save_context_t context;
@@ -102,6 +127,7 @@ static void test_no_save_memory_is_noop(void)
     flip_save_context_init(&context, "gb", "/mnt/SDCARD/Roms/GB/no-battery.gb");
 
     assert(flip_save_load(&core, &context) == FLIP_SAVE_LOAD_NO_MEMORY);
+    assert(flip_save_commit(&core, &context) == 0);
 }
 
 static void test_exact_size_current_is_loaded(void)
@@ -148,12 +174,133 @@ static void test_invalid_current_falls_back_to_previous(void)
     assert(memcmp(fake.save_memory, previous, sizeof(previous)) == 0);
 }
 
+static void test_initial_commit_creates_current_save(void)
+{
+    reset_root();
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    for (size_t i = 0; i < sizeof(fake.save_memory); ++i)
+        fake.save_memory[i] = (unsigned char)(0x10 + i);
+
+    flip_save_context_t context;
+    flip_save_context_init(&context, "gb", "/mnt/SDCARD/Roms/GB/Pokemon - Yellow.gb");
+    flip_core_adapter_t core = make_core(&fake);
+
+    assert(flip_save_commit(&core, &context) == 0);
+    assert(path_exists(&context, ".sav"));
+    assert(!path_exists(&context, ".sav.prev"));
+
+    unsigned char current[32];
+    read_bytes(&context, ".sav", current, sizeof(current));
+    assert(memcmp(current, fake.save_memory, sizeof(current)) == 0);
+}
+
+static void test_commit_preserves_valid_current_as_previous(void)
+{
+    reset_root();
+
+    unsigned char original[32];
+    unsigned char replacement[32];
+    for (size_t i = 0; i < sizeof(original); ++i) {
+        original[i] = (unsigned char)(0x20 + i);
+        replacement[i] = (unsigned char)(0x60 + i);
+    }
+
+    flip_save_context_t context;
+    flip_save_context_init(&context, "gb", "/mnt/SDCARD/Roms/GB/Pokemon - Yellow.gb");
+    write_bytes(&context, ".sav", original, sizeof(original));
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    memcpy(fake.save_memory, replacement, sizeof(replacement));
+    flip_core_adapter_t core = make_core(&fake);
+
+    assert(flip_save_commit(&core, &context) == 0);
+
+    unsigned char current[32];
+    unsigned char previous[32];
+    read_bytes(&context, ".sav", current, sizeof(current));
+    read_bytes(&context, ".sav.prev", previous, sizeof(previous));
+    assert(memcmp(current, replacement, sizeof(current)) == 0);
+    assert(memcmp(previous, original, sizeof(previous)) == 0);
+}
+
+static void test_invalid_current_does_not_replace_existing_previous(void)
+{
+    reset_root();
+
+    const unsigned char invalid_current[3] = {9, 8, 7};
+    unsigned char protected_previous[32];
+    for (size_t i = 0; i < sizeof(protected_previous); ++i)
+        protected_previous[i] = (unsigned char)(0x90 + i);
+
+    flip_save_context_t context;
+    flip_save_context_init(&context, "gb", "/mnt/SDCARD/Roms/GB/Pokemon - Yellow.gb");
+    write_bytes(&context, ".sav", invalid_current, sizeof(invalid_current));
+    write_bytes(&context, ".sav.prev", protected_previous, sizeof(protected_previous));
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    memset(fake.save_memory, 0x55, sizeof(fake.save_memory));
+    flip_core_adapter_t core = make_core(&fake);
+
+    assert(flip_save_commit(&core, &context) == 0);
+
+    unsigned char previous[32];
+    read_bytes(&context, ".sav.prev", previous, sizeof(previous));
+    assert(memcmp(previous, protected_previous, sizeof(previous)) == 0);
+}
+
+static void test_tmp_open_failure_preserves_current_and_previous(void)
+{
+    reset_root();
+
+    unsigned char current_before[32];
+    unsigned char previous_before[32];
+    for (size_t i = 0; i < sizeof(current_before); ++i) {
+        current_before[i] = (unsigned char)(0x30 + i);
+        previous_before[i] = (unsigned char)(0x70 + i);
+    }
+
+    flip_save_context_t context;
+    flip_save_context_init(&context, "gb", "/mnt/SDCARD/Roms/GB/Pokemon - Yellow.gb");
+    write_bytes(&context, ".sav", current_before, sizeof(current_before));
+    write_bytes(&context, ".sav.prev", previous_before, sizeof(previous_before));
+
+    char tmp_path[640];
+    assert(flip_save_test_build_path(&context, ".sav.tmp", tmp_path, sizeof(tmp_path)) == 0);
+    assert(mkdir(tmp_path, 0700) == 0);
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    memset(fake.save_memory, 0xa5, sizeof(fake.save_memory));
+    flip_core_adapter_t core = make_core(&fake);
+
+    assert(flip_save_commit(&core, &context) == -1);
+
+    unsigned char current_after[32];
+    unsigned char previous_after[32];
+    read_bytes(&context, ".sav", current_after, sizeof(current_after));
+    read_bytes(&context, ".sav.prev", previous_after, sizeof(previous_after));
+    assert(memcmp(current_after, current_before, sizeof(current_after)) == 0);
+    assert(memcmp(previous_after, previous_before, sizeof(previous_after)) == 0);
+}
+
 int main(void)
 {
     test_paths_use_frozen_rom_identity();
     test_no_save_memory_is_noop();
     test_exact_size_current_is_loaded();
     test_invalid_current_falls_back_to_previous();
+    test_initial_commit_creates_current_save();
+    test_commit_preserves_valid_current_as_previous();
+    test_invalid_current_does_not_replace_existing_previous();
+    test_tmp_open_failure_preserves_current_and_previous();
 
     puts("flip_save tests passed");
     return 0;
