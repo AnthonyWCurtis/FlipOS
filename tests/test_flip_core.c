@@ -16,10 +16,13 @@ typedef struct {
     int serialize_size_calls;
     int serialize_calls;
     int unserialize_calls;
+    int save_memory_data_calls;
+    int save_memory_size_calls;
 
     char loaded_path[128];
     flip_game_input_t last_input;
     uint8_t state[8];
+    uint8_t save_memory[32];
 } fake_core_t;
 
 static int fake_init(void *userdata)
@@ -110,6 +113,20 @@ static int fake_unserialize(void *userdata, const void *data, size_t size)
     return 0;
 }
 
+static void *fake_save_memory_data(void *userdata)
+{
+    fake_core_t *fake = userdata;
+    fake->save_memory_data_calls++;
+    return fake->save_memory;
+}
+
+static size_t fake_save_memory_size(void *userdata)
+{
+    fake_core_t *fake = userdata;
+    fake->save_memory_size_calls++;
+    return sizeof(fake->save_memory);
+}
+
 static flip_core_adapter_t make_adapter(fake_core_t *fake)
 {
     flip_core_adapter_t adapter = {
@@ -124,6 +141,8 @@ static flip_core_adapter_t make_adapter(fake_core_t *fake)
         .serialize_size = fake_serialize_size,
         .serialize = fake_serialize,
         .unserialize = fake_unserialize,
+        .save_memory_data = fake_save_memory_data,
+        .save_memory_size = fake_save_memory_size,
     };
 
     return adapter;
@@ -198,6 +217,34 @@ static void test_serialization_forwards_exact_bytes(void)
     assert(fake.unserialize_calls == 1);
 }
 
+static void test_battery_memory_forwards_pointer_and_size(void)
+{
+    fake_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+
+    flip_core_adapter_t adapter = make_adapter(&fake);
+
+    assert(flip_core_validate(&adapter) == 0);
+    assert(flip_core_save_memory_data(&adapter) == fake.save_memory);
+    assert(flip_core_save_memory_size(&adapter) == sizeof(fake.save_memory));
+    assert(fake.save_memory_data_calls == 1);
+    assert(fake.save_memory_size_calls == 1);
+}
+
+static void test_battery_memory_is_optional(void)
+{
+    fake_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+
+    flip_core_adapter_t adapter = make_adapter(&fake);
+    adapter.save_memory_data = NULL;
+    adapter.save_memory_size = NULL;
+
+    assert(flip_core_validate(&adapter) == 0);
+    assert(flip_core_save_memory_data(&adapter) == NULL);
+    assert(flip_core_save_memory_size(&adapter) == 0);
+}
+
 static void test_missing_required_operation_is_rejected(void)
 {
     fake_core_t fake;
@@ -223,12 +270,16 @@ static void test_invalid_arguments_are_rejected(void)
     assert(flip_core_set_input(&adapter, NULL) < 0);
     assert(flip_core_serialize(&adapter, NULL, sizeof(fake.state)) < 0);
     assert(flip_core_unserialize(&adapter, NULL, sizeof(fake.state)) < 0);
+    assert(flip_core_save_memory_data(NULL) == NULL);
+    assert(flip_core_save_memory_size(NULL) == 0);
 }
 
 int main(void)
 {
     test_complete_adapter_forwards_calls();
     test_serialization_forwards_exact_bytes();
+    test_battery_memory_forwards_pointer_and_size();
+    test_battery_memory_is_optional();
     test_missing_required_operation_is_rejected();
     test_invalid_arguments_are_rejected();
 
