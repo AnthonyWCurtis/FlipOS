@@ -1,43 +1,23 @@
 #define _GNU_SOURCE
 
-#include "flip_video.h"
-#include "flip_settings.h"
-#include "flip_power.h"
-#include "flip_audio.h"
-#include "flip_input.h"
-#include "flip_controls.h"
-#include "flip_timing.h"
-#include "flip_lifecycle.h"
-#include "flip_hotkeys.h"
+#include "flip_core.h"
+#include "flip_core_host.h"
+#include "flip_gambatte_core.h"
 
-#include "libretro/libretro.h"
-
-#include <unistd.h>
-#include <sys/stat.h>
 #include <errno.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-
-static flip_input_state_t physical_input;
-static flip_controls_t controls;
-static flip_controls_state_t control_state;
-static flip_timing_t timing;
-
-static enum retro_pixel_format pixel_format =
-    RETRO_PIXEL_FORMAT_RGB565;
-
-static const char *rom_path = NULL;
-
-static int fps_overlay_enabled = 0;
-static double fps_overlay_value = 0.0;
-
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define GB_STATE_DIR \
     "/mnt/SDCARD/flipos-dev/states/gb"
+
+typedef struct {
+    const char *rom_path;
+} gb_state_context_t;
 
 static uint64_t state_path_hash(
     const char *text)
@@ -74,17 +54,19 @@ static int ensure_state_directory(void)
 }
 
 static int build_state_path(
+    const gb_state_context_t *context,
     char *path,
     size_t path_size)
 {
-    if (!path ||
-        path_size == 0 ||
-        !rom_path)
+    if (!context ||
+        !context->rom_path ||
+        !path ||
+        path_size == 0)
         return -1;
 
     uint64_t hash =
         state_path_hash(
-            rom_path);
+            context->rom_path);
 
     snprintf(
         path,
@@ -95,16 +77,21 @@ static int build_state_path(
     return 0;
 }
 
-static int save_resume_state(void)
+static int save_resume_state(
+    flip_core_adapter_t *core,
+    void *userdata)
 {
+    gb_state_context_t *context =
+        userdata;
+
     size_t size =
-        retro_serialize_size();
+        flip_core_serialize_size(
+            core);
 
     if (size == 0) {
         fprintf(
             stderr,
             "FLIPGB_STATE: serialize_size=0\n");
-
         return -1;
     }
 
@@ -116,13 +103,13 @@ static int save_resume_state(void)
             stderr,
             "FLIPGB_STATE: malloc failed size=%zu\n",
             size);
-
         return -1;
     }
 
-    if (!retro_serialize(
+    if (flip_core_serialize(
+            core,
             data,
-            size)) {
+            size) < 0) {
 
         fprintf(
             stderr,
@@ -133,7 +120,6 @@ static int save_resume_state(void)
     }
 
     if (ensure_state_directory() < 0) {
-
         fprintf(
             stderr,
             "FLIPGB_STATE: mkdir failed: %s\n",
@@ -147,6 +133,7 @@ static int save_resume_state(void)
     char tmp[544];
 
     if (build_state_path(
+            context,
             path,
             sizeof(path)) < 0) {
 
@@ -229,19 +216,17 @@ static int save_resume_state(void)
     return 0;
 }
 
-static int lifecycle_save_cb(
+static int load_resume_state(
+    flip_core_adapter_t *core,
     void *userdata)
 {
-    (void)userdata;
+    gb_state_context_t *context =
+        userdata;
 
-    return save_resume_state();
-}
-
-static int load_resume_state(void)
-{
     char path[512];
 
     if (build_state_path(
+            context,
             path,
             sizeof(path)) < 0)
         return 0;
@@ -252,12 +237,10 @@ static int load_resume_state(void)
             "rb");
 
     if (!f) {
-
         if (errno == ENOENT) {
             fprintf(
                 stderr,
                 "FLIPGB_STATE: no resume state\n");
-
             return 0;
         }
 
@@ -266,12 +249,12 @@ static int load_resume_state(void)
             "FLIPGB_STATE: open failed path=%s error=%s\n",
             path,
             strerror(errno));
-
         return -1;
     }
 
     size_t expected =
-        retro_serialize_size();
+        flip_core_serialize_size(
+            core);
 
     if (expected == 0) {
         fclose(f);
@@ -334,18 +317,18 @@ static int load_resume_state(void)
     }
 
     int ok =
-        retro_unserialize(
+        flip_core_unserialize(
+            core,
             data,
             expected);
 
     free(data);
 
-    if (!ok) {
+    if (ok < 0) {
         fprintf(
             stderr,
             "FLIPGB_STATE: RESTORE_FAILED path=%s\n",
             path);
-
         return -1;
     }
 
@@ -358,735 +341,54 @@ static int load_resume_state(void)
     return 1;
 }
 
-
-
-
-static bool env_cb(unsigned cmd, void *data)
-{
-    switch (cmd) {
-
-        case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
-        {
-            enum retro_pixel_format fmt =
-                *(const enum retro_pixel_format *)data;
-
-            if (fmt == RETRO_PIXEL_FORMAT_RGB565 ||
-                fmt == RETRO_PIXEL_FORMAT_XRGB8888) {
-
-                pixel_format = fmt;
-
-                fprintf(
-                    stderr,
-                    "FLIPGB: pixel_format=%d\n",
-                    (int)fmt);
-
-                return true;
-            }
-
-            fprintf(
-                stderr,
-                "FLIPGB: unsupported pixel format %d\n",
-                (int)fmt);
-
-            return false;
-        }
-
-        case RETRO_ENVIRONMENT_GET_CAN_DUPE:
-        {
-            bool *can_dupe = (bool *)data;
-            *can_dupe = true;
-            return true;
-        }
-
-        case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
-        {
-            const char **dir = (const char **)data;
-
-            *dir =
-                "/mnt/SDCARD/flipos-dev/system/gb";
-
-            return true;
-        }
-
-        case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
-        {
-            const char **dir = (const char **)data;
-
-            *dir =
-                "/mnt/SDCARD/flipos-dev/saves/gb";
-
-            return true;
-        }
-
-        case RETRO_ENVIRONMENT_GET_VARIABLE:
-        {
-            struct retro_variable *var =
-                (struct retro_variable *)data;
-
-            /*
-             * No custom core options for first boot.
-             * Gambatte will use defaults.
-             */
-            var->value = NULL;
-            return true;
-        }
-
-        case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
-        {
-            bool *updated = (bool *)data;
-            *updated = false;
-            return true;
-        }
-
-        case RETRO_ENVIRONMENT_SET_VARIABLES:
-        case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
-        case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
-        case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-
-static void video_cb(
-    const void *data,
-    unsigned width,
-    unsigned height,
-    size_t pitch)
-{
-    if (!data)
-        return;
-
-    flip_video_format_t format;
-
-    if (pixel_format ==
-        RETRO_PIXEL_FORMAT_RGB565) {
-
-        format =
-            FLIP_VIDEO_FORMAT_RGB565;
-
-    } else if (
-        pixel_format ==
-        RETRO_PIXEL_FORMAT_XRGB8888) {
-
-        format =
-            FLIP_VIDEO_FORMAT_XRGB8888;
-
-    } else {
-
-        fprintf(
-            stderr,
-            "FLIPGB: unsupported active video format=%d\n",
-            (int)pixel_format);
-
-        return;
-    }
-
-    /*
-     * Flip_GB now supplies raw emulated video only.
-     *
-     * Scaling, framebuffer ownership, OSD composition and
-     * physical presentation belong to the FlipOS video host.
-     */
-    if (flip_video_submit(
-            data,
-            width,
-            height,
-            pitch,
-            format) < 0) {
-
-        fprintf(
-            stderr,
-            "FLIPGB: video submit failed\n");
-    }
-}
-
-
-static void audio_sample_cb(
-    int16_t left,
-    int16_t right)
-{
-    int16_t frame[2];
-
-    frame[0] = left;
-    frame[1] = right;
-
-    flip_audio_submit(
-        frame,
-        1);
-}
-
-static size_t audio_batch_cb(
-    const int16_t *data,
-    size_t frames)
-{
-    return flip_audio_submit(
-        data,
-        frames);
-}
-
-
-static void input_poll_cb(void)
-{
-    /*
-     * Hardware polling is owned by the FlipOS host loop.
-     *
-     * Gambatte may request an input poll at any point during
-     * retro_run(), but it reads the state already captured
-     * by the host for this frame.
-     */
-}
-
-static int16_t input_state_cb(
-    unsigned port,
-    unsigned device,
-    unsigned index,
-    unsigned id)
-{
-    (void)index;
-
-    if (port != 0)
-        return 0;
-
-    if (device != RETRO_DEVICE_JOYPAD)
-        return 0;
-
-    switch (id) {
-
-        case RETRO_DEVICE_ID_JOYPAD_UP:
-            return control_state.game.down[
-                FLIP_GAME_UP];
-
-        case RETRO_DEVICE_ID_JOYPAD_DOWN:
-            return control_state.game.down[
-                FLIP_GAME_DOWN];
-
-        case RETRO_DEVICE_ID_JOYPAD_LEFT:
-            return control_state.game.down[
-                FLIP_GAME_LEFT];
-
-        case RETRO_DEVICE_ID_JOYPAD_RIGHT:
-            return control_state.game.down[
-                FLIP_GAME_RIGHT];
-
-        case RETRO_DEVICE_ID_JOYPAD_A:
-            return control_state.game.down[
-                FLIP_GAME_A];
-
-        case RETRO_DEVICE_ID_JOYPAD_B:
-            return control_state.game.down[
-                FLIP_GAME_B];
-
-        case RETRO_DEVICE_ID_JOYPAD_START:
-            return control_state.game.down[
-                FLIP_GAME_START];
-
-        case RETRO_DEVICE_ID_JOYPAD_SELECT:
-            return control_state.game.down[
-                FLIP_GAME_SELECT];
-
-        default:
-            return 0;
-    }
-}
-
-static void unload_rom(
-    struct retro_game_info *game)
-{
-    retro_unload_game();
-
-    if (game->data) {
-        free((void *)game->data);
-        game->data = NULL;
-    }
-}
-
-static int load_rom(
-    const char *path,
-    struct retro_game_info *game)
-{
-    FILE *f =
-        fopen(path, "rb");
-
-    if (!f) {
-        perror("FLIPGB: fopen ROM");
-        return -1;
-    }
-
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return -1;
-    }
-
-    long len =
-        ftell(f);
-
-    if (len <= 0) {
-        fclose(f);
-        return -1;
-    }
-
-    rewind(f);
-
-    void *data =
-        malloc((size_t)len);
-
-    if (!data) {
-        fclose(f);
-        return -1;
-    }
-
-    size_t got =
-        fread(
-            data,
-            1,
-            (size_t)len,
-            f);
-
-    fclose(f);
-
-    if (got != (size_t)len) {
-        free(data);
-        return -1;
-    }
-
-    memset(
-        game,
-        0,
-        sizeof(*game));
-
-    game->path = path;
-    game->data = data;
-    game->size = (size_t)len;
-    game->meta = NULL;
-
-    return 0;
-}
-
 int main(
     int argc,
     char **argv)
 {
-    int flipgb_exit_code = 0;
-
     if (argc < 2) {
         fprintf(
             stderr,
             "Usage: %s game.gb\n",
             argv[0]);
-
         return 1;
     }
 
-    rom_path = argv[1];
+    gb_state_context_t state_context = {
+        .rom_path = argv[1],
+    };
 
     fprintf(
         stderr,
         "FLIPGB: rom=%s\n",
-        rom_path);
+        state_context.rom_path);
 
-    memset(
-        &physical_input,
-        0,
-        sizeof(physical_input));
+    flip_core_adapter_t *core =
+        flip_gambatte_core_adapter();
 
-    memset(
-        &control_state,
-        0,
-        sizeof(control_state));
-
-    flip_controls_init(
-        &controls);
-
-    if (flip_video_open() < 0) {
-        fprintf(
-            stderr,
-            "FLIPGB: DRM init failed\n");
-
-        return 2;
-    }
-
-    if (flip_input_open() < 0) {
-        fprintf(
-            stderr,
-            "FLIPGB: input init failed\n");
-
-        flip_video_close();
-        return 3;
-    }
-
-    retro_set_environment(
-        env_cb);
-
-    retro_set_video_refresh(
-        video_cb);
-
-    retro_set_audio_sample(
-        audio_sample_cb);
-
-    retro_set_audio_sample_batch(
-        audio_batch_cb);
-
-    retro_set_input_poll(
-        input_poll_cb);
-
-    retro_set_input_state(
-        input_state_cb);
-
-    retro_init();
-
-    struct retro_system_info info;
-    memset(
-        &info,
-        0,
-        sizeof(info));
-
-    retro_get_system_info(
-        &info);
-
-    fprintf(
-        stderr,
-        "FLIPGB: core=%s version=%s extensions=%s\n",
-        info.library_name
-            ? info.library_name
-            : "?",
-        info.library_version
-            ? info.library_version
-            : "?",
-        info.valid_extensions
-            ? info.valid_extensions
-            : "?");
-
-    struct retro_game_info game;
-
-    if (load_rom(
-            rom_path,
-            &game) < 0) {
-
-        fprintf(
-            stderr,
-            "FLIPGB: failed to read ROM\n");
-
-        retro_deinit();
-        flip_input_close();
-        flip_video_close();
-
-        return 4;
-    }
-
-    if (!retro_load_game(&game)) {
-
-        fprintf(
-            stderr,
-            "FLIPGB: retro_load_game failed\n");
-
-        free((void *)game.data);
-
-        retro_deinit();
-        flip_input_close();
-        flip_video_close();
-
-        return 5;
-    }
-
-    fprintf(
-        stderr,
-        "FLIPGB: attempting resume\n");
-
-    int resume_result =
-        load_resume_state();
-
-    if (resume_result > 0) {
-
-        fprintf(
-            stderr,
-            "FLIPGB: resumed saved session\n");
-
-    } else if (
-        resume_result < 0) {
-
-        fprintf(
-            stderr,
-            "FLIPGB: resume unavailable; continuing normally\n");
-    }
-
-
-    struct retro_system_av_info av;
-    memset(
-        &av,
-        0,
-        sizeof(av));
-
-    retro_get_system_av_info(
-        &av);
-
-    fprintf(
-        stderr,
-        "FLIPGB: video base=%ux%u max=%ux%u fps=%.3f audio=%.1f\n",
-        av.geometry.base_width,
-        av.geometry.base_height,
-        av.geometry.max_width,
-        av.geometry.max_height,
-        av.timing.fps,
-        av.timing.sample_rate);
-
-    /*
-     * The core reports its source audio rate. Physical PCM
-     * configuration and RK817 transport belong to FlipOS.
-     */
-    flip_audio_config_t audio_config = {
-        .sample_rate =
-            (unsigned)(
-                av.timing.sample_rate + 0.5),
-        .channels = 2,
+    flip_core_host_config_t config = {
+        .core = core,
+        .rom_path = state_context.rom_path,
+        .fallback_fps = 59.7275,
+        .save_state = save_resume_state,
+        .restore_state = load_resume_state,
+        .state_userdata = &state_context,
     };
 
-    if (flip_audio_open(
-            &audio_config) < 0) {
+    int exit_code = 0;
+
+    if (flip_core_host_run(
+            &config,
+            &exit_code) < 0) {
 
         fprintf(
             stderr,
-            "FLIPGB: audio initialization failed; "
-            "continuing silent\n");
-    }
-
-    /*
-     * Libretro cores report their desired frame rate, while
-     * the shared FlipOS Timing Host owns the actual monotonic
-     * pacing schedule. The GB-specific fallback remains here.
-     */
-    double fps = av.timing.fps;
-
-    if (fps < 1.0)
-        fps = 59.7275;
-
-    if (flip_timing_init(
-            &timing,
-            fps) < 0) {
-
-        fprintf(
-            stderr,
-            "FLIPGB: timing initialization failed\n");
-
-        unload_rom(&game);
-        retro_deinit();
-
-        if (flip_lifecycle_shutdown_shared() < 0) {
-            fprintf(
-                stderr,
-                "FLIPGB: shared lifecycle cleanup warning\n");
-        }
-
-        return 6;
-    }
-
-    fprintf(
-        stderr,
-        "FLIPGB: frame pacing fps=%.6f period_ns=%lld\n",
-        fps,
-        timing.frame_period_ns);
-
-    if (resume_result > 0) {
-
-        if (flip_lifecycle_resume_timing(
-                &timing) < 0) {
-
-            fprintf(
-                stderr,
-                "FLIPGB: lifecycle timing resync failed\n");
-        }
-    }
-
-    while (1) {
-
-        /*
-         * FlipOS owns physical hardware polling.
-         *
-         * Take one coherent input snapshot per emulated frame.
-         * Gambatte's input_poll_cb() is deliberately passive
-         * and input_state_cb() reads this snapshot.
-         */
-        if (flip_input_poll(
-                &physical_input,
-                0) < 0) {
-
-            fprintf(
-                stderr,
-                "FLIPGB: input poll failed\n");
-
-            break;
-        }
-
-        if (flip_controls_update(
-                &controls,
-                &physical_input,
-                &control_state) < 0) {
-
-            fprintf(
-                stderr,
-                "FLIPGB: controls update failed\n");
-
-            break;
-        }
-
-        retro_run();
-
-        /*
-         * Flush all PCM produced by this emulated frame before
-         * handling lifecycle/system actions for that frame.
-         */
-        if (flip_audio_end_frame() < 0) {
-
-            fprintf(
-                stderr,
-                "FLIPGB: audio frame flush failed\n");
-        }
-
-        /*
-         * FlipOS logical system actions.
-         *
-         * Physical button/chord interpretation belongs to
-         * flip_controls. Flip_GB only reacts to the resulting
-         * platform-neutral host actions.
-         */
-        flip_lifecycle_result_t
-            lifecycle_immediate;
-
-        int lifecycle_result =
-            flip_lifecycle_handle(
-                &control_state.system,
-                FLIP_LIFECYCLE_CHECKPOINT_IMMEDIATE,
-                lifecycle_save_cb,
-                NULL,
-                &lifecycle_immediate);
-
-        if (lifecycle_result < 0) {
-            fprintf(
-                stderr,
-                "FLIPGB: lifecycle immediate handling failed\n");
-            break;
-        }
-
-        if (lifecycle_immediate.should_exit) {
-            flipgb_exit_code =
-                lifecycle_immediate.exit_code;
-            break;
-        }
-
-        if (control_state.system.fps_toggle_requested) {
-
-            fps_overlay_enabled =
-                !fps_overlay_enabled;
-
-            flip_video_set_fps_overlay(
-                fps_overlay_enabled,
-                fps_overlay_value);
-
-            fprintf(
-                stderr,
-                "FLIPGB: FPS overlay %s\n",
-                fps_overlay_enabled
-                    ? "ON"
-                    : "OFF");
-        }
-
-        flip_hotkeys_result_t hotkey_result;
-
-        if (flip_hotkeys_apply_actions(
-                &control_state.system,
-                &hotkey_result) < 0) {
-
-            fprintf(
-                stderr,
-                "FLIPGB: global hotkey handling failed\n");
-        }
-
-        double measured_fps = 0.0;
-
-        int fps_result =
-            flip_timing_record_frame(
-                &timing,
-                &measured_fps);
-
-        if (fps_result < 0) {
-            fprintf(
-                stderr,
-                "FLIPGB: timing FPS measurement failed\n");
-            break;
-        }
-
-        if (fps_result > 0) {
-            fps_overlay_value =
-                measured_fps;
-
-            flip_video_set_fps_overlay(
-                fps_overlay_enabled,
-                fps_overlay_value);
-
-            fprintf(
-                stderr,
-                "FLIPGB_FPS %.3f target=%.3f\n",
-                measured_fps,
-                fps);
-        }
-
-        flip_lifecycle_result_t
-            lifecycle_after_frame;
-
-        lifecycle_result =
-            flip_lifecycle_handle(
-                &control_state.system,
-                FLIP_LIFECYCLE_CHECKPOINT_AFTER_FRAME,
-                lifecycle_save_cb,
-                NULL,
-                &lifecycle_after_frame);
-
-        if (lifecycle_result < 0) {
-            fprintf(
-                stderr,
-                "FLIPGB: lifecycle after-frame handling failed\n");
-            break;
-        }
-
-        if (lifecycle_after_frame.should_exit) {
-            flipgb_exit_code =
-                lifecycle_after_frame.exit_code;
-            break;
-        }
-
-        int wait_result =
-            flip_timing_wait_frame(
-                &timing);
-
-        if (wait_result < 0) {
-            fprintf(
-                stderr,
-                "FLIPGB: timing wait failed\n");
-            break;
-        }
-
-        if (wait_result > 0) {
-            fprintf(
-                stderr,
-                "FLIPGB: frame schedule resync\n");
-        }
-    }
-
-    unload_rom(&game);
-
-    retro_deinit();
-
-    if (flip_lifecycle_shutdown_shared() < 0) {
-        fprintf(
-            stderr,
-            "FLIPGB: shared lifecycle cleanup warning\n");
+            "FLIPGB: core host failed\n");
+        return 1;
     }
 
     fprintf(
         stderr,
         "FLIPGB: clean exit\n");
 
-    return flipgb_exit_code;
+    return exit_code;
 }
