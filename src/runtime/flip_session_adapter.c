@@ -25,9 +25,8 @@ gb_map_exit_code(
  * FlipGB currently identifies automatic resume states using
  * an FNV-1a hash of the original ROM path.
  *
- * This belongs to the GB adapter because the generic FlipOS
- * frontend must not know how a particular emulator stores
- * its automatic state.
+ * GB and GBC deliberately share this Gambatte persistence
+ * mechanism for now. The ROM path keeps their states distinct.
  */
 static uint64_t
 gb_resume_path_hash(
@@ -84,6 +83,13 @@ gb_session_adapter = {
     .resume_available = gb_resume_available
 };
 
+static const flip_session_adapter_t
+gbc_session_adapter = {
+    .system = "GBC",
+    .map_exit_code = gb_map_exit_code,
+    .resume_available = gb_resume_available
+};
+
 const flip_session_adapter_t *
 flip_session_adapter_for_system(
     const char *system)
@@ -96,6 +102,13 @@ flip_session_adapter_for_system(
             gb_session_adapter.system) == 0) {
 
         return &gb_session_adapter;
+    }
+
+    if (strcmp(
+            system,
+            gbc_session_adapter.system) == 0) {
+
+        return &gbc_session_adapter;
     }
 
     return NULL;
