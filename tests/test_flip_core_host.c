@@ -232,7 +232,8 @@ int flip_controls_update(
 int flip_audio_open(const flip_audio_config_t *config)
 {
     assert(config != NULL);
-    assert(config->sample_rate == 32768);
+    assert(config->source_sample_rate == 32768);
+    assert(config->output_sample_rate == 32000);
     assert(config->channels == 2);
     event("audio_open");
     return 0;
@@ -248,6 +249,18 @@ int flip_audio_end_frame(void)
 {
     event("audio_end");
     return 0;
+}
+
+void flip_audio_diag_snapshot(flip_audio_diag_snapshot_t *snapshot)
+{
+    if (!snapshot)
+        return;
+
+    memset(snapshot, 0, sizeof(*snapshot));
+}
+
+void flip_audio_diag_reset(void)
+{
 }
 
 void flip_audio_close(void)

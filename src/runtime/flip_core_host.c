@@ -256,11 +256,12 @@ int flip_core_host_run(
         info.audio_sample_rate);
 
     flip_audio_config_t audio_config = {
-        .sample_rate = info.audio_sample_rate,
+        .source_sample_rate = info.audio_sample_rate,
+        .output_sample_rate = 32000,
         .channels = 2,
     };
 
-    if (audio_config.sample_rate > 0 &&
+    if (audio_config.source_sample_rate > 0 &&
         flip_audio_open(&audio_config) < 0) {
 
         fprintf(

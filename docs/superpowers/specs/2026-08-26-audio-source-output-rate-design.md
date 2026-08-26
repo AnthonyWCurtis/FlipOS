@@ -2,247 +2,160 @@
 
 ## Status
 
-Approved architectural design for resolving the confirmed Miyoo Flip
-audio-rate mismatch.
+Hardware verified on the Miyoo Flip on 2026-08-26.
 
-## Problem
+## Confirmed Problem
 
-FlipOS currently treats the emulator core audio sample rate as though it
-were also the physical PCM playback rate.
+Gambatte produces native stereo S16 PCM at 32768 Hz. FlipOS previously passed that rate directly to `aplay -D hw:0,0`.
 
-Gambatte reports a native source rate of:
+Hardware probing on the Miyoo Flip showed:
 
-    32768 Hz
+- a 32768 Hz playback request is negotiated by the RK817/ASoC path to 32000 Hz;
+- a direct 32000 Hz request runs at exactly 32000 Hz;
+- during the pre-fix run the ALSA buffer became nearly full and synchronous pipe writes rose from microseconds to roughly 10–19 ms;
+- the same behavior reproduced on Phase 4A5 and Phase 4B, so it is not a Core Adapter API regression.
 
-FlipOS therefore launches:
+The clock-domain mismatch is therefore:
 
-    aplay ... -r 32768
+```text
+core source:      32768 frames/sec
+physical output:  32000 frames/sec
+excess source:      768 frames/sec
+```
 
-Hardware measurements on the Miyoo Flip show that RK817 playback does not
-actually run at 32768 Hz. ALSA negotiates that request to:
-
-    32000 Hz
-
-A direct 32000 Hz request also runs at exactly 32000 Hz.
-
-This creates a producer/consumer mismatch:
-
-    source:   32768 frames/sec
-    hardware: 32000 frames/sec
-
-The source therefore produces 768 stereo frames/sec more than the physical
-PCM device consumes.
-
-Observed hardware behaviour confirms the consequence:
-
-- ALSA playback buffer becomes nearly full.
-- synchronous pipe writes begin blocking for roughly 10-19 ms.
-- the blocking occurs inside retro_run() through flip_audio_submit().
-- emulator frame execution becomes late.
-- FlipOS timing resyncs increase and measured FPS falls.
-
-The same behaviour was reproduced on both Phase 4A5 and Phase 4B. Therefore
-this is not a Core Adapter API regression; it is an existing Audio Host
-rate-boundary problem exposed by the new diagnostics.
+This creates progressive audio backpressure until the synchronous transport blocks inside the core callback path.
 
 ## Architectural Rule
 
-Emulator source audio rate and physical hardware playback rate are separate
-concepts.
+The emulator owns its native source rate. FlipOS owns conversion to the handheld's physical playback rate.
 
-The emulator core owns its native source rate.
-
-FlipOS owns conversion from that native source rate to the Miyoo Flip
-physical PCM rate.
-
-A core must never be modified merely to match the handheld audio codec.
-
-## Data Flow
-
-    Emulator core
-        |
-        | native stereo S16 PCM
-        | source rate supplied by core
-        v
-    FlipOS Audio Host
-        |
-        | streaming source-rate -> output-rate conversion
-        v
-    existing small staging / bounded synchronous transport
-        |
-        | stereo S16 PCM at physical rate
-        v
-    aplay -D hw:0,0 -r 32000
-        |
-        v
-    RK817 PCM
+A core must not be retimed merely to match the Miyoo Flip codec.
 
 For Gambatte:
 
-    32768 Hz -> 32000 Hz
+```text
+Gambatte 32768 Hz PCM
+        -> FlipOS streaming resampler
+        -> existing bounded Audio Host staging
+        -> aplay hw:0,0 at 32000 Hz
+        -> RK817
+```
 
-## Audio Configuration
+## Configuration
 
-The Audio Host configuration must explicitly distinguish:
+`flip_audio_config_t` distinguishes:
 
-    source_sample_rate
-    output_sample_rate
-    channels
+- `source_sample_rate`
+- `output_sample_rate`
+- `channels`
 
-For the current Miyoo Flip hardware:
-
-    output_sample_rate = 32000
-    channels = 2
-
-The core adapter supplies the source sample rate from libretro metadata.
-
-The physical output rate remains FlipOS hardware policy and must not be
-encoded into Gambatte.
+Gambatte's source rate continues to come from libretro timing metadata. The current Miyoo Flip hardware output policy is 32000 Hz stereo.
 
 ## Resampler
 
-The initial implementation will use a small streaming linear interpolator.
+Use a small streaming linear interpolator with persistent rational phase.
 
 Requirements:
 
-- stereo signed 16-bit PCM
-- persistent phase across submit calls
-- no heap allocation in the per-frame path
-- no worker thread
-- no large audio queue
-- bounded temporary storage
-- deterministic output count
-- continuous phase across libretro callbacks
-- reset phase on audio open/close
-- support equal-rate pass-through
-- support arbitrary positive source/output integer rates rather than
-  hard-coding Gambatte's 32768 -> 32000 ratio
+- stereo signed 16-bit PCM;
+- integer/rational phase using 64-bit arithmetic;
+- state preserved across libretro callbacks and emulator frames;
+- no per-frame heap allocation;
+- no worker thread;
+- no large queue;
+- bounded caller-provided output storage;
+- exact long-term source/output frame ratio;
+- resumable processing when output capacity is exhausted;
+- equal-rate operation remains valid;
+- no external resampling dependency.
 
 For Gambatte the exact ratio is:
 
-    32000 / 32768 = 125 / 128
-
-The converter must therefore produce exactly 125 output frames for every
-128 source-frame intervals over steady-state operation, without accumulating
-long-term rate error.
-
-Linear interpolation is sufficient for the first implementation because the
-rate difference is small and the goal is correct clock-domain conversion
-with minimal CPU and memory cost on RK3566.
-
-No external resampling dependency will be introduced.
+```text
+32000 / 32768 = 125 / 128
+```
 
 ## Transport
 
-The physical transport must request exactly:
+The physical transport requests exactly:
 
-    32000 Hz
-    S16_LE
-    stereo
+```text
+hw:0,0
+S16_LE
+stereo
+32000 Hz
+-B 50000
+-F 10000
+```
 
-The existing Audio Host transport remains synchronous and bounded.
+Buffer and period tuning is outside this fix. The rate mismatch must be removed first.
 
-The current aplay buffering policy remains unchanged initially:
+## RK817 Recovery
 
-    -B 50000
-    -F 10000
+The existing deep-resume recovery policy is unchanged. Recovery remains restricted to the confirmed broken register signature:
 
-Changing transport buffering is explicitly outside the first fix. The
-rate mismatch must be removed before considering any buffer tuning.
+```text
+0x17 = 0x06
+0x38 = 0x00
+0x40 = 0x69
+```
 
-## Existing Audio Recovery
+No broader codec writes are introduced.
 
-RK817 suspend/resume recovery behaviour must remain unchanged.
+## Verification
 
-The known exact broken register signature remains:
+Software verification covers:
 
-    0x17 = 0x06
-    0x38 = 0x00
-    0x40 = 0x69
+- equal-rate identity;
+- exact 32768 -> 32000 long-term frame count;
+- chunk-boundary equivalence;
+- stereo preservation;
+- reset behavior;
+- bounded output-capacity resume;
+- Audio Host source/output configuration separation;
+- physical 32000 Hz transport policy.
 
-Recovery writes remain restricted to that exact signature.
+### Hardware verification — 2026-08-26
 
-The resampler must not broaden or alter codec recovery logic.
+Verified on the real Miyoo Flip using Pokémon Yellow with the Phase 4B diagnostic instrumentation enabled.
 
-## Diagnostics
+Observed live PCM state:
 
-Existing FLIP_AUDIO_PERF diagnostics remain available during verification.
+```text
+aplay -q -D hw:0,0 -t raw -f S16_LE -c 2 -r 32000 -B 50000 -F 10000
+rate: 32000 (32000/1)
+period_size: 320
+buffer_size: 1600
+state: RUNNING
+```
 
-They continue measuring synchronous submit and transport write behaviour.
+Long-run current-session diagnostics after the previous approximately 16-second backlog onset showed:
 
-The implementation may additionally expose source/output frame totals for
-tests, but permanent runtime logging beyond the existing diagnostics is not
-required.
+- measured FPS averaged approximately 59.727, matching the 59.7275 target;
+- zero frame-schedule resyncs across the captured current-session windows;
+- synchronous transport `write_max_us` remained in the tens to hundreds of microseconds, with the captured worst value below 0.5 ms;
+- the previous 10–19 ms transport stalls did not recur;
+- ALSA buffer occupancy moved in both directions during repeated one-second sampling rather than progressively filling;
+- audio pitch, speed and synchronization were subjectively confirmed correct with no reported crackling or progressive drift.
 
-## Testing
+Deep-suspend/resume was also verified. After lid close/open the exact confirmed broken RK817 signature was observed:
 
-Development follows TDD.
+```text
+0x17 = 0x06
+0x38 = 0x00
+0x40 = 0x69
+```
 
-Unit tests must verify:
+The existing restricted recovery path applied successfully, playback reopened as:
 
-1. equal-rate input produces identical output.
-2. 32768 -> 32000 maintains the correct long-term frame ratio.
-3. conversion state survives arbitrary submit chunk boundaries.
-4. stereo channels remain paired correctly.
-5. interpolation remains within signed 16-bit range.
-6. resetting the converter clears fractional phase/history.
-7. no cumulative frame-count drift occurs over a long simulated stream.
+```text
+source_rate=32768 output_rate=32000
+```
 
-Audio Host architecture tests must verify:
+and the saved session resumed with correct audio and low transport-write latency.
 
-- source and output rates are represented separately.
-- physical aplay transport requests 32000 Hz.
-- core/native rate is not overwritten with 32000 Hz.
+Result: the 32768 Hz source / 32000 Hz hardware clock-domain mismatch is considered hardware resolved.
 
-Existing audio buffer, lifecycle, timing and architecture tests must remain
-green.
+## Safety and Scope
 
-## Hardware Verification
-
-Hardware acceptance requires a run substantially longer than the previously
-observed approximately 16-second buffer-fill period.
-
-Verify:
-
-    /proc/asound/card0/pcm0p/sub0/hw_params
-        rate: 32000
-
-and confirm:
-
-- no continuously accumulating PCM backlog
-- audio remains correct in pitch and speed
-- no audible discontinuities
-- no progressive A/V drift
-- synchronous write spikes are materially reduced
-- sustained FPS returns close to the 59.7275 Hz target
-- timing resync rate drops materially
-- suspend/resume audio recovery still works
-- GameSwitcher/lifecycle behaviour remains unchanged
-
-## Scope
-
-Included:
-
-- source/output rate separation
-- small shared streaming resampler
-- 32000 Hz Miyoo Flip physical playback policy
-- Gambatte hardware verification
-
-Excluded:
-
-- async audio worker
-- large queues
-- ALSA plug-based resampling
-- new emulator cores
-- audio latency tuning
-- unrelated timing changes
-- save/state changes
-- NAND/MTD changes
-
-## Safety
-
-All development remains SD-card-only.
-
-Internal NAND/MTD is not modified.
-
-The stock Miyoo environment remains the known-good recovery path.
+All work remains SD-card-only. Internal NAND/MTD is not modified. No new emulator core, async audio worker, large queue, timing redesign, or save-state change is part of this fix.

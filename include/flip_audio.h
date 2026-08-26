@@ -5,7 +5,8 @@
 #include <stdint.h>
 
 typedef struct {
-    unsigned sample_rate;
+    unsigned source_sample_rate;
+    unsigned output_sample_rate;
     unsigned channels;
 } flip_audio_config_t;
 
