@@ -236,6 +236,14 @@ int flip_core_host_run(
 
     loaded = 1;
 
+    size_t battery_memory_size =
+        flip_core_save_memory_size(config->core);
+
+    fprintf(
+        stderr,
+        "FLIP_SAVE: battery_memory size=%zu\n",
+        battery_memory_size);
+
     flip_core_info_t info;
     memset(&info, 0, sizeof(info));
 
