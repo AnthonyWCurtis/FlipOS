@@ -51,6 +51,7 @@ GB_OBJS := \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_state.o \
+	$(BUILD)/flip_save.o \
 	$(BUILD)/flip_perf_diag.o \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_audio.o \
@@ -237,6 +238,9 @@ $(BUILD)/flip_core_host.o: src/runtime/flip_core_host.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_state.o: src/runtime/flip_state.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_save.o: src/runtime/flip_save.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_perf_diag.o: src/runtime/flip_perf_diag.c | $(BUILD)
