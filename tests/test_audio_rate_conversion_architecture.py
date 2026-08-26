@@ -9,7 +9,12 @@ assert "source_sample_rate" in HEADER, "Audio config must expose core/native sou
 assert "output_sample_rate" in HEADER, "Audio config must expose physical output rate"
 assert "unsigned sample_rate;" not in HEADER, "single audio sample_rate conflates clock domains"
 
-assert '"32000"' in AUDIO, "physical aplay transport must request verified 32000 Hz"
+assert "config->output_sample_rate != 32000" in AUDIO, (
+    "Audio Host must constrain Miyoo Flip physical output rate to verified 32000 Hz"
+)
+assert '"-r"' in AUDIO and "output_rate_text" in AUDIO, (
+    "aplay transport must receive the configured physical output rate"
+)
 assert '"32768"' not in AUDIO, "Audio Host must not request 32768 Hz from RK817 hardware"
 
 assert ".source_sample_rate = info.audio_sample_rate" in CORE_HOST, (
