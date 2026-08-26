@@ -477,6 +477,28 @@ static int gambatte_unserialize(
         : -1;
 }
 
+static void *gambatte_save_memory_data(
+    void *userdata)
+{
+    flip_gambatte_state_t *state = userdata;
+
+    if (!state->loaded)
+        return NULL;
+
+    return retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+}
+
+static size_t gambatte_save_memory_size(
+    void *userdata)
+{
+    flip_gambatte_state_t *state = userdata;
+
+    if (!state->loaded)
+        return 0;
+
+    return retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+}
+
 static flip_core_adapter_t adapter = {
     .userdata = &gambatte,
     .init = gambatte_init,
@@ -489,6 +511,8 @@ static flip_core_adapter_t adapter = {
     .serialize_size = gambatte_serialize_size,
     .serialize = gambatte_serialize,
     .unserialize = gambatte_unserialize,
+    .save_memory_data = gambatte_save_memory_data,
+    .save_memory_size = gambatte_save_memory_size,
 };
 
 flip_core_adapter_t *flip_gambatte_core_adapter(void)
