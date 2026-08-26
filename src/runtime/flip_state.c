@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static uint64_t flip_state_path_hash(const char *text)
 {
@@ -59,6 +60,100 @@ int flip_state_test_build_path(
         return -1;
 
     return 0;
+}
+
+static int ensure_state_directories(const flip_state_context_t *context)
+{
+    if (!context || !context->system_id || !context->system_id[0])
+        return -1;
+
+    if (mkdir(FLIP_STATE_ROOT, 0777) < 0 && errno != EEXIST)
+        return -1;
+
+    char system_dir[512];
+    int written = snprintf(
+        system_dir,
+        sizeof(system_dir),
+        FLIP_STATE_ROOT "/%s",
+        context->system_id);
+
+    if (written < 0 || (size_t)written >= sizeof(system_dir))
+        return -1;
+
+    if (mkdir(system_dir, 0777) < 0 && errno != EEXIST)
+        return -1;
+
+    return 0;
+}
+
+static int read_exact_file(
+    const char *path,
+    void *data,
+    size_t size)
+{
+    struct stat st;
+
+    if (!path || !data || size == 0)
+        return -1;
+
+    if (stat(path, &st) < 0 ||
+        !S_ISREG(st.st_mode) ||
+        st.st_size < 0 ||
+        (size_t)st.st_size != size)
+        return -1;
+
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return -1;
+
+    size_t got = fread(data, 1, size, file);
+    int read_error = ferror(file);
+    int close_error = fclose(file);
+
+    return got == size && !read_error && close_error == 0 ? 0 : -1;
+}
+
+static int write_atomic_file(
+    const char *tmp_path,
+    const char *final_path,
+    const void *data,
+    size_t size)
+{
+    if (!tmp_path || !final_path || !data || size == 0)
+        return -1;
+
+    FILE *file = fopen(tmp_path, "wb");
+    if (!file)
+        return -1;
+
+    int ok = fwrite(data, 1, size, file) == size;
+
+    if (ok && fflush(file) != 0)
+        ok = 0;
+
+    if (ok && fsync(fileno(file)) < 0)
+        ok = 0;
+
+    if (fclose(file) != 0)
+        ok = 0;
+
+    if (ok) {
+        struct stat st;
+
+        if (stat(tmp_path, &st) < 0 ||
+            !S_ISREG(st.st_mode) ||
+            st.st_size < 0 ||
+            (size_t)st.st_size != size)
+            ok = 0;
+    }
+
+    if (ok && rename(tmp_path, final_path) < 0)
+        ok = 0;
+
+    if (!ok)
+        unlink(tmp_path);
+
+    return ok ? 0 : -1;
 }
 
 typedef enum {
@@ -228,4 +323,113 @@ flip_state_restore_result_t flip_state_restore(
 
     fprintf(stderr, "FLIP_STATE: RESTORE_UNUSABLE\n");
     return FLIP_STATE_RESTORE_UNUSABLE;
+}
+
+int flip_state_save(
+    flip_core_adapter_t *core,
+    flip_state_context_t *context)
+{
+    if (!core || !context)
+        return -1;
+
+    size_t size = flip_core_serialize_size(core);
+    if (size == 0) {
+        fprintf(stderr, "FLIP_STATE: SAVE_FAILED stage=serialize-size\n");
+        return -1;
+    }
+
+    void *data = malloc(size);
+    if (!data) {
+        fprintf(stderr, "FLIP_STATE: SAVE_FAILED stage=allocate\n");
+        return -1;
+    }
+
+    if (flip_core_serialize(core, data, size) < 0) {
+        fprintf(stderr, "FLIP_STATE: SAVE_FAILED stage=serialize\n");
+        free(data);
+        return -1;
+    }
+
+    if (ensure_state_directories(context) < 0) {
+        fprintf(
+            stderr,
+            "FLIP_STATE: SAVE_FAILED stage=mkdir error=%s\n",
+            strerror(errno));
+        free(data);
+        return -1;
+    }
+
+    char current_path[512];
+    char current_tmp_path[512];
+    char previous_path[512];
+    char previous_tmp_path[512];
+
+    if (flip_state_test_build_path(
+            context,
+            ".state",
+            current_path,
+            sizeof(current_path)) < 0 ||
+        flip_state_test_build_path(
+            context,
+            ".state.tmp",
+            current_tmp_path,
+            sizeof(current_tmp_path)) < 0 ||
+        flip_state_test_build_path(
+            context,
+            ".state.prev",
+            previous_path,
+            sizeof(previous_path)) < 0 ||
+        flip_state_test_build_path(
+            context,
+            ".state.prev.tmp",
+            previous_tmp_path,
+            sizeof(previous_tmp_path)) < 0) {
+        fprintf(stderr, "FLIP_STATE: SAVE_FAILED stage=path\n");
+        free(data);
+        return -1;
+    }
+
+    if (context->current_was_restored) {
+        void *previous_data = malloc(size);
+        if (!previous_data) {
+            fprintf(stderr, "FLIP_STATE: SAVE_FAILED stage=previous-allocate\n");
+            free(data);
+            return -1;
+        }
+
+        if (read_exact_file(current_path, previous_data, size) < 0 ||
+            write_atomic_file(
+                previous_tmp_path,
+                previous_path,
+                previous_data,
+                size) < 0) {
+            fprintf(stderr, "FLIP_STATE: SAVE_FAILED stage=preserve-previous\n");
+            free(previous_data);
+            free(data);
+            return -1;
+        }
+
+        free(previous_data);
+    }
+
+    if (write_atomic_file(
+            current_tmp_path,
+            current_path,
+            data,
+            size) < 0) {
+        fprintf(stderr, "FLIP_STATE: SAVE_FAILED stage=commit-current\n");
+        free(data);
+        return -1;
+    }
+
+    free(data);
+    context->current_was_restored = 0;
+
+    fprintf(
+        stderr,
+        "FLIP_STATE: SAVE_OK path=%s size=%zu\n",
+        current_path,
+        size);
+
+    return 0;
 }
