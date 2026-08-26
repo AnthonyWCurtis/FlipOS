@@ -44,6 +44,9 @@ required = [
     "flip_state_context_init(",
     "flip_state_save(",
     "flip_state_restore(",
+    '"--no-resume"',
+    "skip_resume",
+    ".restore_state = skip_resume ? NULL : load_resume_state",
 ]
 
 errors = []
