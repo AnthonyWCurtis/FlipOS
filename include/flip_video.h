@@ -1,6 +1,8 @@
 #ifndef FLIP_VIDEO_H
 #define FLIP_VIDEO_H
 
+#include "flip_telemetry.h"
+
 #include <stddef.h>
 
 typedef enum {
@@ -33,14 +35,16 @@ int flip_video_submit(
     flip_video_format_t format);
 
 /*
- * Temporary diagnostic API.
- *
- * FPS measurement will move into the emulator host/timing
- * layer later. For Phase 4A1 this preserves the existing
- * FlipGB FPS overlay without changing behaviour.
+ * Temporary diagnostic API retained for compatibility.
+ * New emulator-host code should update the full performance
+ * overlay snapshot through flip_video_set_perf_overlay().
  */
 void flip_video_set_fps_overlay(
     int enabled,
     double fps);
+
+void flip_video_set_perf_overlay(
+    int enabled,
+    const flip_telemetry_snapshot_t *snapshot);
 
 #endif
