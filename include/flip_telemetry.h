@@ -35,10 +35,10 @@ typedef struct {
     char cpu_freq_paths[4][256];
     int cpu_freq_path_count;
 
-    char gpu_freq_path[256];
-    char gpu_load_path[256];
-    char temp_path[256];
-    char battery_path[256];
+    char gpu_freq_path[512];
+    char gpu_load_path[512];
+    char temp_path[512];
+    char battery_path[512];
 
     flip_telemetry_snapshot_t snapshot;
 } flip_telemetry_t;
