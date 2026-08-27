@@ -184,6 +184,43 @@ static int copy_synced_file(
     return 0;
 }
 
+static flip_save_candidate_result_t inspect_candidate(
+    const char *path,
+    size_t expected_size)
+{
+    struct stat st;
+
+    if (stat(path, &st) < 0) {
+        if (errno == ENOENT)
+            return FLIP_SAVE_CANDIDATE_MISSING;
+        return FLIP_SAVE_CANDIDATE_ERROR;
+    }
+
+    if (!S_ISREG(st.st_mode) ||
+        st.st_size < 0 ||
+        (size_t)st.st_size != expected_size)
+        return FLIP_SAVE_CANDIDATE_INVALID;
+
+    unsigned char *buffer = malloc(expected_size);
+    if (!buffer)
+        return FLIP_SAVE_CANDIDATE_ERROR;
+
+    FILE *file = fopen(path, "rb");
+    if (!file) {
+        free(buffer);
+        return FLIP_SAVE_CANDIDATE_ERROR;
+    }
+
+    int ok = fread(buffer, 1, expected_size, file) == expected_size;
+    if (ok && fgetc(file) != EOF)
+        ok = 0;
+    if (fclose(file) != 0)
+        ok = 0;
+
+    free(buffer);
+    return ok ? FLIP_SAVE_CANDIDATE_VALID : FLIP_SAVE_CANDIDATE_ERROR;
+}
+
 static flip_save_candidate_result_t load_candidate(
     const char *path,
     void *memory,
@@ -227,6 +264,35 @@ static flip_save_candidate_result_t load_candidate(
     memcpy(memory, buffer, memory_size);
     free(buffer);
     return FLIP_SAVE_CANDIDATE_VALID;
+}
+
+flip_save_health_t flip_save_health(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context,
+    const char *suffix)
+{
+    if (!core || !context || !suffix)
+        return FLIP_SAVE_HEALTH_ERROR;
+
+    size_t memory_size = flip_core_save_memory_size(core);
+    if (memory_size == 0)
+        return FLIP_SAVE_HEALTH_ERROR;
+
+    char path[512];
+    if (flip_save_test_build_path(context, suffix, path, sizeof(path)) < 0)
+        return FLIP_SAVE_HEALTH_ERROR;
+
+    switch (inspect_candidate(path, memory_size)) {
+    case FLIP_SAVE_CANDIDATE_MISSING:
+        return FLIP_SAVE_HEALTH_MISSING;
+    case FLIP_SAVE_CANDIDATE_VALID:
+        return FLIP_SAVE_HEALTH_HEALTHY;
+    case FLIP_SAVE_CANDIDATE_INVALID:
+        return FLIP_SAVE_HEALTH_INVALID;
+    case FLIP_SAVE_CANDIDATE_ERROR:
+    default:
+        return FLIP_SAVE_HEALTH_ERROR;
+    }
 }
 
 flip_save_load_result_t flip_save_load(
@@ -325,11 +391,6 @@ int flip_save_commit(
         return -1;
     }
 
-    /*
-     * Stage and sync the replacement before touching either protected file.
-     * This guarantees write/open/fsync/verification failures preserve both
-     * the current and previous cartridge saves.
-     */
     if (write_synced_file(current_tmp_path, memory, memory_size) < 0) {
         fprintf(
             stderr,
@@ -365,5 +426,110 @@ int flip_save_commit(
     }
 
     fprintf(stderr, "FLIP_SAVE: SAVE_OK path=%s size=%zu\n", current_path, memory_size);
+    return 0;
+}
+
+int flip_save_restore_previous(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context)
+{
+    if (!core || !context)
+        return -1;
+
+    size_t memory_size = flip_core_save_memory_size(core);
+    if (memory_size == 0 || ensure_save_directories(context) < 0)
+        return -1;
+
+    char current_path[512];
+    char previous_path[512];
+    char current_tmp_path[512];
+    char recovery_path[512];
+    char recovery_tmp_path[512];
+
+    if (flip_save_test_build_path(context, ".sav", current_path, sizeof(current_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.prev", previous_path, sizeof(previous_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.tmp", current_tmp_path, sizeof(current_tmp_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.recovery", recovery_path, sizeof(recovery_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.recovery.tmp", recovery_tmp_path, sizeof(recovery_tmp_path)) < 0)
+        return -1;
+
+    if (inspect_candidate(previous_path, memory_size) != FLIP_SAVE_CANDIDATE_VALID)
+        return -1;
+
+    flip_save_candidate_result_t current = inspect_candidate(current_path, memory_size);
+    if (current == FLIP_SAVE_CANDIDATE_INVALID || current == FLIP_SAVE_CANDIDATE_ERROR)
+        return -1;
+
+    if (current == FLIP_SAVE_CANDIDATE_VALID) {
+        if (copy_synced_file(
+                current_path,
+                recovery_tmp_path,
+                recovery_path,
+                memory_size) < 0)
+            return -1;
+    } else {
+        unlink(recovery_tmp_path);
+        unlink(recovery_path);
+    }
+
+    if (copy_synced_file(
+            previous_path,
+            current_tmp_path,
+            current_path,
+            memory_size) < 0)
+        return -1;
+
+    fprintf(stderr, "FLIP_SAVE: RESTORE_PREVIOUS_OK size=%zu\n", memory_size);
+    return 0;
+}
+
+int flip_save_restore_recovery(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context)
+{
+    if (!core || !context)
+        return -1;
+
+    size_t memory_size = flip_core_save_memory_size(core);
+    if (memory_size == 0 || ensure_save_directories(context) < 0)
+        return -1;
+
+    char current_path[512];
+    char previous_path[512];
+    char current_tmp_path[512];
+    char previous_tmp_path[512];
+    char recovery_path[512];
+
+    if (flip_save_test_build_path(context, ".sav", current_path, sizeof(current_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.prev", previous_path, sizeof(previous_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.tmp", current_tmp_path, sizeof(current_tmp_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.prev.tmp", previous_tmp_path, sizeof(previous_tmp_path)) < 0 ||
+        flip_save_test_build_path(context, ".sav.recovery", recovery_path, sizeof(recovery_path)) < 0)
+        return -1;
+
+    if (inspect_candidate(recovery_path, memory_size) != FLIP_SAVE_CANDIDATE_VALID)
+        return -1;
+
+    flip_save_candidate_result_t current = inspect_candidate(current_path, memory_size);
+    if (current == FLIP_SAVE_CANDIDATE_INVALID || current == FLIP_SAVE_CANDIDATE_ERROR)
+        return -1;
+
+    if (current == FLIP_SAVE_CANDIDATE_VALID) {
+        if (copy_synced_file(
+                current_path,
+                previous_tmp_path,
+                previous_path,
+                memory_size) < 0)
+            return -1;
+    }
+
+    if (copy_synced_file(
+            recovery_path,
+            current_tmp_path,
+            current_path,
+            memory_size) < 0)
+        return -1;
+
+    fprintf(stderr, "FLIP_SAVE: RESTORE_RECOVERY_OK size=%zu\n", memory_size);
     return 0;
 }
