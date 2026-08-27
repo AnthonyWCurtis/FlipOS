@@ -79,13 +79,41 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-save test-recovery test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
 frontend: $(BUILD)/flip-frontend
 
 gb: $(BUILD)/flip-gb
+
+verify:
+	@log=/tmp/flipos-verify.log; \
+	if ( \
+		$(MAKE) test-controls && \
+		$(MAKE) test-timing && \
+		$(MAKE) test-audio && \
+		$(MAKE) test-audio-resampler && \
+		$(MAKE) test-lifecycle && \
+		$(MAKE) test-core && \
+		$(MAKE) test-core-host && \
+		$(MAKE) test-state && \
+		$(MAKE) test-state-recovery-health && \
+		$(MAKE) test-save && \
+		$(MAKE) test-recovery && \
+		$(MAKE) test-session-save-safety && \
+		$(MAKE) test-perf-diag && \
+		$(MAKE) test-telemetry && \
+		$(MAKE) test-architecture && \
+		$(MAKE) all && \
+		git diff --check \
+	) >$$log 2>&1; then \
+		echo "VERIFY: PASS"; \
+	else \
+		echo "VERIFY: FAIL"; \
+		tail -40 $$log; \
+		exit 1; \
+	fi
 
 test-controls: $(BUILD)/test-flip-controls
 	$(BUILD)/test-flip-controls
@@ -111,12 +139,18 @@ test-core-host: $(BUILD)/test-flip-core-host
 test-state: $(BUILD)/test-flip-state
 	$(BUILD)/test-flip-state
 
+test-state-recovery-health: $(BUILD)/test-flip-state-recovery-health
+	$(BUILD)/test-flip-state-recovery-health
+
 test-save: $(BUILD)/test-flip-save
 	$(BUILD)/test-flip-save
 
 test-recovery: $(BUILD)/test-flip-recovery $(BUILD)/test-flip-recovery-transactions
 	$(BUILD)/test-flip-recovery
 	$(BUILD)/test-flip-recovery-transactions
+
+test-session-save-safety: $(BUILD)/test-flip-session-adapter-save-safety
+	$(BUILD)/test-flip-session-adapter-save-safety
 
 test-perf-diag: $(BUILD)/test-flip-perf-diag
 	$(BUILD)/test-flip-perf-diag
@@ -134,6 +168,8 @@ test-architecture:
 	python3 tests/test_gambatte_save_memory_architecture.py
 	python3 tests/test_recovery_architecture.py
 	python3 tests/test_frontend_save_safety_architecture.py
+	python3 tests/test_save_safety_management_architecture.py
+	python3 tests/test_verify_target_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -180,6 +216,12 @@ $(BUILD)/test-flip-state: tests/test_flip_state.c src/runtime/flip_state.c src/r
 		tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-flip-state-recovery-health: tests/test_flip_state_recovery_health.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' -Iinclude \
+		tests/test_flip_state_recovery_health.c src/runtime/flip_state.c src/runtime/flip_core.c \
+		-o $@
+
 $(BUILD)/test-flip-save: tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c include/flip_save.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-DFLIP_SAVE_ROOT='"/tmp/flipos-save-test"' -Iinclude \
@@ -201,6 +243,13 @@ $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.
 		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' \
 		-DFLIP_SESSION_RECOVERY_ROOT='"/tmp/flipos-recovery-test"' -Iinclude \
 		tests/test_flip_recovery_transactions.c src/runtime/flip_recovery.c \
+		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
+		-o $@
+
+$(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_save_safety.c src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_session_adapter.h include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_session_adapter_save_safety.c \
+		src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c \
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
@@ -357,8 +406,10 @@ clean:
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
 		$(BUILD)/test-flip-state \
+		$(BUILD)/test-flip-state-recovery-health \
 		$(BUILD)/test-flip-save \
 		$(BUILD)/test-flip-recovery \
 		$(BUILD)/test-flip-recovery-transactions \
+		$(BUILD)/test-flip-session-adapter-save-safety \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
