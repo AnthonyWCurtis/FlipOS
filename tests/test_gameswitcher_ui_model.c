@@ -1,4 +1,5 @@
 #include "flip_gameswitcher_ui.h"
+#include "flip_frontend_global_controls.h"
 #include "flip_session_manager.h"
 #include "flip_input.h"
 
@@ -306,6 +307,33 @@ static void test_non_resumable_session_blocks_resume_but_allows_close(void)
 
     flip_gameswitcher_model_free(
         &model);
+}
+
+
+/*
+ * This is a headless GameSwitcher model test. Hardware-global
+ * controls are tested separately; provide inert linkage here.
+ */
+void flip_frontend_global_controls_init(
+    flip_frontend_global_controls_t *controls)
+{
+    if (controls)
+        memset(controls, 0, sizeof(*controls));
+}
+
+int flip_frontend_global_controls_handle(
+    flip_frontend_global_controls_t *controls,
+    const flip_input_state_t *input,
+    flip_frontend_global_controls_result_t *result)
+{
+    (void)controls;
+    (void)input;
+
+    if (!result)
+        return -1;
+
+    memset(result, 0, sizeof(*result));
+    return 0;
 }
 
 int main(void)

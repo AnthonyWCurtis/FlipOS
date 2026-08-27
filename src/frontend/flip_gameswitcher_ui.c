@@ -1,4 +1,6 @@
 #include "flip_gameswitcher_ui.h"
+#include "flip_frontend_global_controls.h"
+#include "flip_lifecycle.h"
 #include "flip_draw.h"
 #include "flip_input.h"
 #include "flip_session_manager.h"
@@ -422,6 +424,12 @@ int flip_gameswitcher_run(
     int prev_b = 0;
     int prev_x = 0;
 
+    flip_frontend_global_controls_t
+        global_controls;
+
+    flip_frontend_global_controls_init(
+        &global_controls);
+
     draw_gameswitcher(
         drm,
         &model,
@@ -464,6 +472,32 @@ int flip_gameswitcher_run(
                 FLIP_BTN_X];
 
         int redraw = 0;
+
+        flip_frontend_global_controls_result_t
+            global_result;
+
+        if (flip_frontend_global_controls_handle(
+                &global_controls,
+                &state,
+                &global_result) < 0) {
+
+            fprintf(
+                stderr,
+                "GAMESWITCHER: global controls failed\n");
+        }
+
+        if (global_result.redraw)
+            redraw = 1;
+
+        if (global_result.shutdown_requested) {
+
+            /*
+             * Successful power-off does not return. If reboot()
+             * fails, remain in GameSwitcher rather than pretending
+             * the user requested a navigation action.
+             */
+            redraw = 1;
+        }
 
         if (up &&
             !prev_up) {

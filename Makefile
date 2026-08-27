@@ -37,6 +37,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_power.o
 
 FRONTEND_OBJS := \
+	$(BUILD)/flip_frontend_global_controls.o \
 	$(BUILD)/flip_frontend.o \
         $(BUILD)/flip_gameswitcher_ui.o \
 	$(BUILD)/flip_save_safety_ui.o \
@@ -82,7 +83,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-session-manager-recovery test-perf-diag test-telemetry test-architecture clean clean-objects test-gameswitcher-ui test-game-data-reset
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-session-manager-recovery test-perf-diag test-telemetry test-architecture clean clean-objects test-gameswitcher-ui test-game-data-reset test-frontend-global-controls
 
 all: frontend gb
 
@@ -108,6 +109,7 @@ verify:
 		$(MAKE) test-session-manager && \
 		$(MAKE) test-session-manager-recovery && \
 		$(MAKE) test-gameswitcher-ui && \
+		$(MAKE) test-frontend-global-controls && \
 	$(MAKE) test-game-data-reset && \
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
@@ -168,6 +170,9 @@ test-session-manager-recovery: $(BUILD)/test-session-manager-recovery
 test-gameswitcher-ui: $(BUILD)/test-gameswitcher-ui-model
 	$(BUILD)/test-gameswitcher-ui-model
 
+test-frontend-global-controls: $(BUILD)/test-frontend-global-controls
+	$(BUILD)/test-frontend-global-controls
+
 test-game-data-reset: $(BUILD)/test-game-data-reset $(BUILD)/test-game-data-reset-rollback
 	$(BUILD)/test-game-data-reset
 	$(BUILD)/test-game-data-reset-rollback
@@ -194,6 +199,7 @@ test-architecture:
 	python3 tests/test_frontend_save_safety_architecture.py
 	python3 tests/test_save_safety_management_architecture.py
 	python3 tests/test_game_data_reset_architecture.py
+	python3 tests/test_frontend_global_controls_architecture.py
 	python3 tests/test_verify_target_architecture.py
 
 $(BUILD):
@@ -271,6 +277,13 @@ $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-frontend-global-controls: tests/test_frontend_global_controls.c src/frontend/flip_frontend_global_controls.c include/flip_frontend_global_controls.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-Iinclude \
+		tests/test_frontend_global_controls.c \
+		src/frontend/flip_frontend_global_controls.c \
+		-o $@
+
 $(BUILD)/test-gameswitcher-ui-model: tests/test_gameswitcher_ui_model.c src/frontend/flip_gameswitcher_ui.c include/flip_gameswitcher_ui.h include/flip_session_manager.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude 		tests/test_gameswitcher_ui_model.c 		src/frontend/flip_gameswitcher_ui.c 		-o $@
 
@@ -324,6 +337,9 @@ $(BUILD)/test-flip-telemetry: tests/test_flip_telemetry.c src/runtime/flip_telem
 		-o $@ -lm
 
 $(BUILD)/flip_game_data.o: src/runtime/flip_game_data.c include/flip_game_data.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_frontend_global_controls.o: src/frontend/flip_frontend_global_controls.c include/flip_frontend_global_controls.h include/flip_hotkeys.h include/flip_input.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_gameswitcher_ui.o: src/frontend/flip_gameswitcher_ui.c include/flip_gameswitcher_ui.h include/flip_session_manager.h include/flip_draw.h include/flip_input.h | $(BUILD)
