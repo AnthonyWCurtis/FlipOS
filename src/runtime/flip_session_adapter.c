@@ -88,18 +88,89 @@ gb_resume_available(
         R_OK) == 0;
 }
 
+static int
+gb_supports_save_safety(void)
+{
+    return 1;
+}
+
+static int
+gb_build_start_normal_argv(
+    const char *runner,
+    const char *rom_path,
+    char **argv,
+    size_t argv_count)
+{
+    if (!runner ||
+        !runner[0] ||
+        !rom_path ||
+        !rom_path[0] ||
+        !argv ||
+        argv_count < 4) {
+        return -1;
+    }
+
+    argv[0] = (char *)runner;
+    argv[1] = (char *)rom_path;
+    argv[2] = (char *)"--no-resume";
+    argv[3] = NULL;
+    return 0;
+}
+
+static int
+gb_build_save_safety_argv(
+    const char *runner,
+    const char *rom_path,
+    const char *action,
+    char **argv,
+    size_t argv_count)
+{
+    if (!runner ||
+        !runner[0] ||
+        !rom_path ||
+        !rom_path[0] ||
+        !action ||
+        !argv ||
+        argv_count < 4) {
+        return -1;
+    }
+
+    const char *flag = NULL;
+
+    if (strcmp(action, "status") == 0)
+        flag = "--save-safety-status";
+    else if (strcmp(action, "restore-previous") == 0)
+        flag = "--restore-previous-save";
+    else if (strcmp(action, "undo") == 0)
+        flag = "--undo-last-restore";
+    else
+        return -1;
+
+    argv[0] = (char *)runner;
+    argv[1] = (char *)rom_path;
+    argv[2] = (char *)flag;
+    argv[3] = NULL;
+    return 0;
+}
+
 static const flip_session_adapter_t
 gb_session_adapter = {
     .system = "GB",
     .map_exit_code = gb_map_exit_code,
-    .resume_available = gb_resume_available
+    .resume_available = gb_resume_available,
+    .supports_save_safety = gb_supports_save_safety,
+    .build_start_normal_argv = gb_build_start_normal_argv,
+    .build_save_safety_argv = gb_build_save_safety_argv
 };
 
 static const flip_session_adapter_t
 gbc_session_adapter = {
     .system = "GBC",
     .map_exit_code = gb_map_exit_code,
-    .resume_available = gb_resume_available
+    .resume_available = gb_resume_available,
+    .supports_save_safety = gb_supports_save_safety,
+    .build_start_normal_argv = gb_build_start_normal_argv,
+    .build_save_safety_argv = gb_build_save_safety_argv
 };
 
 const flip_session_adapter_t *
