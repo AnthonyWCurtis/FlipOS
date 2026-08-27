@@ -104,7 +104,8 @@ int flip_gameswitcher_model_can_close(
 static void draw_gameswitcher(
     flip_drm_t *drm,
     const flip_gameswitcher_model_t *model,
-    size_t selected)
+    size_t selected,
+    int confirm_close)
 {
     size_t count =
         flip_gameswitcher_model_count(
@@ -287,6 +288,46 @@ static void draw_gameswitcher(
         1,
         GS_DIM);
 
+    if (confirm_close) {
+
+        flip_draw_rect(
+            drm,
+            115,
+            365,
+            410,
+            76,
+            GS_PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            115,
+            365,
+            410,
+            76,
+            1,
+            GS_FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "CLOSE SESSION?",
+                2),
+            382,
+            "CLOSE SESSION?",
+            2,
+            GS_FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "A CONFIRM   B CANCEL",
+                1),
+            418,
+            "A CONFIRM   B CANCEL",
+            1,
+            GS_DIM);
+    }
+
     flip_drm_present(
         drm);
 }
@@ -366,6 +407,7 @@ int flip_gameswitcher_run(
     }
 
     size_t selected = 0;
+    int confirm_close = 0;
 
     flip_input_state_t state;
 
@@ -383,7 +425,8 @@ int flip_gameswitcher_run(
     draw_gameswitcher(
         drm,
         &model,
-        selected);
+        selected,
+        confirm_close);
 
     for (;;) {
 
@@ -447,21 +490,38 @@ int flip_gameswitcher_run(
         if (b &&
             !prev_b) {
 
-            flip_gameswitcher_model_free(
-                &model);
+            if (confirm_close) {
 
-            result->action =
-                FLIP_GAMESWITCHER_BACK;
+                confirm_close = 0;
+                redraw = 1;
 
-            return 0;
+            } else {
+
+                flip_gameswitcher_model_free(
+                    &model);
+
+                result->action =
+                    FLIP_GAMESWITCHER_BACK;
+
+                return 0;
+            }
         }
 
         if (x &&
             !prev_x &&
+            !confirm_close &&
             selected < count &&
             flip_gameswitcher_model_can_close(
                 &model,
                 selected)) {
+
+            confirm_close = 1;
+            redraw = 1;
+        }
+
+        if (a &&
+            !prev_a &&
+            confirm_close) {
 
             const flip_retained_session_t *session =
                 flip_gameswitcher_model_session_at(
@@ -519,7 +579,8 @@ int flip_gameswitcher_run(
             draw_gameswitcher(
                 drm,
                 &model,
-                selected);
+                selected,
+                confirm_close);
         }
 
         prev_up = up;

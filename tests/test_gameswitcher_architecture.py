@@ -142,9 +142,20 @@ if resume_start < 0:
     print("GameSwitcher frontend delegation missing")
     raise SystemExit(1)
 
+resume_end = frontend.find(
+    "draw_games(",
+    resume_start
+)
+
+if resume_end < 0:
+    print(
+        "GameSwitcher frontend resume boundary missing"
+    )
+    raise SystemExit(1)
+
 resume_window = frontend[
     resume_start:
-    min(len(frontend), resume_start + 2600)
+    resume_end
 ]
 
 resume_requirements = [
@@ -248,6 +259,126 @@ if "selected" not in resume_guard_window:
     print(
         "GameSwitcher Resume availability guard does not "
         "apply to selected session"
+    )
+    raise SystemExit(1)
+
+
+# Task 7 stage 1: Close Session must be explicitly confirmed
+# before a CLOSE result reaches the frontend.
+if "FLIP_GAMESWITCHER_CLOSE" not in frontend:
+    print(
+        "frontend does not handle GameSwitcher Close result"
+    )
+    raise SystemExit(1)
+
+for token in [
+    "CLOSE SESSION?",
+    "A CONFIRM",
+    "B CANCEL",
+]:
+    if token not in source_text:
+        print(
+            "GameSwitcher close confirmation missing: "
+            f"{token}"
+        )
+        raise SystemExit(1)
+
+# Mutation belongs to the next Task 7 slice.
+if "flip_session_manager_remove(" in source_text:
+    print(
+        "GameSwitcher UI must not remove session metadata directly"
+    )
+    raise SystemExit(1)
+
+
+# Task 7 stage 2: confirmed Close may remove only Session Manager
+# metadata; save/state/recovery deletion APIs are forbidden.
+close_result_pos = frontend.find(
+    "FLIP_GAMESWITCHER_CLOSE"
+)
+
+close_window = frontend[
+    close_result_pos:
+    min(len(frontend), close_result_pos + 2200)
+]
+
+if "flip_session_manager_remove(" not in close_window:
+    print(
+        "confirmed GameSwitcher Close does not remove session metadata"
+    )
+    raise SystemExit(1)
+
+for forbidden in [
+    "flip_save_",
+    "flip_state_",
+    "flip_recovery_",
+    ".sav",
+    ".state",
+    ".prev",
+    ".recovery",
+    ".restore-pending",
+]:
+    if forbidden in close_window:
+        print(
+            "GameSwitcher Close crosses metadata-only boundary: "
+            f"{forbidden}"
+        )
+        raise SystemExit(1)
+
+
+# Task 7 stage 3: after confirmed Close, the frontend must
+# loop back through GameSwitcher so its model refreshes.
+close_result_pos = frontend.find(
+    "FLIP_GAMESWITCHER_CLOSE"
+)
+
+resume_result_pos = frontend.find(
+    "FLIP_GAMESWITCHER_RESUME",
+    close_result_pos
+)
+
+if close_result_pos < 0 or resume_result_pos < 0:
+    print(
+        "GameSwitcher Close/Resume frontend boundary missing"
+    )
+    raise SystemExit(1)
+
+close_branch = frontend[
+    close_result_pos:
+    resume_result_pos
+]
+
+remove_pos = close_branch.find(
+    "flip_session_manager_remove("
+)
+
+continue_pos = close_branch.find(
+    "continue;"
+)
+
+if not (
+    0 <= remove_pos < continue_pos
+):
+    print(
+        "confirmed GameSwitcher Close does not refresh via loop"
+    )
+    raise SystemExit(1)
+
+run_pos = frontend.rfind(
+    "flip_gameswitcher_run(",
+    0,
+    close_result_pos
+)
+
+loop_pos = frontend.rfind(
+    "for (;;)",
+    0,
+    run_pos
+)
+
+if loop_pos < 0:
+    print(
+        "GameSwitcher frontend delegation is not refreshable"
     )
     raise SystemExit(1)
 

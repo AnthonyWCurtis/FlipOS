@@ -652,8 +652,57 @@ static void test_touch_moves_session_to_most_recent(void)
     unlink(newer);
 }
 
+
+static void test_remove_preserves_other_retained_session(void)
+{
+    const char *first =
+        "/tmp/flipos-session-manager-remove-first.gb";
+
+    const char *second =
+        "/tmp/flipos-session-manager-remove-second.gb";
+
+    reset_root();
+
+    assert(
+        flip_session_manager_record(
+            "GB",
+            first,
+            FLIP_RETAINED_SESSION_SUSPENDED,
+            100) == 0);
+
+    assert(
+        flip_session_manager_record(
+            "GB",
+            second,
+            FLIP_RETAINED_SESSION_SUSPENDED,
+            200) == 0);
+
+    assert(
+        flip_session_manager_remove(
+            "GB",
+            first) == 1);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(
+        flip_session_manager_load(
+            &list) == 0);
+
+    assert(list.count == 1);
+
+    assert(
+        strcmp(
+            list.items[0].rom,
+            second) == 0);
+
+    flip_session_manager_list_free(
+        &list);
+}
+
 int main(void)
 {
+    test_remove_preserves_other_retained_session();
     test_touch_moves_session_to_most_recent();
     test_empty_registry();
     test_record_round_trip_and_frozen_identity();

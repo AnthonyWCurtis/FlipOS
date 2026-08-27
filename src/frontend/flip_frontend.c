@@ -2852,20 +2852,50 @@ int main(void)
 
                 if (game_result == FLIP_SESSION_ACTION_SUSPEND) {
 
-                    flip_gameswitcher_result_t
-                        gameswitcher_result;
+                    for (;;) {
 
-                    fprintf(
-                        stderr,
-                        "FRONTEND_GAMESWITCHER entered\n");
-
-                    if (flip_gameswitcher_run(
-                            &drm,
-                            &gameswitcher_result) < 0) {
+                        flip_gameswitcher_result_t
+                            gameswitcher_result;
 
                         fprintf(
                             stderr,
-                            "FRONTEND_GAMESWITCHER failed\n");
+                            "FRONTEND_GAMESWITCHER entered\n");
+
+                        if (flip_gameswitcher_run(
+                            &drm,
+                            &gameswitcher_result) < 0) {
+
+                            fprintf(
+                                stderr,
+                                "FRONTEND_GAMESWITCHER failed\n");
+
+                            break;
+
+                        } else if (
+                        gameswitcher_result.action ==
+                        FLIP_GAMESWITCHER_CLOSE) {
+
+                        int remove_result =
+                            flip_session_manager_remove(
+                                gameswitcher_result.system,
+                                gameswitcher_result.rom);
+
+                        if (remove_result < 0) {
+
+                            fprintf(
+                                stderr,
+                                "FRONTEND_GAMESWITCHER close remove failed rom=%s\n",
+                                gameswitcher_result.rom);
+
+                        } else {
+
+                            fprintf(
+                                stderr,
+                                "FRONTEND_GAMESWITCHER close removed rom=%s\n",
+                                gameswitcher_result.rom);
+                        }
+
+                        continue;
 
                     } else if (
                         gameswitcher_result.action ==
@@ -2921,9 +2951,18 @@ int main(void)
                                     "FRONTEND_GAMESWITCHER resume failed\n");
                             }
                         }
+
+                        break;
                     }
 
-                    draw_games(
+                    /*
+                     * BACK / NEW GAME leave the refresh loop.
+                     * CLOSE already continues above to refresh.
+                     */
+                    break;
+                }
+
+                draw_games(
                         &drm,
                         game_system,
                         game_selected,
