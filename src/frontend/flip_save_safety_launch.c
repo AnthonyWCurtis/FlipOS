@@ -1,4 +1,5 @@
 #include "flip_save_safety_ui.h"
+#include "flip_game_data.h"
 
 #include "flip_draw.h"
 #include "flip_input.h"
@@ -131,9 +132,10 @@ static void draw_save_safety(
             FG);
     }
 
-    draw_row(drm, "RESTORE PREVIOUS SAVE", 230, selected == 0);
-    draw_row(drm, "UNDO LAST RESTORE", 282, selected == 1);
-    draw_row(drm, "BACK", 334, selected == 2);
+    draw_row(drm, "RESTORE PREVIOUS SAVE", 220, selected == 0);
+    draw_row(drm, "UNDO LAST RESTORE", 266, selected == 1);
+    draw_row(drm, "RESET GAME DATA", 312, selected == 2);
+    draw_row(drm, "BACK", 358, selected == 3);
 
     if (message && message[0]) {
         flip_draw_text(
@@ -239,9 +241,13 @@ static int confirm_action(flip_drm_t *drm, const char *title)
 static int run_save_safety_menu(
     flip_drm_t *drm,
     const flip_system_t *system,
-    const char *rom_path)
+    const char *rom_path,
+    int *reset_performed)
 {
     int selected = 0;
+
+    if (reset_performed)
+        *reset_performed = 0;
     char message[48] = "";
     flip_save_safety_status_t status;
     int status_ok = flip_save_safety_query(system, rom_path, &status) == 0;
@@ -274,24 +280,28 @@ static int run_save_safety_menu(
         int redraw = 0;
 
         if (poll_edge(&state, FLIP_BTN_UP, &prev_up)) {
-            selected = (selected + 2) % 3;
+            selected = (selected + 3) % 4;
             redraw = 1;
         }
         if (poll_edge(&state, FLIP_BTN_DOWN, &prev_down)) {
-            selected = (selected + 1) % 3;
+            selected = (selected + 1) % 4;
             redraw = 1;
         }
         if (poll_edge(&state, FLIP_BTN_B, &prev_b))
             return 0;
 
         if (poll_edge(&state, FLIP_BTN_A, &prev_a)) {
-            if (selected == 2)
+            if (selected == 3)
                 return 0;
 
             const int restore = selected == 0;
-            const char *confirm = restore
-                ? "RESTORE PREVIOUS SAVE?"
-                : "UNDO LAST RESTORE?";
+            const int reset = selected == 2;
+
+            const char *confirm = reset
+                ? "RESET ALL GAME DATA?"
+                : (restore
+                    ? "RESTORE PREVIOUS SAVE?"
+                    : "UNDO LAST RESTORE?");
 
             if (!confirm_action(drm, confirm)) {
                 wait_for_action_buttons_release();
@@ -299,16 +309,35 @@ static int run_save_safety_menu(
                 prev_up = prev_down = prev_a = prev_b = 0;
                 redraw = 1;
             } else {
-                int action_result = restore
-                    ? flip_save_safety_restore_previous(system, rom_path)
-                    : flip_save_safety_undo(system, rom_path);
+                int action_result;
+
+                if (reset) {
+                    action_result =
+                        flip_game_data_reset(
+                            system->id,
+                            rom_path);
+                } else {
+                    action_result = restore
+                        ? flip_save_safety_restore_previous(system, rom_path)
+                        : flip_save_safety_undo(system, rom_path);
+                }
 
                 if (action_result == 0) {
+                    if (reset &&
+                        reset_performed) {
+
+                        *reset_performed = 1;
+                    }
+
                     snprintf(
                         message,
                         sizeof(message),
                         "%s",
-                        restore ? "RESTORE COMPLETE" : "UNDO COMPLETE");
+                        reset
+                            ? "GAME DATA RESET"
+                            : (restore
+                                ? "RESTORE COMPLETE"
+                                : "UNDO COMPLETE"));
                 } else if (action_result > 0) {
                     snprintf(message, sizeof(message), "NOT AVAILABLE");
                 } else {
@@ -333,8 +362,13 @@ static int choose_launch_mode(
     const flip_system_t *system,
     const char *rom_path)
 {
-    const int can_resume = flip_system_resume_available(system, rom_path);
-    const int count = can_resume ? 3 : 2;
+    int can_resume =
+        flip_system_resume_available(
+            system,
+            rom_path);
+
+    int count =
+        can_resume ? 3 : 2;
     int selected = 0;
 
     wait_for_action_buttons_release();
@@ -375,8 +409,31 @@ static int choose_launch_mode(
                 return 2;
 
             if (selected == safety_index) {
-                if (run_save_safety_menu(drm, system, rom_path) < 0)
+                int reset_performed = 0;
+
+                int safety_result =
+                    run_save_safety_menu(
+                        drm,
+                        system,
+                        rom_path,
+                        &reset_performed);
+
+                if (safety_result < 0)
                     return -1;
+
+                if (reset_performed) {
+                    can_resume =
+                        flip_system_resume_available(
+                            system,
+                            rom_path);
+
+                    count =
+                        can_resume ? 3 : 2;
+
+                    if (selected >= count)
+                        selected = count - 1;
+                }
+
                 wait_for_action_buttons_release();
                 memset(&state, 0, sizeof(state));
                 prev_up = prev_down = prev_a = prev_b = 0;

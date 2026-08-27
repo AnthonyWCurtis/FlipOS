@@ -81,6 +81,50 @@ if "metadata->gameswitcher_resume" not in FRONTEND_LAUNCH:
         "Save Safety wrapper does not bypass menu for GameSwitcher resume"
     )
 
+
+
+# Reset Game Data must be exposed through Save Safety, but the frontend
+# must delegate persistence ownership to the runtime API.
+if '"flip_game_data.h"' not in FRONTEND_LAUNCH:
+    errors.append(
+        "Save Safety frontend missing game-data reset API"
+    )
+
+if "flip_game_data_reset(" not in FRONTEND_LAUNCH:
+    errors.append(
+        "Save Safety frontend missing Reset Game Data action"
+    )
+
+for token in [
+    "RESET GAME DATA",
+    "RESET ALL GAME DATA?",
+]:
+    if token not in FRONTEND_LAUNCH:
+        errors.append(
+            f"Save Safety reset confirmation UX missing: {token}"
+        )
+
+
+
+# A successful game-data reset can remove the current resume state.
+# Returning to GAME OPTIONS must therefore refresh resume availability;
+# it must not keep the pre-reset can_resume decision.
+for token in [
+    "reset_performed",
+    "int safety_result",
+]:
+    if token not in FRONTEND_LAUNCH:
+        errors.append(
+            f"Save Safety reset does not refresh launch options: {token}"
+        )
+
+if FRONTEND_LAUNCH.count(
+    "flip_system_resume_available("
+) < 2:
+    errors.append(
+        "Save Safety reset does not refresh resume availability"
+    )
+
 required_makefile = [
     "flip_save_safety_ui.o",
     "flip_save_safety_launch.o",
