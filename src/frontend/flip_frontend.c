@@ -12,6 +12,7 @@
 #include "flip_system.h"
 #include "flip_library.h"
 #include "flip_power.h"
+#include "flip_frontend_present.h"
 
 #include <stdint.h>
 #include <ctype.h>
@@ -1102,10 +1103,7 @@ static int load_system_roms(
          * filesystem work begins, otherwise a fast rebuild
          * could complete before the user ever sees it.
          */
-        flip_osd_draw(
-            drm);
-
-        flip_drm_present(
+        flip_frontend_present(
             drm);
     }
 
@@ -1265,10 +1263,8 @@ static void draw_home(
      * feedback appears consistently over every frontend
      * screen.
      */
-    flip_osd_draw(
+    flip_frontend_present(
         drm);
-
-    flip_drm_present(drm);
 }
 
 
@@ -1400,10 +1396,8 @@ static void draw_systems(
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    flip_osd_draw(
+    flip_frontend_present(
         drm);
-
-    flip_drm_present(drm);
 }
 
 static void draw_games(
@@ -1566,10 +1560,8 @@ static void draw_games(
      * feedback appears consistently over every frontend
      * screen.
      */
-    flip_osd_draw(
+    flip_frontend_present(
         drm);
-
-    flip_drm_present(drm);
 }
 
 static void draw_recent(
@@ -1842,10 +1834,8 @@ static void draw_recent(
      * feedback appears consistently over every frontend
      * screen.
      */
-    flip_osd_draw(
+    flip_frontend_present(
         drm);
-
-    flip_drm_present(drm);
 }
 
 static int launch_game_once(
@@ -2900,7 +2890,7 @@ int main(void)
                     1,
                     DIM);
 
-                flip_drm_present(
+                flip_frontend_present(
                     &drm);
 
                 if (launch_game(
@@ -2978,7 +2968,7 @@ int main(void)
                     1,
                     DIM);
 
-                flip_drm_present(
+                flip_frontend_present(
                     &drm);
 
                 int game_result =

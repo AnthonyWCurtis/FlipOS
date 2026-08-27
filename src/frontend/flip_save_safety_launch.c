@@ -1,4 +1,5 @@
 #include "flip_save_safety_ui.h"
+#include "flip_frontend_present.h"
 #include "flip_game_data.h"
 
 #include "flip_draw.h"
@@ -78,7 +79,7 @@ static void draw_action_menu(
         "A SELECT   B BACK",
         1,
         DIM);
-    flip_drm_present(drm);
+    flip_frontend_present(drm);
 }
 
 static const char *undo_state_name(
@@ -154,7 +155,7 @@ static void draw_save_safety(
         "A SELECT   B BACK",
         1,
         DIM);
-    flip_drm_present(drm);
+    flip_frontend_present(drm);
 }
 
 static void draw_confirmation(
@@ -185,7 +186,7 @@ static void draw_confirmation(
         "A CONFIRM   B CANCEL",
         1,
         DIM);
-    flip_drm_present(drm);
+    flip_frontend_present(drm);
 }
 
 static int poll_edge(

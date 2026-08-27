@@ -37,6 +37,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_power.o
 
 FRONTEND_OBJS := \
+	$(BUILD)/flip_frontend_present.o \
 	$(BUILD)/flip_frontend_global_controls.o \
 	$(BUILD)/flip_frontend.o \
         $(BUILD)/flip_gameswitcher_ui.o \
@@ -200,6 +201,7 @@ test-architecture:
 	python3 tests/test_save_safety_management_architecture.py
 	python3 tests/test_game_data_reset_architecture.py
 	python3 tests/test_frontend_global_controls_architecture.py
+	python3 tests/test_frontend_global_osd_architecture.py
 	python3 tests/test_verify_target_architecture.py
 
 $(BUILD):
@@ -337,6 +339,9 @@ $(BUILD)/test-flip-telemetry: tests/test_flip_telemetry.c src/runtime/flip_telem
 		-o $@ -lm
 
 $(BUILD)/flip_game_data.o: src/runtime/flip_game_data.c include/flip_game_data.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_frontend_present.o: src/frontend/flip_frontend_present.c include/flip_frontend_present.h include/flip_osd.h include/flip_drm.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_frontend_global_controls.o: src/frontend/flip_frontend_global_controls.c include/flip_frontend_global_controls.h include/flip_hotkeys.h include/flip_input.h | $(BUILD)

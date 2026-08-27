@@ -99,7 +99,7 @@ interactive_requirements = [
     '#include "flip_input.h"',
     "flip_draw_clear(",
     "flip_draw_text(",
-    "flip_drm_present(",
+    "flip_frontend_present(",
     "flip_input_poll(",
     "FLIP_BTN_UP",
     "FLIP_BTN_DOWN",
@@ -107,6 +107,12 @@ interactive_requirements = [
     "FLIP_BTN_B",
     '"+ NEW GAME"',
 ]
+
+if "flip_drm_present(" in source_text:
+    print(
+        "GameSwitcher bypasses shared frontend presentation"
+    )
+    raise SystemExit(1)
 
 for token in interactive_requirements:
     if token not in source_text:

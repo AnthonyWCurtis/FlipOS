@@ -1,5 +1,6 @@
 #include "flip_gameswitcher_ui.h"
 #include "flip_frontend_global_controls.h"
+#include "flip_frontend_present.h"
 #include "flip_session_manager.h"
 #include "flip_input.h"
 
@@ -309,6 +310,20 @@ static void test_non_resumable_session_blocks_resume_but_allows_close(void)
         &model);
 }
 
+
+
+/*
+ * Headless presentation stub.
+ *
+ * The model test has no DRM/OSD stack; production presentation
+ * behavior is covered by the frontend architecture/build tests.
+ */
+int flip_frontend_present(
+    flip_drm_t *drm)
+{
+    (void)drm;
+    return 0;
+}
 
 /*
  * This is a headless GameSwitcher model test. Hardware-global

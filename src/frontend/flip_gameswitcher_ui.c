@@ -1,4 +1,5 @@
 #include "flip_gameswitcher_ui.h"
+#include "flip_frontend_present.h"
 #include "flip_frontend_global_controls.h"
 #include "flip_lifecycle.h"
 #include "flip_draw.h"
@@ -330,7 +331,7 @@ static void draw_gameswitcher(
             GS_DIM);
     }
 
-    flip_drm_present(
+    flip_frontend_present(
         drm);
 }
 
