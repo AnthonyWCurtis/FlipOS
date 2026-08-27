@@ -13,6 +13,10 @@ static const char *events[64];
 static int event_count;
 static int restore_result;
 static int resume_calls;
+static int commit_save_result;
+static int save_state_result;
+static int persistence_complete_result;
+static int persistence_complete_calls;
 
 static void event(const char *name)
 {
@@ -138,7 +142,7 @@ static int save_state(
     (void)core;
     (void)userdata;
     event("save_state");
-    return 0;
+    return save_state_result;
 }
 
 static int restore_state(
@@ -168,7 +172,15 @@ static int commit_save(
     (void)core;
     (void)userdata;
     event("commit_save");
-    return 0;
+    return commit_save_result;
+}
+
+static int persistence_complete(void *userdata)
+{
+    (void)userdata;
+    persistence_complete_calls++;
+    event("persistence_complete");
+    return persistence_complete_result;
 }
 
 /* Production-host dependencies are replaced by link-time test stubs. */
@@ -370,8 +382,9 @@ int flip_lifecycle_handle(
     event("life_after");
 
     if (actions->exit_requested) {
-        if (save_fn)
-            assert(save_fn(userdata) == 0);
+        int save_result = save_fn ? save_fn(userdata) : 0;
+        if (save_result < 0)
+            return -1;
 
         result->reason = FLIP_LIFECYCLE_REASON_EXIT;
         result->should_exit = 1;
@@ -402,6 +415,10 @@ static void reset_test(void)
     event_count = 0;
     restore_result = 0;
     resume_calls = 0;
+    commit_save_result = 0;
+    save_state_result = 0;
+    persistence_complete_result = 0;
+    persistence_complete_calls = 0;
 }
 
 static void assert_before(const char *first, const char *second)
@@ -426,6 +443,8 @@ static flip_core_host_config_t make_config(flip_core_adapter_t *core)
         .load_save = load_save,
         .commit_save = commit_save,
         .save_userdata = NULL,
+        .persistence_complete = persistence_complete,
+        .persistence_userdata = NULL,
     };
 
     return config;
@@ -457,9 +476,11 @@ static void test_host_owns_frame_order_and_exit_code(void)
     assert_before("timing_record", "life_after");
     assert_before("life_after", "commit_save");
     assert_before("commit_save", "save_state");
-    assert_before("save_state", "core_unload");
+    assert_before("save_state", "persistence_complete");
+    assert_before("persistence_complete", "core_unload");
     assert_before("core_unload", "core_deinit");
     assert_before("core_deinit", "shutdown");
+    assert(persistence_complete_calls == 1);
 }
 
 static void test_resume_resync_only_after_actual_restore(void)
@@ -490,10 +511,45 @@ static void test_resume_resync_only_after_actual_restore(void)
     assert_before("resume", "poll");
 }
 
+static void test_completion_not_called_when_cartridge_commit_fails(void)
+{
+    reset_test();
+    commit_save_result = -1;
+
+    fake_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    flip_core_adapter_t core = make_core(&fake);
+    flip_core_host_config_t config = make_config(&core);
+    int exit_code = -1;
+
+    assert(flip_core_host_run(&config, &exit_code) < 0);
+    assert(find_event("commit_save") >= 0);
+    assert(find_event("save_state") < 0);
+    assert(persistence_complete_calls == 0);
+}
+
+static void test_completion_not_called_when_state_save_fails(void)
+{
+    reset_test();
+    save_state_result = -1;
+
+    fake_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    flip_core_adapter_t core = make_core(&fake);
+    flip_core_host_config_t config = make_config(&core);
+    int exit_code = -1;
+
+    assert(flip_core_host_run(&config, &exit_code) < 0);
+    assert_before("commit_save", "save_state");
+    assert(persistence_complete_calls == 0);
+}
+
 int main(void)
 {
     test_host_owns_frame_order_and_exit_code();
     test_resume_resync_only_after_actual_restore();
+    test_completion_not_called_when_cartridge_commit_fails();
+    test_completion_not_called_when_state_save_fails();
 
     puts("flip_core_host tests passed");
     return 0;
