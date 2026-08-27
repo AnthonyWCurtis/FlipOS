@@ -507,6 +507,161 @@ static void test_refresh_deduplicates_same_system_and_rom(void)
 }
 
 
+
+
+static void test_prune_removes_wrong_hash_session_file(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-wrong-hash.gb";
+
+    reset_root();
+
+    FILE *rom_file = fopen(
+        rom,
+        "w");
+
+    assert(rom_file != NULL);
+    assert(fputs(
+        "fixture\n",
+        rom_file) >= 0);
+    assert(fclose(rom_file) == 0);
+
+    char system_dir[1024];
+
+    int written = snprintf(
+        system_dir,
+        sizeof(system_dir),
+        "%s/GB",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(system_dir));
+
+    assert(mkdir(
+        FLIP_SESSION_MANAGER_ROOT,
+        0777) == 0);
+
+    assert(mkdir(
+        system_dir,
+        0777) == 0);
+
+    /*
+     * Valid session metadata deliberately stored under the
+     * wrong filename hash.
+     */
+    char wrong_path[1024];
+
+    written = snprintf(
+        wrong_path,
+        sizeof(wrong_path),
+        "%s/GB/0000000000000001.session",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(wrong_path));
+
+    FILE *f = fopen(
+        wrong_path,
+        "w");
+
+    assert(f != NULL);
+
+    assert(fprintf(
+        f,
+        "version=1\n"
+        "system=GB\n"
+        "rom=%s\n"
+        "status=suspended\n"
+        "last_active=900\n",
+        rom) > 0);
+
+    assert(fclose(f) == 0);
+
+    assert(access(
+        wrong_path,
+        F_OK) == 0);
+
+    /*
+     * Prune must reject orphan metadata whose filename does not
+     * match the canonical ROM hash.
+     */
+    assert(
+        flip_session_manager_prune() == 0);
+
+    assert(access(
+        wrong_path,
+        F_OK) != 0);
+
+    assert(errno == ENOENT);
+
+    assert(unlink(
+        rom) == 0);
+}
+
+static void test_prune_removes_malformed_session_file(void)
+{
+    reset_root();
+
+    char system_dir[1024];
+
+    int written = snprintf(
+        system_dir,
+        sizeof(system_dir),
+        "%s/GB",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(system_dir));
+
+    assert(mkdir(
+        FLIP_SESSION_MANAGER_ROOT,
+        0777) == 0);
+
+    assert(mkdir(
+        system_dir,
+        0777) == 0);
+
+    char malformed[1024];
+
+    written = snprintf(
+        malformed,
+        sizeof(malformed),
+        "%s/broken.session",
+        system_dir);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(malformed));
+
+    FILE *f = fopen(
+        malformed,
+        "w");
+
+    assert(f != NULL);
+
+    assert(fputs(
+        "this-is-not-valid-session-metadata\n",
+        f) >= 0);
+
+    assert(fclose(f) == 0);
+
+    assert(access(
+        malformed,
+        F_OK) == 0);
+
+    /*
+     * Normal loading may ignore malformed metadata, but explicit
+     * pruning must remove it from persistent session storage.
+     */
+    assert(
+        flip_session_manager_prune() == 0);
+
+    assert(access(
+        malformed,
+        F_OK) != 0);
+
+    assert(errno == ENOENT);
+}
+
 static void test_prune_removes_invalid_metadata(void)
 {
     static const char *missing_rom =
@@ -769,6 +924,8 @@ int main(void)
     test_refresh_keeps_valid_session_without_resume();
     test_refresh_derives_resume_availability();
     test_refresh_deduplicates_same_system_and_rom();
+    test_prune_removes_wrong_hash_session_file();
+    test_prune_removes_malformed_session_file();
     test_prune_removes_invalid_metadata();
     test_refresh_reports_unreadable_system_directory();
     test_record_gameswitcher_uses_suspended_status();

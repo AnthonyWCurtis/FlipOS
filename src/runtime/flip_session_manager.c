@@ -368,7 +368,9 @@ static int compare_recent_first(const void *a, const void *b)
     return strcmp(left->rom, right->rom);
 }
 
-int flip_session_manager_load(flip_retained_session_list_t *list)
+static int load_sessions(
+    flip_retained_session_list_t *list,
+    int prune_malformed)
 {
     if (!list)
         return -1;
@@ -427,8 +429,67 @@ int flip_session_manager_load(flip_retained_session_list_t *list)
                 continue;
 
             flip_retained_session_t session;
-            if (read_session_file(path, &session) < 0)
+
+            if (read_session_file(
+                    path,
+                    &session) < 0) {
+
+                if (prune_malformed) {
+                    if (unlink(path) < 0 &&
+                        errno != ENOENT) {
+
+                        closedir(dir);
+                        closedir(root);
+                        flip_session_manager_list_free(list);
+                        return -1;
+                    }
+
+                    fprintf(
+                        stderr,
+                        "SESSION_MANAGER: PRUNE_MALFORMED path=%s\n",
+                        path);
+                }
+
                 continue;
+            }
+
+            if (prune_malformed) {
+                char canonical_path[1024];
+
+                if (build_session_path(
+                        canonical_path,
+                        sizeof(canonical_path),
+                        session.system,
+                        session.rom) < 0) {
+
+                    closedir(dir);
+                    closedir(root);
+                    flip_session_manager_list_free(list);
+                    return -1;
+                }
+
+                if (strcmp(
+                        path,
+                        canonical_path) != 0) {
+
+                    if (unlink(path) < 0 &&
+                        errno != ENOENT) {
+
+                        closedir(dir);
+                        closedir(root);
+                        flip_session_manager_list_free(list);
+                        return -1;
+                    }
+
+                    fprintf(
+                        stderr,
+                        "SESSION_MANAGER: PRUNE_WRONG_HASH path=%s canonical=%s\n",
+                        path,
+                        canonical_path);
+
+                    continue;
+                }
+            }
 
             /*
              * Session storage lives on FAT32 on the Miyoo Flip.
@@ -466,13 +527,24 @@ int flip_session_manager_load(flip_retained_session_list_t *list)
 }
 
 
+int flip_session_manager_load(
+    flip_retained_session_list_t *list)
+{
+    return load_sessions(
+        list,
+        0);
+}
+
+
 int flip_session_manager_refresh(
     flip_retained_session_list_t *list)
 {
     if (!list)
         return -1;
 
-    if (flip_session_manager_load(list) < 0)
+    if (load_sessions(
+            list,
+            0) < 0)
         return -1;
 
     size_t write_index = 0;
@@ -556,12 +628,36 @@ int flip_session_manager_prune(void)
     flip_retained_session_list_t list;
     memset(&list, 0, sizeof(list));
 
-    if (flip_session_manager_refresh(&list) < 0) {
-        flip_session_manager_list_free(&list);
+    if (load_sessions(
+            &list,
+            1) < 0) {
+
+        flip_session_manager_list_free(
+            &list);
+
         return -1;
     }
 
-    flip_session_manager_list_free(&list);
+    flip_session_manager_list_free(
+        &list);
+
+    memset(
+        &list,
+        0,
+        sizeof(list));
+
+    if (flip_session_manager_refresh(
+            &list) < 0) {
+
+        flip_session_manager_list_free(
+            &list);
+
+        return -1;
+    }
+
+    flip_session_manager_list_free(
+        &list);
+
     return 0;
 }
 
