@@ -1,0 +1,69 @@
+# Phase 6 Global UX Hardware Acceptance
+
+Hardware:
+- Miyoo Flip
+- RK3566
+- Stock kernel environment
+- SD-card FlipOS development runtime
+
+Branch:
+- phase6/gameswitcher-session-manager
+
+## Hardware-confirmed behavior
+
+### Global OSD
+
+Confirmed:
+- Volume controls function in GameSwitcher.
+- Brightness controls function in GameSwitcher.
+- Shared OSD presentation is used across FlipOS-owned frontend screens.
+- Volume and brightness feedback is visible through the shared OSD path.
+
+### Global controls
+
+Confirmed:
+- Global controls are available in GameSwitcher.
+- Save Safety now uses the same shared global-controls architecture.
+- MENU + SELECT remains the frontend power-off gesture.
+
+### Exit Game
+
+Confirmed on hardware:
+- SELECT + START no longer exits the game.
+- SELECT + START remains available as normal game input.
+- MENU + START exits the running game.
+- MENU release after the exit chord does not trigger GameSwitcher.
+
+### Global screensaver
+
+Confirmed on hardware:
+- Screensaver activates after approximately 30 seconds of frontend inactivity.
+- Screensaver displays HH:MM and FLIPOS.
+- Screensaver uses a black background.
+- Clock/FLIPOS block moves with slow DVD-style bouncing motion.
+- Motion is throttled to approximately 1 Hz.
+- Wake input is consumed and does not activate the selected frontend action.
+- Screensaver architecture is shared across frontend-owned screens.
+
+### Clock limitation
+
+Confirmed:
+- Displayed clock is currently approximately one hour behind UK local time
+  during BST.
+- Current device time presentation appears to be UTC.
+- No hard-coded offset should be added.
+- Timezone/NTP/network clock handling remains future work.
+
+## Deployed binary hashes
+
+flip-frontend:
+ce3231e1a4396e5c795d3745d353baa3c8c8f8ccc68ca00f034798df04909ba4
+
+flip-gb:
+44f3cc56be0a3cea2ce28002d736c38e3ebaa61668b65fda2abb468a4deaf929
+
+## Verification
+
+- make verify: PASS
+- local/device flip-frontend hashes: MATCH
+- local/device flip-gb hashes: MATCH
