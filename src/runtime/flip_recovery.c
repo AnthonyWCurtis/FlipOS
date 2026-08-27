@@ -216,3 +216,99 @@ int flip_recovery_clear_resume_block(
     fprintf(stderr, "FLIP_RECOVERY: RESUME_REENABLED path=%s\n", marker_path);
     return 0;
 }
+
+flip_recovery_result_t flip_recovery_restore_previous(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *save_context,
+    const flip_state_context_t *state_context,
+    const flip_recovery_context_t *recovery_context)
+{
+    if (!core || !save_context || !state_context || !recovery_context)
+        return FLIP_RECOVERY_ERROR;
+
+    if (flip_save_health(core, save_context, ".sav.prev") !=
+        FLIP_SAVE_HEALTH_HEALTHY) {
+        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS unavailable\n");
+        return FLIP_RECOVERY_NO_PREVIOUS;
+    }
+
+    /* Preserve the current state generation before switching cartridge save. */
+    if (flip_state_preserve_recovery(state_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=state-preserve\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    /* Preserve current cartridge save and activate protected previous save. */
+    if (flip_save_restore_previous(core, save_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=save-promote\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    /* Once the timeline changes, resume must remain blocked until a fresh pair exists. */
+    if (flip_recovery_block_resume(recovery_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=block-resume\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    if (flip_state_quarantine_current(state_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=state-quarantine\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS_OK\n");
+    return FLIP_RECOVERY_OK;
+}
+
+flip_recovery_result_t flip_recovery_undo(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *save_context,
+    const flip_state_context_t *state_context,
+    const flip_recovery_context_t *recovery_context)
+{
+    if (!core || !save_context || !state_context || !recovery_context)
+        return FLIP_RECOVERY_ERROR;
+
+    if (flip_save_health(core, save_context, ".sav.recovery") !=
+        FLIP_SAVE_HEALTH_HEALTHY) {
+        fprintf(stderr, "FLIP_RECOVERY: UNDO unavailable\n");
+        return FLIP_RECOVERY_NO_UNDO;
+    }
+
+    /* Keep the session blocked while changing timelines. */
+    if (flip_recovery_block_resume(recovery_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: UNDO failed stage=block-resume\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    if (flip_save_restore_recovery(core, save_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: UNDO failed stage=save-restore\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    int state_result = flip_state_restore_recovery(state_context);
+
+    if (state_result < 0) {
+        (void)flip_state_quarantine_current(state_context);
+        fprintf(stderr, "FLIP_RECOVERY: UNDO failed stage=state-restore\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    if (state_result == 0) {
+        /* Save-only undo: never leave a state from the timeline being abandoned. */
+        if (flip_state_quarantine_current(state_context) < 0) {
+            fprintf(stderr, "FLIP_RECOVERY: UNDO failed stage=state-quarantine\n");
+            return FLIP_RECOVERY_ERROR;
+        }
+
+        fprintf(stderr, "FLIP_RECOVERY: UNDO_SAVE_ONLY_OK resume=blocked\n");
+        return FLIP_RECOVERY_OK;
+    }
+
+    if (flip_recovery_clear_resume_block(recovery_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: UNDO failed stage=clear-resume-block\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
+    fprintf(stderr, "FLIP_RECOVERY: UNDO_PAIRED_OK\n");
+    return FLIP_RECOVERY_OK;
+}
