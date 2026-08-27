@@ -33,6 +33,8 @@ RUNTIME_OBJS := \
 
 FRONTEND_OBJS := \
 	$(BUILD)/flip_frontend.o \
+	$(BUILD)/flip_save_safety_ui.o \
+	$(BUILD)/flip_save_safety_launch.o \
 	$(RUNTIME_OBJS) \
 	$(COMMON_OBJS)
 
@@ -128,6 +130,7 @@ test-architecture:
 	python3 tests/test_state_manager_architecture.py
 	python3 tests/test_gambatte_save_memory_architecture.py
 	python3 tests/test_recovery_architecture.py
+	python3 tests/test_frontend_save_safety_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -211,6 +214,12 @@ $(BUILD)/test-flip-telemetry: tests/test_flip_telemetry.c src/runtime/flip_telem
 $(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_save_safety_ui.o: src/frontend/flip_save_safety_ui.c include/flip_save_safety_ui.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_save_safety_launch.o: src/frontend/flip_save_safety_launch.c include/flip_save_safety_ui.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_audio.o: src/audio/flip_audio.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -245,7 +254,7 @@ $(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Dflip_session_launch=flip_session_launch_legacy -c $< -o $@
 
 $(BUILD)/flip_recovery.o: src/runtime/flip_recovery.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
