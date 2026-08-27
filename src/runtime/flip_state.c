@@ -193,10 +193,14 @@ static int copy_atomic_file(
     }
 
     size_t got = fread(data, 1, expected_size, source);
+    int extra = fgetc(source);
     int read_error = ferror(source);
     int close_error = fclose(source);
 
-    if (got != expected_size || read_error || close_error != 0) {
+    if (got != expected_size ||
+        extra != EOF ||
+        read_error ||
+        close_error != 0) {
         free(data);
         return -1;
     }
@@ -468,4 +472,159 @@ flip_state_restore_result_t flip_state_restore(
 
     fprintf(stderr, "FLIP_STATE: RESTORE_UNUSABLE\n");
     return FLIP_STATE_RESTORE_UNUSABLE;
+}
+
+int flip_state_preserve_recovery(
+    const flip_state_context_t *context)
+{
+    if (!context || !context->system_id || !context->rom_path)
+        return -1;
+
+    if (ensure_state_directories(context) < 0)
+        return -1;
+
+    char current_path[512];
+    char recovery_path[512];
+    char recovery_tmp_path[512];
+
+    if (flip_state_test_build_path(
+            context,
+            ".state",
+            current_path,
+            sizeof(current_path)) < 0 ||
+        flip_state_test_build_path(
+            context,
+            ".state.recovery",
+            recovery_path,
+            sizeof(recovery_path)) < 0 ||
+        flip_state_test_build_path(
+            context,
+            ".state.recovery.tmp",
+            recovery_tmp_path,
+            sizeof(recovery_tmp_path)) < 0) {
+        return -1;
+    }
+
+    struct stat st;
+    if (stat(current_path, &st) < 0) {
+        if (errno != ENOENT)
+            return -1;
+
+        if (unlink(recovery_path) < 0 && errno != ENOENT)
+            return -1;
+
+        if (unlink(recovery_tmp_path) < 0 && errno != ENOENT)
+            return -1;
+
+        fprintf(stderr, "FLIP_STATE: RECOVERY_NONE\n");
+        return 0;
+    }
+
+    if (!S_ISREG(st.st_mode) || st.st_size <= 0)
+        return -1;
+
+    size_t size = (size_t)st.st_size;
+
+    if (copy_atomic_file(
+            current_path,
+            recovery_tmp_path,
+            recovery_path,
+            size) < 0) {
+        fprintf(stderr, "FLIP_STATE: RECOVERY_FAILED stage=preserve\n");
+        return -1;
+    }
+
+    fprintf(
+        stderr,
+        "FLIP_STATE: RECOVERY_OK path=%s size=%zu\n",
+        recovery_path,
+        size);
+
+    return 1;
+}
+
+int flip_state_quarantine_current(
+    const flip_state_context_t *context)
+{
+    if (!context || !context->system_id || !context->rom_path)
+        return -1;
+
+    char current_path[512];
+
+    if (flip_state_test_build_path(
+            context,
+            ".state",
+            current_path,
+            sizeof(current_path)) < 0) {
+        return -1;
+    }
+
+    if (unlink(current_path) < 0 && errno != ENOENT) {
+        fprintf(stderr, "FLIP_STATE: QUARANTINE_FAILED path=%s\n", current_path);
+        return -1;
+    }
+
+    fprintf(stderr, "FLIP_STATE: QUARANTINE_OK path=%s\n", current_path);
+    return 0;
+}
+
+int flip_state_restore_recovery(
+    const flip_state_context_t *context)
+{
+    if (!context || !context->system_id || !context->rom_path)
+        return -1;
+
+    if (ensure_state_directories(context) < 0)
+        return -1;
+
+    char current_path[512];
+    char current_tmp_path[512];
+    char recovery_path[512];
+
+    if (flip_state_test_build_path(
+            context,
+            ".state",
+            current_path,
+            sizeof(current_path)) < 0 ||
+        flip_state_test_build_path(
+            context,
+            ".state.tmp",
+            current_tmp_path,
+            sizeof(current_tmp_path)) < 0 ||
+        flip_state_test_build_path(
+            context,
+            ".state.recovery",
+            recovery_path,
+            sizeof(recovery_path)) < 0) {
+        return -1;
+    }
+
+    struct stat st;
+    if (stat(recovery_path, &st) < 0) {
+        if (errno == ENOENT)
+            return 0;
+        return -1;
+    }
+
+    if (!S_ISREG(st.st_mode) || st.st_size <= 0)
+        return 0;
+
+    size_t size = (size_t)st.st_size;
+
+    if (copy_atomic_file(
+            recovery_path,
+            current_tmp_path,
+            current_path,
+            size) < 0) {
+        fprintf(stderr, "FLIP_STATE: RECOVERY_RESTORE_FAILED\n");
+        return -1;
+    }
+
+    fprintf(
+        stderr,
+        "FLIP_STATE: RECOVERY_RESTORE_OK path=%s size=%zu\n",
+        current_path,
+        size);
+
+    return 1;
 }
