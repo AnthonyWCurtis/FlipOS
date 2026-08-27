@@ -1,6 +1,7 @@
 #include "flip_state.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -31,6 +32,12 @@ static flip_core_adapter_t make_core(fake_state_t *state)
     return core;
 }
 
+static void mkdir_if_missing(const char *path)
+{
+    if (mkdir(path, 0700) < 0)
+        assert(errno == EEXIST);
+}
+
 static void reset_root(const flip_state_context_t *context)
 {
     char path[640];
@@ -46,11 +53,9 @@ static void reset_root(const flip_state_context_t *context)
         }
     }
 
-    snprintf(path, sizeof(path), "%s/gb", FLIP_STATE_ROOT);
-    rmdir(path);
-    rmdir(FLIP_STATE_ROOT);
-    assert(mkdir(FLIP_STATE_ROOT, 0700) == 0);
-    assert(mkdir(path, 0700) == 0);
+    mkdir_if_missing(FLIP_STATE_ROOT);
+    assert(snprintf(path, sizeof(path), "%s/gb", FLIP_STATE_ROOT) > 0);
+    mkdir_if_missing(path);
 }
 
 static void write_bytes(
