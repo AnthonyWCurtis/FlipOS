@@ -468,9 +468,25 @@ static int load_sessions(
                     return -1;
                 }
 
+                const char *canonical_name =
+                    strrchr(
+                        canonical_path,
+                        '/');
+
+                canonical_name =
+                    canonical_name
+                        ? canonical_name + 1
+                        : canonical_path;
+
+                /*
+                 * Session storage is FAT32 on the Flip. Directory
+                 * spelling may be preserved as gb or GB while still
+                 * referring to the same directory. Validate the
+                 * canonical ROM-hash filename, not the full path.
+                 */
                 if (strcmp(
-                        path,
-                        canonical_path) != 0) {
+                        entry->d_name,
+                        canonical_name) != 0) {
 
                     if (unlink(path) < 0 &&
                         errno != ENOENT) {

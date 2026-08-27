@@ -509,6 +509,94 @@ static void test_refresh_deduplicates_same_system_and_rom(void)
 
 
 
+
+static void test_prune_preserves_case_variant_canonical_session(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-case-prune.gb";
+
+    reset_root();
+
+    FILE *rom_file = fopen(
+        rom,
+        "w");
+
+    assert(rom_file != NULL);
+    assert(fputs(
+        "fixture\n",
+        rom_file) >= 0);
+    assert(fclose(rom_file) == 0);
+
+    /*
+     * Record canonically as GB first.
+     */
+    assert(
+        flip_session_manager_record(
+            "GB",
+            rom,
+            FLIP_RETAINED_SESSION_SUSPENDED,
+            850) == 0);
+
+    char upper_dir[1024];
+    char lower_dir[1024];
+
+    int written = snprintf(
+        upper_dir,
+        sizeof(upper_dir),
+        "%s/GB",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(upper_dir));
+
+    written = snprintf(
+        lower_dir,
+        sizeof(lower_dir),
+        "%s/gb",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(lower_dir));
+
+    /*
+     * Reproduce the Flip FAT32 directory spelling seen on hardware:
+     * metadata system=GB, directory entry preserved as lowercase gb.
+     */
+    assert(rename(
+        upper_dir,
+        lower_dir) == 0);
+
+    char expected[1024];
+
+    written = snprintf(
+        expected,
+        sizeof(expected),
+        "%s/gb/%016llx.session",
+        FLIP_SESSION_MANAGER_ROOT,
+        (unsigned long long)fnv1a64(rom));
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(expected));
+
+    assert(access(
+        expected,
+        F_OK) == 0);
+
+    /*
+     * This is a healthy canonical session. Directory case alone
+     * must never make pruning delete it.
+     */
+    assert(
+        flip_session_manager_prune() == 0);
+
+    assert(access(
+        expected,
+        F_OK) == 0);
+
+    assert(unlink(
+        rom) == 0);
+}
+
 static void test_prune_removes_wrong_hash_session_file(void)
 {
     static const char *rom =
@@ -924,6 +1012,7 @@ int main(void)
     test_refresh_keeps_valid_session_without_resume();
     test_refresh_derives_resume_availability();
     test_refresh_deduplicates_same_system_and_rom();
+    test_prune_preserves_case_variant_canonical_session();
     test_prune_removes_wrong_hash_session_file();
     test_prune_removes_malformed_session_file();
     test_prune_removes_invalid_metadata();
