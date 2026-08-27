@@ -30,6 +30,17 @@
 
 #define RECENT_MAX 10
 
+flip_session_action_t
+flip_session_action_from_exit_code(
+    int exit_code)
+{
+    if (exit_code ==
+        FLIP_SESSION_EXIT_SAVED_HANDOFF)
+        return FLIP_SESSION_ACTION_SUSPEND;
+
+    return FLIP_SESSION_ACTION_EXIT;
+}
+
 static long long now_epoch(void)
 {
     return (long long)time(NULL);
@@ -942,24 +953,9 @@ int flip_session_launch(
         result->exit_code =
             exit_code;
 
-        const flip_session_adapter_t *session_adapter =
-            metadata &&
-            metadata->system
-                ? metadata->system->session_adapter
-                : NULL;
-
-        if (session_adapter &&
-            session_adapter->map_exit_code) {
-
-            result->action =
-                session_adapter->map_exit_code(
-                    exit_code);
-
-        } else {
-
-            result->action =
-                FLIP_SESSION_ACTION_EXIT;
-        }
+        result->action =
+            flip_session_action_from_exit_code(
+                exit_code);
 
         fprintf(
             stderr,

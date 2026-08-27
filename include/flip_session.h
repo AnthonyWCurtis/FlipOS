@@ -12,6 +12,12 @@ typedef enum {
     FLIP_SESSION_ACTION_ERROR
 } flip_session_action_t;
 
+#define FLIP_SESSION_EXIT_SAVED_HANDOFF 20
+
+flip_session_action_t
+flip_session_action_from_exit_code(
+    int exit_code);
+
 typedef struct {
     const flip_system_t *system;
     const char *rom_path;

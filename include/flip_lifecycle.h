@@ -1,6 +1,8 @@
 #ifndef FLIP_LIFECYCLE_H
 #define FLIP_LIFECYCLE_H
 
+#include "flip_session.h"
+
 #include "flip_controls.h"
 #include "flip_timing.h"
 
@@ -28,7 +30,7 @@ typedef struct {
     int exit_code;
 } flip_lifecycle_result_t;
 
-#define FLIP_LIFECYCLE_EXIT_SWITCHER 20
+#define FLIP_LIFECYCLE_EXIT_SWITCHER FLIP_SESSION_EXIT_SAVED_HANDOFF
 
 int flip_lifecycle_handle(
     const flip_system_actions_t *actions,

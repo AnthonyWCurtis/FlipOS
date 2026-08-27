@@ -69,9 +69,23 @@ static void test_gbc_uses_same_generic_capability(void)
     assert(adapter->supports_save_safety() == 1);
 }
 
+
+static void test_generic_session_exit_code_mapping(void)
+{
+    assert(
+        flip_session_action_from_exit_code(0) ==
+        FLIP_SESSION_ACTION_EXIT);
+
+    assert(
+        flip_session_action_from_exit_code(
+            FLIP_SESSION_EXIT_SAVED_HANDOFF) ==
+        FLIP_SESSION_ACTION_SUSPEND);
+}
+
 int main(void)
 {
     test_gb_save_safety_command_builders();
     test_gbc_uses_same_generic_capability();
+    test_generic_session_exit_code_mapping();
     return 0;
 }

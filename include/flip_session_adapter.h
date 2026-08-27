@@ -8,9 +8,6 @@
 typedef struct {
     const char *system;
 
-    flip_session_action_t (*map_exit_code)(
-        int exit_code);
-
     int (*resume_available)(
         const char *rom_path);
 

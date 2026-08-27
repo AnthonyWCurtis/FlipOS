@@ -164,6 +164,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 	$(BUILD)/test-flip-telemetry
 
 test-architecture:
+	python3 tests/test_session_handoff_architecture.py
 	python3 tests/test_session_manager_architecture.py
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
@@ -259,12 +260,14 @@ $(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c tests/test
 		src/runtime/flip_session_manager.c src/runtime/flip_system.c \
 		-o $@
 
-$(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_save_safety.c src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_session_adapter.h include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+$(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_save_safety.c src/runtime/flip_session_adapter.c src/runtime/flip_session.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_session_adapter.h include/flip_session.h include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-ffunction-sections -fdata-sections -Iinclude \
 		tests/test_flip_session_adapter_save_safety.c \
-		src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c \
-		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
-		-o $@
+		src/runtime/flip_session_adapter.c src/runtime/flip_session.c \
+		src/runtime/flip_recovery.c src/runtime/flip_save.c \
+		src/runtime/flip_state.c src/runtime/flip_core.c \
+		-Wl,--gc-sections -o $@
 
 $(BUILD)/test-flip-perf-diag: tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c include/flip_perf_diag.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
