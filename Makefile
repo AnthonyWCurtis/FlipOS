@@ -28,6 +28,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_session_adapter.o \
 	$(BUILD)/flip_system.o \
 	$(BUILD)/flip_session.o \
+	$(BUILD)/flip_recovery.o \
 	$(BUILD)/flip_power.o
 
 FRONTEND_OBJS := \
@@ -52,6 +53,7 @@ GB_OBJS := \
 	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_state.o \
 	$(BUILD)/flip_save.o \
+	$(BUILD)/flip_recovery.o \
 	$(BUILD)/flip_perf_diag.o \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_audio.o \
@@ -72,7 +74,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-save test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-save test-recovery test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -107,6 +109,10 @@ test-state: $(BUILD)/test-flip-state
 test-save: $(BUILD)/test-flip-save
 	$(BUILD)/test-flip-save
 
+test-recovery: $(BUILD)/test-flip-recovery $(BUILD)/test-flip-recovery-transactions
+	$(BUILD)/test-flip-recovery
+	$(BUILD)/test-flip-recovery-transactions
+
 test-perf-diag: $(BUILD)/test-flip-perf-diag
 	$(BUILD)/test-flip-perf-diag
 
@@ -121,6 +127,7 @@ test-architecture:
 	python3 tests/test_audio_rate_conversion_architecture.py
 	python3 tests/test_state_manager_architecture.py
 	python3 tests/test_gambatte_save_memory_architecture.py
+	python3 tests/test_recovery_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -173,6 +180,21 @@ $(BUILD)/test-flip-save: tests/test_flip_save.c src/runtime/flip_save.c src/runt
 		tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-flip-recovery: tests/test_flip_recovery.c src/runtime/flip_recovery.c include/flip_recovery.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_SESSION_RECOVERY_ROOT='"/tmp/flipos-recovery-test"' -Iinclude \
+		tests/test_flip_recovery.c src/runtime/flip_recovery.c \
+		-o $@
+
+$(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_SAVE_ROOT='"/tmp/flipos-save-test"' \
+		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' \
+		-DFLIP_SESSION_RECOVERY_ROOT='"/tmp/flipos-recovery-test"' -Iinclude \
+		tests/test_flip_recovery_transactions.c src/runtime/flip_recovery.c \
+		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
+		-o $@
+
 $(BUILD)/test-flip-perf-diag: tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c include/flip_perf_diag.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c \
@@ -220,6 +242,9 @@ $(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_recovery.o: src/runtime/flip_recovery.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_power.o: src/runtime/flip_power.c | $(BUILD)
@@ -318,5 +343,7 @@ clean:
 		$(BUILD)/test-flip-core-host \
 		$(BUILD)/test-flip-state \
 		$(BUILD)/test-flip-save \
+		$(BUILD)/test-flip-recovery \
+		$(BUILD)/test-flip-recovery-transactions \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
