@@ -45,6 +45,17 @@ Confirmed on hardware:
 - Wake input is consumed and does not activate the selected frontend action.
 - Screensaver architecture is shared across frontend-owned screens.
 
+### Stale Session Pruning
+
+Confirmed on hardware:
+- GameSwitcher invokes generic stale-session pruning when its model loads.
+- Malformed `.session` metadata is removed from persistent session storage.
+- Healthy retained sessions remain intact while malformed records are pruned.
+- Wrong-hash/orphan session files are rejected during explicit pruning.
+- FAT32 case-preserved system directory spelling (`gb` vs `GB`) must not be treated as a stale-session condition.
+- Canonical validation therefore checks the hashed `.session` filename rather than requiring a case-sensitive full-path match.
+- Hardware retest preserved healthy session `792f9628ba43b7d9.session` while removing the malformed `broken.session`.
+
 ### Reset Game Data
 
 Confirmed on hardware:
