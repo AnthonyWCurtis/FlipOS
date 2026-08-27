@@ -34,4 +34,13 @@ flip_state_restore_result_t flip_state_restore(
     flip_core_adapter_t *core,
     flip_state_context_t *context);
 
+int flip_state_preserve_recovery(
+    const flip_state_context_t *context);
+
+int flip_state_quarantine_current(
+    const flip_state_context_t *context);
+
+int flip_state_restore_recovery(
+    const flip_state_context_t *context);
+
 #endif
