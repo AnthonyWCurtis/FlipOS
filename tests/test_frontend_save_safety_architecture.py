@@ -60,6 +60,27 @@ if "automatic_resume" not in FRONTEND_MAIN:
 if "metadata->automatic_resume" not in FRONTEND_LAUNCH:
     errors.append("Save Safety wrapper does not bypass menu for automatic resume")
 
+
+# A retained GameSwitcher session is also an explicit continuation,
+# but it must remain semantically distinct from lid automatic resume.
+if "int gameswitcher_resume;" not in SESSION_HEADER:
+    errors.append(
+        "session metadata missing gameswitcher_resume intent"
+    )
+
+if (
+    "launch_game(" not in FRONTEND_MAIN or
+    "&resume_rom,\n                    1" not in FRONTEND_MAIN
+):
+    errors.append(
+        "GameSwitcher resume does not set explicit resume intent"
+    )
+
+if "metadata->gameswitcher_resume" not in FRONTEND_LAUNCH:
+    errors.append(
+        "Save Safety wrapper does not bypass menu for GameSwitcher resume"
+    )
+
 required_makefile = [
     "flip_save_safety_ui.o",
     "flip_save_safety_launch.o",

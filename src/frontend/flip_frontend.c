@@ -1851,7 +1851,8 @@ static void draw_recent(
 static int launch_game_once(
     flip_drm_t *drm,
     const rom_entry_t *rom,
-    int automatic_resume)
+    int automatic_resume,
+    int gameswitcher_resume)
 {
     if (!rom ||
         !rom->system ||
@@ -1879,7 +1880,8 @@ static int launch_game_once(
     flip_session_metadata_t metadata = {
         .system = system,
         .rom_path = rom->path,
-        .automatic_resume = automatic_resume
+        .automatic_resume = automatic_resume,
+        .gameswitcher_resume = gameswitcher_resume
     };
 
     flip_session_result_t result;
@@ -1937,7 +1939,8 @@ static int wait_for_lid_open(
 
 static int launch_game(
     flip_drm_t *drm,
-    const rom_entry_t *rom)
+    const rom_entry_t *rom,
+    int gameswitcher_resume)
 {
     int automatic_resume = 0;
 
@@ -1947,10 +1950,15 @@ static int launch_game(
             launch_game_once(
                 drm,
                 rom,
-                automatic_resume);
+                automatic_resume,
+                gameswitcher_resume);
 
-        /* The intent applies to exactly one post-wake relaunch. */
+        /*
+         * Continuation intents apply to exactly one launch. A later
+         * lid wake sets automatic_resume independently.
+         */
         automatic_resume = 0;
+        gameswitcher_resume = 0;
 
         if (result != FLIP_SESSION_ACTION_SUSPEND)
             return result;
@@ -2128,7 +2136,8 @@ static flip_gameswitcher_action_t run_gameswitcher_frontend(
             int resume_result =
                 launch_game(
                     drm,
-                    &resume_rom);
+                    &resume_rom,
+                    1);
 
             if (resume_result < 0) {
 
@@ -2896,7 +2905,8 @@ int main(void)
 
                 if (launch_game(
                         &drm,
-                        &recent_roms[recent_selected]) < 0) {
+                        &recent_roms[recent_selected],
+                        0) < 0) {
 
                     fprintf(
                         stderr,
@@ -2976,7 +2986,8 @@ int main(void)
                         &drm,
                         &roms[
                             game_selected
-                        ]);
+                        ],
+                        0);
 
                 if (game_result < 0) {
 

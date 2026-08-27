@@ -408,10 +408,14 @@ int flip_session_launch(
             result);
     }
 
-    if (metadata->automatic_resume) {
+    if (metadata->automatic_resume ||
+        metadata->gameswitcher_resume) {
+
         fprintf(
             stderr,
-            "FLIP_SAVE_SAFETY: AUTOMATIC_RESUME\n");
+            metadata->automatic_resume
+                ? "FLIP_SAVE_SAFETY: AUTOMATIC_RESUME\n"
+                : "FLIP_SAVE_SAFETY: GAMESWITCHER_RESUME\n");
 
         return flip_session_launch_legacy(
             drm,

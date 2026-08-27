@@ -27,6 +27,13 @@ typedef struct {
      * same session after a lid wake. Deliberate launches remain interactive.
      */
     int automatic_resume;
+
+    /*
+     * Non-zero when resuming an already-retained GameSwitcher session.
+     * This skips the normal launch-choice UI without conflating it with
+     * lid automatic resume.
+     */
+    int gameswitcher_resume;
 } flip_session_metadata_t;
 
 typedef struct {
