@@ -80,6 +80,11 @@ static void test_generic_session_exit_code_mapping(void)
         flip_session_action_from_exit_code(
             FLIP_SESSION_EXIT_SAVED_HANDOFF) ==
         FLIP_SESSION_ACTION_SUSPEND);
+
+    assert(
+        flip_session_action_from_exit_code(
+            FLIP_SESSION_EXIT_GAME_OPTIONS) ==
+        FLIP_SESSION_ACTION_GAME_OPTIONS);
 }
 
 int main(void)

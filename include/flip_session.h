@@ -9,10 +9,12 @@ typedef enum {
     FLIP_SESSION_ACTION_NONE = 0,
     FLIP_SESSION_ACTION_EXIT,
     FLIP_SESSION_ACTION_SUSPEND,
+    FLIP_SESSION_ACTION_GAME_OPTIONS,
     FLIP_SESSION_ACTION_ERROR
 } flip_session_action_t;
 
 #define FLIP_SESSION_EXIT_SAVED_HANDOFF 20
+#define FLIP_SESSION_EXIT_GAME_OPTIONS 21
 
 flip_session_action_t
 flip_session_action_from_exit_code(

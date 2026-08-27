@@ -10,6 +10,7 @@ typedef enum {
     FLIP_LIFECYCLE_REASON_NONE = 0,
     FLIP_LIFECYCLE_REASON_SUSPEND,
     FLIP_LIFECYCLE_REASON_GAMESWITCHER,
+    FLIP_LIFECYCLE_REASON_GAME_OPTIONS,
     FLIP_LIFECYCLE_REASON_EXIT
 } flip_lifecycle_reason_t;
 
@@ -31,6 +32,7 @@ typedef struct {
 } flip_lifecycle_result_t;
 
 #define FLIP_LIFECYCLE_EXIT_SWITCHER FLIP_SESSION_EXIT_SAVED_HANDOFF
+#define FLIP_LIFECYCLE_EXIT_GAME_OPTIONS FLIP_SESSION_EXIT_GAME_OPTIONS
 
 int flip_lifecycle_handle(
     const flip_system_actions_t *actions,

@@ -43,6 +43,10 @@ flip_session_action_from_exit_code(
         FLIP_SESSION_EXIT_SAVED_HANDOFF)
         return FLIP_SESSION_ACTION_SUSPEND;
 
+    if (exit_code ==
+        FLIP_SESSION_EXIT_GAME_OPTIONS)
+        return FLIP_SESSION_ACTION_GAME_OPTIONS;
+
     return FLIP_SESSION_ACTION_EXIT;
 }
 

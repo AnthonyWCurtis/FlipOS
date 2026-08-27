@@ -1951,6 +1951,26 @@ static int launch_game(
         automatic_resume = 0;
         gameswitcher_resume = 0;
 
+        /*
+         * MENU tap requests Game Options. Re-enter the
+         * same ROM's normal launch flow so the existing
+         * Game Options UI is shown.
+         *
+         * This is deliberately separate from GameSwitcher:
+         * no retained-session GameSwitcher metadata is
+         * recorded here.
+         */
+        if (result ==
+            FLIP_SESSION_ACTION_GAME_OPTIONS) {
+
+            fprintf(
+                stderr,
+                "FRONTEND_GAME_OPTIONS requested rom=%s\n",
+                rom->path);
+
+            continue;
+        }
+
         if (result != FLIP_SESSION_ACTION_SUSPEND)
             return result;
 

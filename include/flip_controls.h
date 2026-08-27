@@ -42,6 +42,7 @@ typedef struct {
 
 typedef struct {
     int gameswitcher_requested;
+    int game_options_requested;
     int fps_toggle_requested;
     int exit_requested;
 
@@ -71,10 +72,18 @@ typedef struct {
     int previous_lid_closed;
 
     int menu_pending;
+    uint64_t menu_pressed_ms;
+    int menu_hold_emitted;
 } flip_controls_t;
 
 void flip_controls_init(
     flip_controls_t *controls);
+
+int flip_controls_update_at(
+    flip_controls_t *controls,
+    const flip_input_state_t *input,
+    flip_controls_state_t *state,
+    uint64_t now_ms);
 
 int flip_controls_update(
     flip_controls_t *controls,

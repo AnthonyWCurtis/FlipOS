@@ -41,6 +41,9 @@ static const char *reason_name(
         case FLIP_LIFECYCLE_REASON_GAMESWITCHER:
             return "gameswitcher";
 
+        case FLIP_LIFECYCLE_REASON_GAME_OPTIONS:
+            return "game_options";
+
         case FLIP_LIFECYCLE_REASON_EXIT:
             return "exit";
 
@@ -154,6 +157,22 @@ int flip_lifecycle_handle(
                     save_fn,
                     userdata,
                     result)) {
+
+                return 1;
+            }
+        }
+
+        if (actions->game_options_requested) {
+            observed = 1;
+
+            if (handle_save_to_switcher(
+                    FLIP_LIFECYCLE_REASON_GAME_OPTIONS,
+                    save_fn,
+                    userdata,
+                    result)) {
+
+                result->exit_code =
+                    FLIP_LIFECYCLE_EXIT_GAME_OPTIONS;
 
                 return 1;
             }

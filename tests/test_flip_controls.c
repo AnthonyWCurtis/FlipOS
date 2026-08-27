@@ -80,13 +80,15 @@ int main(void)
         &input,
         &out);
 
-    assert(out.system.gameswitcher_requested == 1);
+    assert(out.system.game_options_requested == 1);
+    assert(out.system.gameswitcher_requested == 0);
 
     update(
         &controls,
         &input,
         &out);
 
+    assert(out.system.game_options_requested == 0);
     assert(out.system.gameswitcher_requested == 0);
 
     clear_input(
@@ -273,6 +275,105 @@ int main(void)
         &out);
 
     assert(out.system.suspend_requested == 0);
+
+
+    /*
+     * MENU tap opens Game Options.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_MENU] = 1;
+
+    assert(flip_controls_update_at(
+        &controls,
+        &input,
+        &out,
+        1000) == 0);
+
+    assert(out.system.game_options_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
+
+    input.down[FLIP_BTN_MENU] = 0;
+
+    assert(flip_controls_update_at(
+        &controls,
+        &input,
+        &out,
+        1200) == 0);
+
+    assert(out.system.game_options_requested == 1);
+    assert(out.system.gameswitcher_requested == 0);
+
+    /*
+     * MENU hold opens GameSwitcher once the 500 ms
+     * threshold is reached, without waiting for release.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_MENU] = 1;
+
+    assert(flip_controls_update_at(
+        &controls,
+        &input,
+        &out,
+        2000) == 0);
+
+    assert(out.system.game_options_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
+
+    assert(flip_controls_update_at(
+        &controls,
+        &input,
+        &out,
+        2499) == 0);
+
+    assert(out.system.game_options_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
+
+    assert(flip_controls_update_at(
+        &controls,
+        &input,
+        &out,
+        2500) == 0);
+
+    assert(out.system.game_options_requested == 0);
+    assert(out.system.gameswitcher_requested == 1);
+
+    /*
+     * Continuing to hold MENU must not repeatedly request
+     * GameSwitcher.
+     */
+    assert(flip_controls_update_at(
+        &controls,
+        &input,
+        &out,
+        2700) == 0);
+
+    assert(out.system.game_options_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
+
+    /*
+     * Releasing MENU after the hold has already emitted
+     * GameSwitcher must NOT emit delayed Game Options.
+     */
+    input.down[FLIP_BTN_MENU] = 0;
+
+    assert(flip_controls_update_at(
+        &controls,
+        &input,
+        &out,
+        2800) == 0);
+
+    assert(out.system.game_options_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
 
     puts(
         "flip_controls tests passed");

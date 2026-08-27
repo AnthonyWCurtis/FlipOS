@@ -197,6 +197,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 test-architecture:
 	python3 tests/test_gameswitcher_architecture.py
 	python3 tests/test_gameswitcher_handoff_architecture.py
+	python3 tests/test_game_options_handoff_architecture.py
 	python3 tests/test_session_handoff_architecture.py
 	python3 tests/test_session_manager_architecture.py
 	python3 tests/test_session_storage_architecture.py

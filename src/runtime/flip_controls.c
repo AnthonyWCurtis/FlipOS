@@ -1,6 +1,9 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "flip_controls.h"
 
 #include <string.h>
+#include <time.h>
 
 static void copy_game_buttons(
     flip_game_input_t *game,
@@ -46,10 +49,11 @@ void flip_controls_init(
         sizeof(*controls));
 }
 
-int flip_controls_update(
+int flip_controls_update_at(
     flip_controls_t *controls,
     const flip_input_state_t *input,
-    flip_controls_state_t *state)
+    flip_controls_state_t *state,
+    uint64_t now_ms)
 {
     if (!controls ||
         !input ||
@@ -108,6 +112,8 @@ int flip_controls_update(
         !controls->previous_menu) {
 
         controls->menu_pending = 1;
+        controls->menu_pressed_ms = now_ms;
+        controls->menu_hold_emitted = 0;
     }
 
     if (menu_now &&
@@ -180,12 +186,28 @@ int flip_controls_update(
         }
     }
 
+    if (menu_now &&
+        controls->menu_pending &&
+        !controls->menu_hold_emitted &&
+        now_ms - controls->menu_pressed_ms >= 500) {
+
+        state->system.gameswitcher_requested = 1;
+        controls->menu_hold_emitted = 1;
+        controls->menu_pending = 0;
+    }
+
     if (!menu_now &&
         controls->previous_menu &&
         controls->menu_pending) {
 
-        state->system.gameswitcher_requested = 1;
+        state->system.game_options_requested = 1;
         controls->menu_pending = 0;
+    }
+
+    if (!menu_now &&
+        controls->previous_menu) {
+
+        controls->menu_hold_emitted = 0;
     }
 
     if (!menu_now &&
@@ -219,4 +241,32 @@ int flip_controls_update(
         input->lid_closed;
 
     return 0;
+}
+
+static uint64_t monotonic_ms(void)
+{
+    struct timespec ts;
+
+    if (clock_gettime(
+            CLOCK_MONOTONIC,
+            &ts) != 0) {
+
+        return 0;
+    }
+
+    return
+        (uint64_t)ts.tv_sec * 1000ULL +
+        (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
+int flip_controls_update(
+    flip_controls_t *controls,
+    const flip_input_state_t *input,
+    flip_controls_state_t *state)
+{
+    return flip_controls_update_at(
+        controls,
+        input,
+        state,
+        monotonic_ms());
 }

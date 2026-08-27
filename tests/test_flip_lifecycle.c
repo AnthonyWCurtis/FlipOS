@@ -179,6 +179,30 @@ static void test_failed_suspend_then_switcher(void)
         FLIP_LIFECYCLE_EXIT_SWITCHER);
 }
 
+static void test_game_options_success(void)
+{
+    flip_system_actions_t actions = {0};
+    flip_lifecycle_result_t result;
+
+    actions.game_options_requested = 1;
+    reset_save(0, 0, 1);
+
+    assert(flip_lifecycle_handle(
+        &actions,
+        FLIP_LIFECYCLE_CHECKPOINT_IMMEDIATE,
+        save_cb,
+        NULL,
+        &result) == 1);
+
+    assert(save_calls == 1);
+    assert(result.reason ==
+        FLIP_LIFECYCLE_REASON_GAME_OPTIONS);
+    assert(result.save_succeeded == 1);
+    assert(result.should_exit == 1);
+    assert(result.exit_code ==
+        FLIP_LIFECYCLE_EXIT_GAME_OPTIONS);
+}
+
 static void test_switcher_success(void)
 {
     flip_system_actions_t actions = {0};
@@ -342,6 +366,7 @@ int main(void)
     test_suspend_success();
     test_suspend_failure();
     test_failed_suspend_then_switcher();
+    test_game_options_success();
     test_switcher_success();
     test_immediate_ignores_exit();
     test_after_frame_exit_success();
