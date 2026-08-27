@@ -6,6 +6,7 @@ FRONTEND_MAIN = Path("src/frontend/flip_frontend.c").read_text()
 FRONTEND_UI = Path("src/frontend/flip_save_safety_ui.c").read_text()
 FRONTEND_LAUNCH = Path("src/frontend/flip_save_safety_launch.c").read_text()
 FRONTEND = FRONTEND_UI + "\n" + FRONTEND_LAUNCH
+SESSION_HEADER = Path("include/flip_session.h").read_text()
 HEADER = Path("include/flip_session_adapter.h").read_text()
 ADAPTER = Path("src/runtime/flip_session_adapter.c").read_text()
 MAKEFILE = Path("Makefile").read_text()
@@ -48,6 +49,16 @@ required_frontend = [
 for token in required_frontend:
     if token not in FRONTEND:
         errors.append(f"generic frontend Save Safety UX missing: {token}")
+
+# A lid wake is an automatic continuation of the session, not a new user
+# launch decision. The frontend must tag that relaunch explicitly and the
+# Save Safety wrapper must bypass GAME OPTIONS only for that case.
+if "int automatic_resume;" not in SESSION_HEADER:
+    errors.append("session metadata missing automatic_resume intent")
+if "automatic_resume" not in FRONTEND_MAIN:
+    errors.append("frontend lid relaunch does not carry automatic_resume intent")
+if "metadata->automatic_resume" not in FRONTEND_LAUNCH:
+    errors.append("Save Safety wrapper does not bypass menu for automatic resume")
 
 required_makefile = [
     "flip_save_safety_ui.o",
