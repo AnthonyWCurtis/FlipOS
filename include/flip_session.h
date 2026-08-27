@@ -107,6 +107,22 @@ int flip_session_recover_current(void);
 int flip_session_close_suspended(void);
 
 /*
+ * Close the current suspended lifecycle record only when it
+ * belongs to the requested system/ROM.
+ *
+ * Returns:
+ *   1 = matching suspended session changed to closed
+ *   0 = no matching suspended current session
+ *  -1 = invalid input/read/write error
+ *
+ * Emulator SRAM and savestates are never touched.
+ */
+int flip_session_close_suspended_game(
+    const char *system_id,
+    const char *rom_path);
+
+
+/*
  * Remove one game from recently-played history.
  * Emulator savestates are not touched.
  */

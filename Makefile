@@ -86,7 +86,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-session-manager-recovery test-perf-diag test-telemetry test-architecture clean clean-objects test-gameswitcher-ui test-game-data-reset test-frontend-global-controls test-frontend-idle
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-close test-session-manager test-session-manager-recovery test-perf-diag test-telemetry test-architecture clean clean-objects test-gameswitcher-ui test-game-data-reset test-frontend-global-controls test-frontend-idle
 
 all: frontend gb
 
@@ -109,6 +109,7 @@ verify:
 		$(MAKE) test-save && \
 		$(MAKE) test-recovery && \
 		$(MAKE) test-session-save-safety && \
+		$(MAKE) test-session-close && \
 		$(MAKE) test-session-manager && \
 		$(MAKE) test-session-manager-recovery && \
 		$(MAKE) test-gameswitcher-ui && \
@@ -165,6 +166,9 @@ test-recovery: $(BUILD)/test-flip-recovery $(BUILD)/test-flip-recovery-transacti
 test-session-save-safety: $(BUILD)/test-flip-session-adapter-save-safety
 	$(BUILD)/test-flip-session-adapter-save-safety
 
+test-session-close: $(BUILD)/test-session-close-target
+	$(BUILD)/test-session-close-target
+
 test-session-manager: $(BUILD)/test-flip-session-manager
 	$(BUILD)/test-flip-session-manager
 
@@ -195,6 +199,7 @@ test-architecture:
 	python3 tests/test_gameswitcher_handoff_architecture.py
 	python3 tests/test_session_handoff_architecture.py
 	python3 tests/test_session_manager_architecture.py
+	python3 tests/test_session_storage_architecture.py
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
@@ -302,6 +307,17 @@ $(BUILD)/test-frontend-global-controls: tests/test_frontend_global_controls.c sr
 
 $(BUILD)/test-gameswitcher-ui-model: tests/test_gameswitcher_ui_model.c src/frontend/flip_gameswitcher_ui.c include/flip_gameswitcher_ui.h include/flip_session_manager.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude 		tests/test_gameswitcher_ui_model.c 		src/frontend/flip_gameswitcher_ui.c 		-o $@
+
+$(BUILD)/test-session-close-target: tests/test_session_close_target.c tests/test_session_close_system_stub.c src/runtime/flip_session.c include/flip_session.h include/flip_system.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-ffunction-sections -fdata-sections \
+		-DFLIP_SESSION_STATE_ROOT='"/tmp/flipos-session-close-test"' \
+		-Iinclude \
+		tests/test_session_close_target.c \
+		tests/test_session_close_system_stub.c \
+		src/runtime/flip_session.c \
+		-Wl,--gc-sections \
+		-o $@
 
 $(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c tests/test_session_manager_system_stub.c tests/test_session_manager_current_stub.c src/runtime/flip_session_manager.c src/runtime/flip_system.c include/flip_session_manager.h include/flip_session.h include/flip_system.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \

@@ -2055,6 +2055,25 @@ static flip_gameswitcher_action_t run_gameswitcher_frontend(
         if (gameswitcher_result.action ==
             FLIP_GAMESWITCHER_CLOSE) {
 
+            int lifecycle_result =
+                flip_session_close_suspended_game(
+                    gameswitcher_result.system,
+                    gameswitcher_result.rom);
+
+            if (lifecycle_result < 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_GAMESWITCHER close lifecycle failed rom=%s\n",
+                    gameswitcher_result.rom);
+
+                /*
+                 * Fail closed: do not remove the retained entry
+                 * if lifecycle reconciliation encountered an error.
+                 */
+                continue;
+            }
+
             int remove_result =
                 flip_session_manager_remove(
                     gameswitcher_result.system,
@@ -2076,7 +2095,10 @@ static flip_gameswitcher_action_t run_gameswitcher_frontend(
             }
 
             /*
-             * Close changes retained-session metadata only.
+             * Close reconciles matching global lifecycle metadata
+             * and removes only retained-session metadata. Emulator
+             * SRAM, savestate and recovery data are preserved.
+             *
              * Re-enter so the dedicated UI refreshes its model.
              */
             continue;

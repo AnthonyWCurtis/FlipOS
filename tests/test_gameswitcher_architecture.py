@@ -332,6 +332,37 @@ for forbidden in [
         raise SystemExit(1)
 
 
+# Phase 6 close lifecycle: confirmed Close must reconcile the
+# selected retained session with global lifecycle state rather
+# than removing retained metadata alone. Persistence data remains
+# outside the GameSwitcher close boundary.
+close_result_pos = frontend.find(
+    "FLIP_GAMESWITCHER_CLOSE"
+)
+
+resume_result_pos = frontend.find(
+    "FLIP_GAMESWITCHER_RESUME",
+    close_result_pos
+)
+
+if close_result_pos < 0 or resume_result_pos < 0:
+    print(
+        "GameSwitcher Close lifecycle boundary missing"
+    )
+    raise SystemExit(1)
+
+close_lifecycle_window = frontend[
+    close_result_pos:
+    resume_result_pos
+]
+
+if "flip_session_close_suspended_game(" not in close_lifecycle_window:
+    print(
+        "GameSwitcher Close does not reconcile "
+        "the selected game's lifecycle state"
+    )
+    raise SystemExit(1)
+
 # Task 7 stage 3: after confirmed Close, the frontend must
 # loop back through GameSwitcher so its model refreshes.
 close_result_pos = frontend.find(
@@ -359,7 +390,8 @@ remove_pos = close_branch.find(
 )
 
 continue_pos = close_branch.find(
-    "continue;"
+    "continue;",
+    remove_pos
 )
 
 if not (

@@ -16,11 +16,16 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef FLIP_SESSION_STATE_ROOT
+#define FLIP_SESSION_STATE_ROOT \
+    "/mnt/SDCARD/flipos-dev/state"
+#endif
+
 #define SESSION_DIR \
-    "/mnt/SDCARD/flipos-dev/state/session"
+    FLIP_SESSION_STATE_ROOT "/session"
 
 #define SESSION_FILE \
-    "/mnt/SDCARD/flipos-dev/state/session/current"
+    FLIP_SESSION_STATE_ROOT "/session/current"
 
 #define RECENT_DIR \
     "/mnt/SDCARD/flipos-dev/state/recent"
@@ -86,7 +91,7 @@ static int copy_string(
 static int ensure_session_dir(void)
 {
     if (mkdir(
-            "/mnt/SDCARD/flipos-dev/state",
+            FLIP_SESSION_STATE_ROOT,
             0777) < 0 &&
         errno != EEXIST)
         return -1;
@@ -1508,6 +1513,118 @@ int flip_session_recover_current(void)
 
     return 1;
 }
+
+int flip_session_close_suspended_game(
+    const char *system_id,
+    const char *rom_path)
+{
+    if (!system_id ||
+        !system_id[0] ||
+        !rom_path ||
+        !rom_path[0]) {
+
+        fprintf(
+            stderr,
+            "SESSION_CLOSE_TARGET: invalid target\n");
+
+        return -1;
+    }
+
+    flip_session_state_t session;
+
+    int read_result =
+        flip_session_read_current(
+            &session);
+
+    /*
+     * No current lifecycle record is not an error for a
+     * target-specific close. The selected retained session may
+     * simply be an older GameSwitcher entry.
+     */
+    if (read_result == 0)
+        return 0;
+
+    if (read_result < 0) {
+
+        fprintf(
+            stderr,
+            "SESSION_CLOSE_TARGET: invalid current session\n");
+
+        return -1;
+    }
+
+    if (strcmp(
+            session.system,
+            system_id) != 0 ||
+        strcmp(
+            session.rom,
+            rom_path) != 0) {
+
+        fprintf(
+            stderr,
+            "SESSION_CLOSE_TARGET: current session does not match target "
+            "current_system=%s target_system=%s current_rom=%s target_rom=%s\n",
+            session.system,
+            system_id,
+            session.rom,
+            rom_path);
+
+        return 0;
+    }
+
+    if (strcmp(
+            session.state,
+            "suspended") != 0) {
+
+        fprintf(
+            stderr,
+            "SESSION_CLOSE_TARGET: matching session not suspended state=%s\n",
+            session.state);
+
+        return 0;
+    }
+
+    const flip_system_t *session_system =
+        flip_system_find(
+            session.system);
+
+    if (!session_system) {
+
+        fprintf(
+            stderr,
+            "SESSION_CLOSE_TARGET: unknown system=%s\n",
+            session.system);
+
+        return -1;
+    }
+
+    flip_session_metadata_t metadata = {
+        .system = session_system,
+        .rom_path = session.rom
+    };
+
+    if (write_session_state(
+            "closed",
+            session.program,
+            &metadata,
+            (pid_t)session.pid,
+            0,
+            0,
+            session.started,
+            now_epoch()) < 0) {
+
+        return -1;
+    }
+
+    fprintf(
+        stderr,
+        "SESSION_CLOSE_TARGET: closed system=%s rom=%s savestate=preserved\n",
+        session.system,
+        session.rom);
+
+    return 1;
+}
+
 
 int flip_session_close_suspended(void)
 {
