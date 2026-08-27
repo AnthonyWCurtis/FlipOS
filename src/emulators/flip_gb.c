@@ -87,26 +87,156 @@ static int persistence_complete(void *userdata)
     return 0;
 }
 
+static const char *save_health_name(flip_save_health_t health)
+{
+    switch (health) {
+    case FLIP_SAVE_HEALTH_HEALTHY:
+        return "HEALTHY";
+    case FLIP_SAVE_HEALTH_MISSING:
+        return "MISSING";
+    case FLIP_SAVE_HEALTH_INVALID:
+    case FLIP_SAVE_HEALTH_ERROR:
+    default:
+        return "INVALID";
+    }
+}
+
+static const char *state_recovery_health_name(
+    flip_state_recovery_health_t health)
+{
+    switch (health) {
+    case FLIP_STATE_RECOVERY_AVAILABLE:
+        return "AVAILABLE";
+    case FLIP_STATE_RECOVERY_MISSING:
+        return "MISSING";
+    case FLIP_STATE_RECOVERY_INVALID:
+    case FLIP_STATE_RECOVERY_ERROR:
+    default:
+        return "INVALID";
+    }
+}
+
+static int run_save_safety_management(
+    const char *rom_path,
+    const char *action)
+{
+    flip_state_context_t state_context;
+    flip_save_context_t save_context;
+    flip_recovery_context_t recovery_context;
+
+    flip_state_context_init(&state_context, "gb", rom_path);
+    flip_save_context_init(&save_context, "gb", rom_path);
+    flip_recovery_context_init(&recovery_context, "gb", rom_path);
+
+    flip_core_adapter_t *core = flip_gambatte_core_adapter();
+    int initialized = 0;
+    int loaded = 0;
+    int result = 0;
+
+    if (flip_core_init(core) < 0) {
+        fprintf(stderr, "FLIP_SAVE_SAFETY: core-init-failed\n");
+        return 1;
+    }
+    initialized = 1;
+
+    if (flip_core_load_game(core, rom_path) < 0) {
+        fprintf(stderr, "FLIP_SAVE_SAFETY: game-load-failed\n");
+        result = 1;
+        goto cleanup;
+    }
+    loaded = 1;
+
+    if (strcmp(action, "--restore-previous-save") == 0) {
+        flip_recovery_result_t recovery_result =
+            flip_recovery_restore_previous(
+                core,
+                &save_context,
+                &state_context,
+                &recovery_context);
+
+        if (recovery_result == FLIP_RECOVERY_NO_PREVIOUS)
+            result = 2;
+        else if (recovery_result != FLIP_RECOVERY_OK)
+            result = 1;
+    } else if (strcmp(action, "--undo-last-restore") == 0) {
+        flip_recovery_result_t recovery_result =
+            flip_recovery_undo(
+                core,
+                &save_context,
+                &state_context,
+                &recovery_context);
+
+        if (recovery_result == FLIP_RECOVERY_NO_UNDO)
+            result = 2;
+        else if (recovery_result != FLIP_RECOVERY_OK)
+            result = 1;
+    }
+
+    flip_save_health_t current =
+        flip_save_health(core, &save_context, FLIP_SAVE_CURRENT_SUFFIX);
+    flip_save_health_t previous =
+        flip_save_health(core, &save_context, FLIP_SAVE_PREVIOUS_SUFFIX);
+    flip_save_health_t recovery =
+        flip_save_health(core, &save_context, FLIP_SAVE_RECOVERY_SUFFIX);
+    flip_state_recovery_health_t undo_state =
+        flip_state_recovery_health(core, &state_context);
+    int resume_blocked =
+        flip_recovery_resume_blocked(&recovery_context);
+
+    fprintf(
+        stdout,
+        "FLIP_SAVE_SAFETY: current=%s previous=%s recovery=%s resume=%s undo_state=%s\n",
+        save_health_name(current),
+        save_health_name(previous),
+        save_health_name(recovery),
+        resume_blocked ? "BLOCKED" : "AVAILABLE",
+        state_recovery_health_name(undo_state));
+
+    if (current == FLIP_SAVE_HEALTH_ERROR ||
+        previous == FLIP_SAVE_HEALTH_ERROR ||
+        recovery == FLIP_SAVE_HEALTH_ERROR ||
+        undo_state == FLIP_STATE_RECOVERY_ERROR) {
+        result = 1;
+    }
+
+cleanup:
+    if (loaded)
+        flip_core_unload_game(core);
+    if (initialized)
+        flip_core_deinit(core);
+
+    return result;
+}
+
+static void print_usage(const char *program)
+{
+    fprintf(
+        stderr,
+        "Usage: %s game.gb [--no-resume|--save-safety-status|--restore-previous-save|--undo-last-restore]\n",
+        program);
+}
+
 int main(
     int argc,
     char **argv)
 {
     if (argc < 2 || argc > 3) {
-        fprintf(
-            stderr,
-            "Usage: %s game.gb [--no-resume]\n",
-            argv[0]);
+        print_usage(argv[0]);
         return 1;
+    }
+
+    if (argc == 3 &&
+        (strcmp(argv[2], "--save-safety-status") == 0 ||
+         strcmp(argv[2], "--restore-previous-save") == 0 ||
+         strcmp(argv[2], "--undo-last-restore") == 0)) {
+        return run_save_safety_management(argv[1], argv[2]);
     }
 
     int skip_resume = 0;
 
     if (argc == 3) {
         if (strcmp(argv[2], "--no-resume") != 0) {
-            fprintf(
-                stderr,
-                "Usage: %s game.gb [--no-resume]\n",
-                argv[0]);
+            print_usage(argv[0]);
             return 1;
         }
 
