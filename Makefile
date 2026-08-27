@@ -81,7 +81,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-session-manager-recovery test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -157,6 +157,9 @@ test-session-save-safety: $(BUILD)/test-flip-session-adapter-save-safety
 
 test-session-manager: $(BUILD)/test-flip-session-manager
 	$(BUILD)/test-flip-session-manager
+
+test-session-manager-recovery: $(BUILD)/test-session-manager-recovery
+	$(BUILD)/test-session-manager-recovery
 
 test-gameswitcher-ui: $(BUILD)/test-gameswitcher-ui-model
 	$(BUILD)/test-gameswitcher-ui-model
@@ -262,10 +265,18 @@ $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.
 $(BUILD)/test-gameswitcher-ui-model: tests/test_gameswitcher_ui_model.c src/frontend/flip_gameswitcher_ui.c include/flip_gameswitcher_ui.h include/flip_session_manager.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude 		tests/test_gameswitcher_ui_model.c 		src/frontend/flip_gameswitcher_ui.c 		-o $@
 
-$(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c tests/test_session_manager_system_stub.c src/runtime/flip_session_manager.c src/runtime/flip_system.c include/flip_session_manager.h include/flip_system.h | $(BUILD)
+$(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c tests/test_session_manager_system_stub.c tests/test_session_manager_current_stub.c src/runtime/flip_session_manager.c src/runtime/flip_system.c include/flip_session_manager.h include/flip_session.h include/flip_system.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-DFLIP_SESSION_MANAGER_ROOT='"/tmp/flipos-session-manager-test"' -Iinclude \
 		tests/test_flip_session_manager.c tests/test_session_manager_system_stub.c \
+		tests/test_session_manager_current_stub.c \
+		src/runtime/flip_session_manager.c src/runtime/flip_system.c \
+		-o $@
+
+$(BUILD)/test-session-manager-recovery: tests/test_session_manager_recovery.c tests/test_session_manager_system_stub.c src/runtime/flip_session_manager.c src/runtime/flip_system.c include/flip_session_manager.h include/flip_session.h include/flip_system.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_SESSION_MANAGER_ROOT='"/tmp/flipos-session-manager-recovery-test"' -Iinclude \
+		tests/test_session_manager_recovery.c tests/test_session_manager_system_stub.c \
 		src/runtime/flip_session_manager.c src/runtime/flip_system.c \
 		-o $@
 

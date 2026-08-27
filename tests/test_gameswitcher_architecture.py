@@ -382,4 +382,33 @@ if loop_pos < 0:
     )
     raise SystemExit(1)
 
+
+# Task 8: frontend startup must reconcile stale current-session
+# metadata before GameSwitcher can display retained sessions.
+startup_recover = frontend.find(
+    "flip_session_manager_recover_interrupted("
+)
+
+gameswitcher_entry = frontend.find(
+    "flip_gameswitcher_run("
+)
+
+if startup_recover < 0:
+    print(
+        "frontend startup does not recover interrupted sessions"
+    )
+    raise SystemExit(1)
+
+if gameswitcher_entry < 0:
+    print(
+        "GameSwitcher frontend delegation missing"
+    )
+    raise SystemExit(1)
+
+if startup_recover >= gameswitcher_entry:
+    print(
+        "interrupted-session recovery must run before GameSwitcher display"
+    )
+    raise SystemExit(1)
+
 print("gameswitcher architecture boundary passed")

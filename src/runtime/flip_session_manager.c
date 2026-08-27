@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session_manager.h"
+#include "flip_session.h"
 #include "flip_system.h"
 
 #include <dirent.h>
@@ -564,6 +565,62 @@ void flip_session_manager_list_free(flip_retained_session_list_t *list)
     list->items = NULL;
     list->count = 0;
 }
+
+int flip_session_manager_recover_interrupted(void)
+{
+    int recover_result =
+        flip_session_recover_current();
+
+    if (recover_result < 0)
+        return -1;
+
+    flip_session_state_t current;
+    memset(
+        &current,
+        0,
+        sizeof(current));
+
+    int read_result =
+        flip_session_read_current(
+            &current);
+
+    if (read_result <= 0)
+        return 0;
+
+    if (!current.valid ||
+        strcmp(
+            current.state,
+            "interrupted") != 0)
+        return 0;
+
+    const flip_system_t *system =
+        flip_system_find(
+            current.system);
+
+    if (!system)
+        return 0;
+
+    struct stat rom_st;
+
+    if (stat(
+            current.rom,
+            &rom_st) < 0 ||
+        !S_ISREG(rom_st.st_mode) ||
+        access(
+            current.rom,
+            R_OK) < 0 ||
+        !flip_system_supports_path(
+            system,
+            current.rom))
+        return 0;
+
+    return flip_session_manager_record(
+        current.system,
+        current.rom,
+        FLIP_RETAINED_SESSION_INTERRUPTED,
+        (long long)time(NULL));
+}
+
 
 int flip_session_manager_touch(
     const char *system_id,

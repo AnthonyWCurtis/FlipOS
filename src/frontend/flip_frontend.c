@@ -2127,11 +2127,11 @@ int main(void)
             global_settings.brightness);
     }
 
-    if (flip_session_recover_current() < 0) {
+    if (flip_session_manager_recover_interrupted() < 0) {
 
         fprintf(
             stderr,
-            "FRONTEND: session recovery failed\n");
+            "FRONTEND: interrupted session recovery failed\n");
     }
 
     /*
