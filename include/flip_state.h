@@ -21,6 +21,13 @@ typedef enum {
     FLIP_STATE_RESTORE_ERROR = 4
 } flip_state_restore_result_t;
 
+typedef enum {
+    FLIP_STATE_RECOVERY_MISSING = 0,
+    FLIP_STATE_RECOVERY_AVAILABLE = 1,
+    FLIP_STATE_RECOVERY_INVALID = 2,
+    FLIP_STATE_RECOVERY_ERROR = 3
+} flip_state_recovery_health_t;
+
 void flip_state_context_init(
     flip_state_context_t *context,
     const char *system_id,
@@ -33,6 +40,10 @@ int flip_state_save(
 flip_state_restore_result_t flip_state_restore(
     flip_core_adapter_t *core,
     flip_state_context_t *context);
+
+flip_state_recovery_health_t flip_state_recovery_health(
+    flip_core_adapter_t *core,
+    const flip_state_context_t *context);
 
 int flip_state_preserve_recovery(
     const flip_state_context_t *context);
