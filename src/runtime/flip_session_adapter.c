@@ -1,4 +1,5 @@
 #include "flip_session_adapter.h"
+#include "flip_recovery.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -55,6 +56,17 @@ gb_resume_available(
     if (!rom_path ||
         !rom_path[0])
         return 0;
+
+    flip_recovery_context_t recovery_context;
+    flip_recovery_context_init(
+        &recovery_context,
+        "gb",
+        rom_path);
+
+    if (flip_recovery_resume_blocked(
+            &recovery_context)) {
+        return 0;
+    }
 
     char path[512];
 
