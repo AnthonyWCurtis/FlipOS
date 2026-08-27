@@ -2139,6 +2139,17 @@ static flip_gameswitcher_action_t run_gameswitcher_frontend(
                 return FLIP_GAMESWITCHER_ERROR;
             }
 
+            /*
+             * A game resumed from GameSwitcher may later
+             * suspend again when MENU is pressed. Re-enter
+             * GameSwitcher instead of returning to HOME.
+             */
+            if (resume_result ==
+                FLIP_SESSION_ACTION_SUSPEND) {
+
+                continue;
+            }
+
             return FLIP_GAMESWITCHER_RESUME;
         }
 

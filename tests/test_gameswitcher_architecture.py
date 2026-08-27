@@ -497,6 +497,41 @@ if "flip_gameswitcher_run(" not in shared_flow_window:
     )
     raise SystemExit(1)
 
+# A game resumed from GameSwitcher may later suspend again when
+# MENU is pressed. That SUSPEND must reopen GameSwitcher rather
+# than returning the user to the frontend/home screen.
+resume_launch_pos = shared_flow_window.find(
+    "int resume_result ="
+)
+
+suspend_result_pos = shared_flow_window.find(
+    "FLIP_SESSION_ACTION_SUSPEND",
+    resume_launch_pos
+)
+
+if resume_launch_pos < 0:
+    print(
+        "shared GameSwitcher resume launch result missing"
+    )
+    raise SystemExit(1)
+
+if suspend_result_pos < 0:
+    print(
+        "GameSwitcher resume path does not handle "
+        "a subsequent game suspend"
+    )
+    raise SystemExit(1)
+
+resume_suspend_window = shared_flow_window[
+    suspend_result_pos:
+]
+
+if "continue;" not in resume_suspend_window:
+    print(
+        "subsequent game suspend does not reopen GameSwitcher"
+    )
+    raise SystemExit(1)
+
 for forbidden in [
     "load_recent_history(",
     "SCREEN_RECENT",
