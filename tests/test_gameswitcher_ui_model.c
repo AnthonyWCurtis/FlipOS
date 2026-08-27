@@ -114,6 +114,12 @@ static flip_retained_session_t retained_fixture[] = {
     }
 };
 
+int flip_session_manager_prune(void)
+{
+    return 0;
+}
+
+
 int flip_session_manager_refresh(
     flip_retained_session_list_t *list)
 {

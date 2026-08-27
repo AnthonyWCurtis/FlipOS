@@ -41,6 +41,9 @@ int flip_gameswitcher_model_load(
         0,
         sizeof(*model));
 
+    if (flip_session_manager_prune() < 0)
+        return -1;
+
     return flip_session_manager_refresh(
         &model->sessions);
 }

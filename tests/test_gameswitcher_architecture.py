@@ -603,4 +603,12 @@ for forbidden in [
         )
         raise SystemExit(1)
 
+# Explicit stale-session pruning must be invoked by production
+# GameSwitcher before retained sessions are presented.
+if "flip_session_manager_prune(" not in source_text:
+    print(
+        "GameSwitcher does not invoke stale-session pruning"
+    )
+    raise SystemExit(1)
+
 print("gameswitcher architecture boundary passed")
