@@ -37,6 +37,7 @@ RUNTIME_OBJS := \
 
 FRONTEND_OBJS := \
 	$(BUILD)/flip_frontend.o \
+        $(BUILD)/flip_gameswitcher_ui.o \
 	$(BUILD)/flip_save_safety_ui.o \
 	$(BUILD)/flip_save_safety_launch.o \
 	$(RUNTIME_OBJS) \
@@ -157,6 +158,9 @@ test-session-save-safety: $(BUILD)/test-flip-session-adapter-save-safety
 test-session-manager: $(BUILD)/test-flip-session-manager
 	$(BUILD)/test-flip-session-manager
 
+test-gameswitcher-ui: $(BUILD)/test-gameswitcher-ui-model
+	$(BUILD)/test-gameswitcher-ui-model
+
 test-perf-diag: $(BUILD)/test-flip-perf-diag
 	$(BUILD)/test-flip-perf-diag
 
@@ -164,6 +168,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 	$(BUILD)/test-flip-telemetry
 
 test-architecture:
+	python3 tests/test_gameswitcher_architecture.py
 	python3 tests/test_gameswitcher_handoff_architecture.py
 	python3 tests/test_session_handoff_architecture.py
 	python3 tests/test_session_manager_architecture.py
@@ -254,6 +259,9 @@ $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-gameswitcher-ui-model: tests/test_gameswitcher_ui_model.c src/frontend/flip_gameswitcher_ui.c include/flip_gameswitcher_ui.h include/flip_session_manager.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude 		tests/test_gameswitcher_ui_model.c 		src/frontend/flip_gameswitcher_ui.c 		-o $@
+
 $(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c tests/test_session_manager_system_stub.c src/runtime/flip_session_manager.c src/runtime/flip_system.c include/flip_session_manager.h include/flip_system.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-DFLIP_SESSION_MANAGER_ROOT='"/tmp/flipos-session-manager-test"' -Iinclude \
@@ -279,6 +287,9 @@ $(BUILD)/test-flip-telemetry: tests/test_flip_telemetry.c src/runtime/flip_telem
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror $(TELEMETRY_WARN) -Iinclude \
 		tests/test_flip_telemetry.c src/runtime/flip_telemetry.c \
 		-o $@ -lm
+
+$(BUILD)/flip_gameswitcher_ui.o: src/frontend/flip_gameswitcher_ui.c include/flip_gameswitcher_ui.h include/flip_session_manager.h include/flip_draw.h include/flip_input.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_frontend.o: src/frontend/flip_frontend.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@

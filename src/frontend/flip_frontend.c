@@ -7,6 +7,7 @@
 #include "flip_osd.h"
 #include "flip_session.h"
 #include "flip_session_manager.h"
+#include "flip_gameswitcher_ui.h"
 #include "flip_settings.h"
 #include "flip_system.h"
 #include "flip_library.h"
@@ -301,45 +302,6 @@ static int load_suspended_session(void)
     suspended_available = 1;
 
     return 1;
-}
-
-static int recent_index_for_path(
-    const char *path)
-{
-    if (!path ||
-        !path[0])
-        return -1;
-
-    for (int i = 0;
-         i < recent_count;
-         ++i) {
-
-        if (strcmp(
-                recent_roms[i].path,
-                path) == 0)
-            return i;
-    }
-
-    return -1;
-}
-
-static void select_suspended_recent(
-    int *selected)
-{
-    if (!selected)
-        return;
-
-    load_suspended_session();
-
-    if (!suspended_available)
-        return;
-
-    int index =
-        recent_index_for_path(
-            suspended_rom_path);
-
-    if (index >= 0)
-        *selected = index;
 }
 
 static int load_recent_history(void)
@@ -2890,24 +2852,26 @@ int main(void)
 
                 if (game_result == FLIP_SESSION_ACTION_SUSPEND) {
 
-                    load_recent_history();
-
-                    recent_selected = 0;
-
-                    select_suspended_recent(
-                        &recent_selected);
-
-                    screen =
-                        SCREEN_RECENT;
+                    flip_gameswitcher_result_t
+                        gameswitcher_result;
 
                     fprintf(
                         stderr,
                         "FRONTEND_GAMESWITCHER entered\n");
 
-                    draw_recent(
+                    if (flip_gameswitcher_run(
+                            &drm,
+                            &gameswitcher_result) < 0) {
+
+                        fprintf(
+                            stderr,
+                            "FRONTEND_GAMESWITCHER failed\n");
+                    }
+
+                    draw_games(
                         &drm,
                         game_system,
-                        recent_selected,
+                        game_selected,
                         0.0);
 
                     continue;
