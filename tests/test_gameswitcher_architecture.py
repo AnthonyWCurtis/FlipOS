@@ -385,12 +385,24 @@ if loop_pos < 0:
 
 # Task 8: frontend startup must reconcile stale current-session
 # metadata before GameSwitcher can display retained sessions.
+main_start = frontend.find(
+    "int main(void)"
+)
+
+if main_start < 0:
+    print(
+        "frontend main entry missing"
+    )
+    raise SystemExit(1)
+
 startup_recover = frontend.find(
-    "flip_session_manager_recover_interrupted("
+    "flip_session_manager_recover_interrupted(",
+    main_start
 )
 
 gameswitcher_entry = frontend.find(
-    "flip_gameswitcher_run("
+    "run_gameswitcher_frontend(",
+    main_start
 )
 
 if startup_recover < 0:
@@ -401,7 +413,7 @@ if startup_recover < 0:
 
 if gameswitcher_entry < 0:
     print(
-        "GameSwitcher frontend delegation missing"
+        "GameSwitcher frontend entry missing"
     )
     raise SystemExit(1)
 
@@ -410,6 +422,92 @@ if startup_recover >= gameswitcher_entry:
         "interrupted-session recovery must run before GameSwitcher display"
     )
     raise SystemExit(1)
+
+
+
+# Phase 6 hardware gate: the HOME menu GAMESWITCHER entry must
+# invoke the dedicated Session Manager-backed GameSwitcher UI.
+#
+# It must not route through the legacy Recent-history screen.
+home_gameswitcher_marker = "home_selected == 1"
+
+home_gameswitcher_start = frontend.find(
+    home_gameswitcher_marker
+)
+
+if home_gameswitcher_start < 0:
+    print(
+        "home-menu GameSwitcher selection branch missing"
+    )
+    raise SystemExit(1)
+
+home_gameswitcher_end = frontend.find(
+    "} else {",
+    home_gameswitcher_start
+)
+
+if home_gameswitcher_end < 0:
+    home_gameswitcher_end = min(
+        len(frontend),
+        home_gameswitcher_start + 1800
+    )
+
+home_gameswitcher_window = frontend[
+    home_gameswitcher_start:
+    home_gameswitcher_end
+]
+
+if "run_gameswitcher_frontend(" not in home_gameswitcher_window:
+    print(
+        "home-menu GameSwitcher does not delegate "
+        "to shared frontend GameSwitcher flow"
+    )
+    raise SystemExit(1)
+
+shared_flow_start = frontend.find(
+    "static flip_gameswitcher_action_t run_gameswitcher_frontend("
+)
+
+if shared_flow_start < 0:
+    print(
+        "shared frontend GameSwitcher flow missing"
+    )
+    raise SystemExit(1)
+
+shared_flow_end = frontend.find(
+    "\n}\n",
+    shared_flow_start
+)
+
+if shared_flow_end < 0:
+    shared_flow_end = min(
+        len(frontend),
+        shared_flow_start + 7000
+    )
+
+shared_flow_window = frontend[
+    shared_flow_start:
+    shared_flow_end
+]
+
+if "flip_gameswitcher_run(" not in shared_flow_window:
+    print(
+        "shared frontend GameSwitcher flow does not "
+        "delegate to flip_gameswitcher_run"
+    )
+    raise SystemExit(1)
+
+for forbidden in [
+    "load_recent_history(",
+    "SCREEN_RECENT",
+    "draw_recent(",
+]:
+    if forbidden in home_gameswitcher_window:
+        print(
+            "home-menu GameSwitcher still routes "
+            f"through Recent: {forbidden}"
+        )
+        raise SystemExit(1)
 
 
 # Task 9: Recent history remains a separate feature and must

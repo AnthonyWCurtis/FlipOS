@@ -2032,6 +2032,123 @@ static int launch_game(
     }
 }
 
+static flip_gameswitcher_action_t run_gameswitcher_frontend(
+    flip_drm_t *drm)
+{
+    for (;;) {
+        flip_gameswitcher_result_t gameswitcher_result;
+
+        fprintf(
+            stderr,
+            "FRONTEND_GAMESWITCHER entered\n");
+
+        if (flip_gameswitcher_run(
+                drm,
+                &gameswitcher_result) < 0) {
+
+            fprintf(
+                stderr,
+                "FRONTEND_GAMESWITCHER failed\n");
+
+            return FLIP_GAMESWITCHER_ERROR;
+        }
+
+        if (gameswitcher_result.action ==
+            FLIP_GAMESWITCHER_CLOSE) {
+
+            int remove_result =
+                flip_session_manager_remove(
+                    gameswitcher_result.system,
+                    gameswitcher_result.rom);
+
+            if (remove_result < 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_GAMESWITCHER close remove failed rom=%s\n",
+                    gameswitcher_result.rom);
+
+            } else {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_GAMESWITCHER close removed rom=%s\n",
+                    gameswitcher_result.rom);
+            }
+
+            /*
+             * Close changes retained-session metadata only.
+             * Re-enter so the dedicated UI refreshes its model.
+             */
+            continue;
+        }
+
+        if (gameswitcher_result.action ==
+            FLIP_GAMESWITCHER_RESUME) {
+
+            const flip_system_t *resume_system =
+                flip_system_find(
+                    gameswitcher_result.system);
+
+            if (!resume_system) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_GAMESWITCHER resume system missing=%s\n",
+                    gameswitcher_result.system);
+
+                return FLIP_GAMESWITCHER_ERROR;
+            }
+
+            if (flip_session_manager_touch(
+                    gameswitcher_result.system,
+                    gameswitcher_result.rom) < 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_GAMESWITCHER touch failed\n");
+            }
+
+            rom_entry_t resume_rom;
+
+            memset(
+                &resume_rom,
+                0,
+                sizeof(resume_rom));
+
+            snprintf(
+                resume_rom.path,
+                sizeof(resume_rom.path),
+                "%s",
+                gameswitcher_result.rom);
+
+            resume_rom.system =
+                resume_system;
+
+            int resume_result =
+                launch_game(
+                    drm,
+                    &resume_rom);
+
+            if (resume_result < 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_GAMESWITCHER resume failed\n");
+
+                return FLIP_GAMESWITCHER_ERROR;
+            }
+
+            return FLIP_GAMESWITCHER_RESUME;
+        }
+
+        /*
+         * BACK and NEW GAME are returned to the caller.
+         */
+        return gameswitcher_result.action;
+    }
+}
+
 int main(void)
 {
     signal(
@@ -2673,10 +2790,45 @@ int main(void)
                 } else if (
                     home_selected == 1) {
 
-                    load_recent_history();
+                    flip_gameswitcher_action_t gameswitcher_action =
+                        run_gameswitcher_frontend(
+                            &drm);
 
-                    screen =
-                        SCREEN_RECENT;
+                    memset(
+                        &state,
+                        0,
+                        sizeof(state));
+
+                    flip_hotkeys_init(
+                        &global_hotkeys);
+
+                    prev_up = 0;
+                    prev_down = 0;
+                    prev_a = 0;
+                    prev_b = 0;
+                    prev_x = 0;
+
+                    poweroff_active = 0;
+
+                    if (gameswitcher_action ==
+                        FLIP_GAMESWITCHER_NEW_GAME) {
+
+                        refresh_available_systems();
+
+                        if (system_selected >=
+                            available_system_count) {
+
+                            system_selected = 0;
+                        }
+
+                        screen =
+                            SCREEN_SYSTEMS;
+
+                    } else {
+
+                        screen =
+                            SCREEN_HOME;
+                    }
 
                     redraw = 1;
 
@@ -2850,125 +3002,11 @@ int main(void)
                     &drm,
                     game_system);
 
-                if (game_result == FLIP_SESSION_ACTION_SUSPEND) {
+                if (game_result ==
+                    FLIP_SESSION_ACTION_SUSPEND) {
 
-                    for (;;) {
-
-                        flip_gameswitcher_result_t
-                            gameswitcher_result;
-
-                        fprintf(
-                            stderr,
-                            "FRONTEND_GAMESWITCHER entered\n");
-
-                        if (flip_gameswitcher_run(
-                            &drm,
-                            &gameswitcher_result) < 0) {
-
-                            fprintf(
-                                stderr,
-                                "FRONTEND_GAMESWITCHER failed\n");
-
-                            break;
-
-                        } else if (
-                        gameswitcher_result.action ==
-                        FLIP_GAMESWITCHER_CLOSE) {
-
-                        int remove_result =
-                            flip_session_manager_remove(
-                                gameswitcher_result.system,
-                                gameswitcher_result.rom);
-
-                        if (remove_result < 0) {
-
-                            fprintf(
-                                stderr,
-                                "FRONTEND_GAMESWITCHER close remove failed rom=%s\n",
-                                gameswitcher_result.rom);
-
-                        } else {
-
-                            fprintf(
-                                stderr,
-                                "FRONTEND_GAMESWITCHER close removed rom=%s\n",
-                                gameswitcher_result.rom);
-                        }
-
-                        continue;
-
-                    } else if (
-                        gameswitcher_result.action ==
-                        FLIP_GAMESWITCHER_RESUME) {
-
-                        const flip_system_t *resume_system =
-                            flip_system_find(
-                                gameswitcher_result.system);
-
-                        if (!resume_system) {
-
-                            fprintf(
-                                stderr,
-                                "FRONTEND_GAMESWITCHER resume system missing=%s\n",
-                                gameswitcher_result.system);
-
-                        } else {
-
-                            if (flip_session_manager_touch(
-                                    gameswitcher_result.system,
-                                    gameswitcher_result.rom) < 0) {
-
-                                fprintf(
-                                    stderr,
-                                    "FRONTEND_GAMESWITCHER touch failed\n");
-                            }
-
-                            rom_entry_t resume_rom;
-
-                            memset(
-                                &resume_rom,
-                                0,
-                                sizeof(resume_rom));
-
-                            snprintf(
-                                resume_rom.path,
-                                sizeof(resume_rom.path),
-                                "%s",
-                                gameswitcher_result.rom);
-
-                            resume_rom.system =
-                                resume_system;
-
-                            int resume_result =
-                                launch_game(
-                                    &drm,
-                                    &resume_rom);
-
-                            if (resume_result < 0) {
-
-                                fprintf(
-                                    stderr,
-                                    "FRONTEND_GAMESWITCHER resume failed\n");
-                            }
-                        }
-
-                        break;
-                    }
-
-                    /*
-                     * BACK / NEW GAME leave the refresh loop.
-                     * CLOSE already continues above to refresh.
-                     */
-                    break;
-                }
-
-                draw_games(
-                        &drm,
-                        game_system,
-                        game_selected,
-                        0.0);
-
-                    continue;
+                    (void)run_gameswitcher_frontend(
+                        &drm);
                 }
 
                 if (game_selected >=
