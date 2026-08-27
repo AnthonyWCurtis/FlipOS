@@ -131,4 +131,124 @@ for token in close_action_requirements:
         )
         raise SystemExit(1)
 
+
+# Task 6: selected retained sessions must resume through the
+# same generic system/ROM launcher as normal library entries.
+resume_marker = "flip_gameswitcher_run("
+
+resume_start = frontend.find(resume_marker)
+
+if resume_start < 0:
+    print("GameSwitcher frontend delegation missing")
+    raise SystemExit(1)
+
+resume_window = frontend[
+    resume_start:
+    min(len(frontend), resume_start + 2600)
+]
+
+resume_requirements = [
+    "FLIP_GAMESWITCHER_RESUME",
+    "flip_system_find(",
+    "gameswitcher_result.system",
+    "gameswitcher_result.rom",
+    "launch_game(",
+]
+
+for token in resume_requirements:
+    if token not in resume_window:
+        print(
+            "GameSwitcher generic resume path missing: "
+            f"{token}"
+        )
+        raise SystemExit(1)
+
+for forbidden in [
+    "flip-gb",
+    "gambatte",
+]:
+    if forbidden.lower() in resume_window.lower():
+        print(
+            "GameSwitcher resume bypasses generic launcher: "
+            f"{forbidden}"
+        )
+        raise SystemExit(1)
+
+
+# Task 6: recency changes only on an accepted Resume path.
+touch_token = "flip_session_manager_touch("
+
+if touch_token not in resume_window:
+    print(
+        "GameSwitcher accepted Resume does not touch retained session"
+    )
+    raise SystemExit(1)
+
+resume_action_pos = resume_window.find(
+    "FLIP_GAMESWITCHER_RESUME"
+)
+
+system_find_pos = resume_window.find(
+    "flip_system_find("
+)
+
+touch_pos = resume_window.find(
+    touch_token
+)
+
+launch_pos = resume_window.find(
+    "launch_game("
+)
+
+if not (
+    0 <= resume_action_pos <
+    system_find_pos <
+    touch_pos <
+    launch_pos
+):
+    print(
+        "GameSwitcher touch must occur only after Resume "
+        "acceptance/system resolution and before generic launch"
+    )
+    raise SystemExit(1)
+
+pre_resume = resume_window[:resume_action_pos]
+
+if touch_token in pre_resume:
+    print(
+        "GameSwitcher touches session before Resume is accepted"
+    )
+    raise SystemExit(1)
+
+
+# Task 6: non-resumable retained sessions must be blocked
+# before a RESUME result can reach the frontend launcher.
+resume_result_pos = source_text.find(
+    "FLIP_GAMESWITCHER_RESUME"
+)
+
+resume_guard_pos = source_text.rfind(
+    "flip_gameswitcher_model_can_resume(",
+    0,
+    resume_result_pos
+)
+
+if resume_result_pos < 0 or resume_guard_pos < 0:
+    print(
+        "GameSwitcher Resume is not guarded by resume availability"
+    )
+    raise SystemExit(1)
+
+resume_guard_window = source_text[
+    resume_guard_pos:
+    resume_result_pos + len("FLIP_GAMESWITCHER_RESUME")
+]
+
+if "selected" not in resume_guard_window:
+    print(
+        "GameSwitcher Resume availability guard does not "
+        "apply to selected session"
+    )
+    raise SystemExit(1)
+
 print("gameswitcher architecture boundary passed")

@@ -52,4 +52,8 @@ int flip_session_manager_remove(
     const char *system_id,
     const char *rom_path);
 
+int flip_session_manager_touch(
+    const char *system_id,
+    const char *rom_path);
+
 #endif

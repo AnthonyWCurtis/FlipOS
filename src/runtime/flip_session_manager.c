@@ -565,6 +565,53 @@ void flip_session_manager_list_free(flip_retained_session_list_t *list)
     list->count = 0;
 }
 
+int flip_session_manager_touch(
+    const char *system_id,
+    const char *rom_path)
+{
+    if (!system_id ||
+        !system_id[0] ||
+        !rom_path ||
+        !rom_path[0])
+        return -1;
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    if (flip_session_manager_load(&list) < 0)
+        return -1;
+
+    int found = 0;
+    flip_retained_session_status_t status =
+        FLIP_RETAINED_SESSION_SUSPENDED;
+
+    for (size_t i = 0; i < list.count; ++i) {
+        if (strcmp(
+                list.items[i].system,
+                system_id) == 0 &&
+            strcmp(
+                list.items[i].rom,
+                rom_path) == 0) {
+
+            status =
+                list.items[i].status;
+            found = 1;
+            break;
+        }
+    }
+
+    flip_session_manager_list_free(&list);
+
+    if (!found)
+        return -1;
+
+    return flip_session_manager_record(
+        system_id,
+        rom_path,
+        status,
+        (long long)time(NULL));
+}
+
 int flip_session_manager_remove(
     const char *system_id,
     const char *rom_path)

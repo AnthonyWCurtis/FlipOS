@@ -591,8 +591,70 @@ static void test_record_gameswitcher_rejects_invalid_input(void)
             "") == -1);
 }
 
+
+static void test_touch_moves_session_to_most_recent(void)
+{
+    const char *older =
+        "/tmp/flipos-session-manager-touch-older.gb";
+
+    const char *newer =
+        "/tmp/flipos-session-manager-touch-newer.gb";
+
+    FILE *fp = fopen(older, "wb");
+    assert(fp != NULL);
+    fclose(fp);
+
+    fp = fopen(newer, "wb");
+    assert(fp != NULL);
+    fclose(fp);
+
+    assert(
+        flip_session_manager_record(
+            "GB",
+            older,
+            FLIP_RETAINED_SESSION_SUSPENDED,
+            100) == 0);
+
+    assert(
+        flip_session_manager_record(
+            "GB",
+            newer,
+            FLIP_RETAINED_SESSION_SUSPENDED,
+            200) == 0);
+
+    assert(
+        flip_session_manager_touch(
+            "GB",
+            older) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(
+        flip_session_manager_load(
+            &list) == 0);
+
+    assert(list.count >= 2);
+
+    assert(
+        strcmp(
+            list.items[0].rom,
+            older) == 0);
+
+    assert(
+        list.items[0].last_active >
+        list.items[1].last_active);
+
+    flip_session_manager_list_free(
+        &list);
+
+    unlink(older);
+    unlink(newer);
+}
+
 int main(void)
 {
+    test_touch_moves_session_to_most_recent();
     test_empty_registry();
     test_record_round_trip_and_frozen_identity();
     test_update_replaces_without_duplicate();

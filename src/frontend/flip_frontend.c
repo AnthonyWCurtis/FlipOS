@@ -2866,6 +2866,61 @@ int main(void)
                         fprintf(
                             stderr,
                             "FRONTEND_GAMESWITCHER failed\n");
+
+                    } else if (
+                        gameswitcher_result.action ==
+                        FLIP_GAMESWITCHER_RESUME) {
+
+                        const flip_system_t *resume_system =
+                            flip_system_find(
+                                gameswitcher_result.system);
+
+                        if (!resume_system) {
+
+                            fprintf(
+                                stderr,
+                                "FRONTEND_GAMESWITCHER resume system missing=%s\n",
+                                gameswitcher_result.system);
+
+                        } else {
+
+                            if (flip_session_manager_touch(
+                                    gameswitcher_result.system,
+                                    gameswitcher_result.rom) < 0) {
+
+                                fprintf(
+                                    stderr,
+                                    "FRONTEND_GAMESWITCHER touch failed\n");
+                            }
+
+                            rom_entry_t resume_rom;
+
+                            memset(
+                                &resume_rom,
+                                0,
+                                sizeof(resume_rom));
+
+                            snprintf(
+                                resume_rom.path,
+                                sizeof(resume_rom.path),
+                                "%s",
+                                gameswitcher_result.rom);
+
+                            resume_rom.system =
+                                resume_system;
+
+                            int resume_result =
+                                launch_game(
+                                    &drm,
+                                    &resume_rom);
+
+                            if (resume_result < 0) {
+
+                                fprintf(
+                                    stderr,
+                                    "FRONTEND_GAMESWITCHER resume failed\n");
+                            }
+                        }
                     }
 
                     draw_games(
