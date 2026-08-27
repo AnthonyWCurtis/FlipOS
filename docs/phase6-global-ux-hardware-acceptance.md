@@ -45,6 +45,15 @@ Confirmed on hardware:
 - Wake input is consumed and does not activate the selected frontend action.
 - Screensaver architecture is shared across frontend-owned screens.
 
+### Reset Game Data
+
+Confirmed on hardware:
+- GBC Reset Game Data correctly resolves the public GBC system identity to the shared `gb` persistence namespace.
+- Pokemon Crystal session, save, previous save, state, and previous state artifacts were moved into `/mnt/sdcard/flipos-dev/reset/`.
+- No matching active Crystal session/save/state artifacts remained after reset.
+- Runtime logged `FLIP_GAME_DATA: RESET_OK system=GBC`.
+- Empty resets now fail with `RESET_NONE`; `RESET_OK` therefore means at least one artifact was actually quarantined.
+
 ### Clock limitation
 
 Confirmed:
