@@ -269,6 +269,8 @@ int flip_game_data_reset(
         }
     }
 
+    size_t moved_count = 0;
+
     for (size_t i = 0;
          i < artifact_count;
          ++i) {
@@ -306,6 +308,7 @@ int flip_game_data_reset(
         }
 
         moves[i].moved = 1;
+        moved_count++;
 
 #ifdef FLIP_GAME_DATA_TEST_FAIL_AFTER_MOVE
         if ((int)i + 1 ==
@@ -323,6 +326,16 @@ int flip_game_data_reset(
             return -1;
         }
 #endif
+    }
+
+    if (moved_count == 0) {
+        fprintf(
+            stderr,
+            "FLIP_GAME_DATA: RESET_NONE system=%s rom=%s\n",
+            system_id,
+            rom_path);
+
+        return -1;
     }
 
     fprintf(

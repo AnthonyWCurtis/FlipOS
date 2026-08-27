@@ -221,15 +221,19 @@ static void test_reset_quarantines_only_target_game(void)
 }
 
 
-static void test_reset_with_no_files_succeeds(void)
+static void test_reset_with_no_files_fails(void)
 {
     reset_root();
     make_dirs();
 
+    /*
+     * A reset that finds nothing to quarantine must not report
+     * success. RESET_OK means at least one artifact was moved.
+     */
     assert(flip_game_data_reset(
         "gb",
         "gb",
-        "/mnt/SDCARD/Roms/GB/Empty.gb") == 0);
+        "/mnt/SDCARD/Roms/GB/Empty.gb") == -1);
 }
 
 static void test_invalid_inputs_fail_closed(void)
@@ -436,7 +440,7 @@ int main(void)
 {
     test_reset_quarantines_only_target_game();
     test_gbc_uses_shared_gb_persistence_namespace();
-    test_reset_with_no_files_succeeds();
+    test_reset_with_no_files_fails();
     test_invalid_inputs_fail_closed();
     test_existing_quarantine_refuses_overwrite();
     test_invalid_quarantine_destination_fails_before_moves();
