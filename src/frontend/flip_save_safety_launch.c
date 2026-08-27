@@ -1,6 +1,7 @@
 #include "flip_save_safety_ui.h"
 #include "flip_frontend_present.h"
 #include "flip_frontend_idle.h"
+#include "flip_frontend_global_controls.h"
 #include "flip_game_data.h"
 
 #include "flip_draw.h"
@@ -229,6 +230,12 @@ static int confirm_action(flip_drm_t *drm, const char *title)
     int prev_a = 0;
     int prev_b = 0;
 
+    flip_frontend_global_controls_t
+        global_controls;
+
+    flip_frontend_global_controls_init(
+        &global_controls);
+
     for (;;) {
         if (flip_input_poll(&state, 30) < 0)
             return 0;
@@ -240,7 +247,19 @@ static int confirm_action(flip_drm_t *drm, const char *title)
         if (idle_input_consumed < 0)
             return 0;
 
+        flip_frontend_global_controls_result_t
+            global_result;
+
+        if (flip_frontend_global_controls_handle(
+                &global_controls,
+                &state,
+                &global_result) < 0) {
+
+            return 0;
+        }
+
         if (flip_frontend_idle_global_redraw_due() ||
+            global_result.redraw ||
             idle_input_consumed > 0) {
 
             draw_confirmation(
@@ -290,6 +309,12 @@ static int run_save_safety_menu(
     int prev_a = 0;
     int prev_b = 0;
 
+    flip_frontend_global_controls_t
+        global_controls;
+
+    flip_frontend_global_controls_init(
+        &global_controls);
+
     for (;;) {
         if (flip_input_poll(&state, 30) < 0)
             return -1;
@@ -301,7 +326,21 @@ static int run_save_safety_menu(
         if (idle_input_consumed < 0)
             return -1;
 
+        flip_frontend_global_controls_result_t
+            global_result;
+
+        if (flip_frontend_global_controls_handle(
+                &global_controls,
+                &state,
+                &global_result) < 0) {
+
+            return -1;
+        }
+
         int redraw = 0;
+
+        if (global_result.redraw)
+            redraw = 1;
 
         if (flip_frontend_idle_global_redraw_due() ||
             idle_input_consumed > 0) {
@@ -412,6 +451,12 @@ static int choose_launch_mode(
     int prev_a = 0;
     int prev_b = 0;
 
+    flip_frontend_global_controls_t
+        global_controls;
+
+    flip_frontend_global_controls_init(
+        &global_controls);
+
     for (;;) {
         if (flip_input_poll(&state, 30) < 0)
             return -1;
@@ -423,7 +468,21 @@ static int choose_launch_mode(
         if (idle_input_consumed < 0)
             return -1;
 
+        flip_frontend_global_controls_result_t
+            global_result;
+
+        if (flip_frontend_global_controls_handle(
+                &global_controls,
+                &state,
+                &global_result) < 0) {
+
+            return -1;
+        }
+
         int redraw = 0;
+
+        if (global_result.redraw)
+            redraw = 1;
 
         if (flip_frontend_idle_global_redraw_due() ||
             idle_input_consumed > 0) {

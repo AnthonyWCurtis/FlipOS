@@ -153,6 +153,37 @@ for token in forbidden_frontend:
     if token in FRONTEND_MAIN or token in FRONTEND:
         errors.append(f"frontend must not own persistence storage detail: {token}")
 
+
+#
+# Save Safety and its nested modal loops must participate in the same
+# global hardware-control policy as the rest of FlipOS.
+#
+for token in [
+    '"flip_frontend_global_controls.h"',
+    "flip_frontend_global_controls_t",
+    "flip_frontend_global_controls_init(",
+    "flip_frontend_global_controls_handle(",
+]:
+    if token not in FRONTEND_LAUNCH:
+        errors.append(
+            f"Save Safety global controls missing: {token}"
+        )
+
+#
+# There are three interactive loops here:
+# confirmation, Save Safety menu, and launch-mode chooser.
+# Each must delegate input to the shared global-controls handler.
+#
+global_control_calls = FRONTEND_LAUNCH.count(
+    "flip_frontend_global_controls_handle("
+)
+
+if global_control_calls < 3:
+    errors.append(
+        "Save Safety nested loops do not all use global controls "
+        f"(calls={global_control_calls})"
+    )
+
 if errors:
     for error in errors:
         print(error)
