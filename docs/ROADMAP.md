@@ -230,6 +230,17 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 
 ## Phase 6 — Global GameSwitcher / Session Manager
 
+**Software candidate ready; real-Miyoo-Flip hardware acceptance pending.**
+
+Software candidate runtime HEAD: `3a9e8fa9a177d2fb92f6b0d4051556e37fc24fa7`.
+
+Clean software verification passed with exact `VERIFY: PASS`. Candidate binary SHA-256 values:
+
+- `flip-gb`: `537eb2518739aa7ae947e56ce7aef5805845a58eda8d995373c2f48b194337cd`
+- `flip-frontend`: `0fb25bf11a2f3bfff7b67b2063aa2b30c28bdbec5984e6bdfaacdcbba919b8f5`
+
+Phase 6 software implementation now includes persistent generic retained sessions, validated/pruned session metadata, centralized saved-handoff semantics, true GameSwitcher handoff recording, persistent multi-session UI, generic selected-session resume, explicit metadata-only Close Session, interrupted-session recovery, and separation of Recent history from GameSwitcher data. These responsibilities remain pending final completion until the Phase 6 real-hardware acceptance gate passes.
+
 - [ ] Suspend current game
 - [ ] Save state
 - [ ] Record active session

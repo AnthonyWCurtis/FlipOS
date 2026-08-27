@@ -105,6 +105,8 @@ verify:
 		$(MAKE) test-recovery && \
 		$(MAKE) test-session-save-safety && \
 		$(MAKE) test-session-manager && \
+		$(MAKE) test-session-manager-recovery && \
+		$(MAKE) test-gameswitcher-ui && \
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
 		$(MAKE) test-architecture && \
