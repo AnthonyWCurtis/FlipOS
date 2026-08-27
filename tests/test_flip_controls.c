@@ -127,13 +127,11 @@ int main(void)
     flip_controls_init(
         &controls);
 
+    /*
+     * START + SELECT are normal game inputs now.
+     * They must no longer request Exit Game.
+     */
     input.down[FLIP_BTN_START] = 1;
-
-    update(
-        &controls,
-        &input,
-        &out);
-
     input.down[FLIP_BTN_SELECT] = 1;
 
     update(
@@ -141,14 +139,52 @@ int main(void)
         &input,
         &out);
 
-    assert(out.system.exit_requested == 1);
+    assert(out.system.exit_requested == 0);
+    assert(out.game.down[FLIP_GAME_START] == 1);
+    assert(out.game.down[FLIP_GAME_SELECT] == 1);
+
+    /*
+     * MENU + START is the sole Exit Game gesture.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_MENU] = 1;
+    input.down[FLIP_BTN_START] = 1;
 
     update(
         &controls,
         &input,
         &out);
 
+    assert(out.system.exit_requested == 1);
+    assert(out.system.gameswitcher_requested == 0);
+
+    /*
+     * Holding the combo must not retrigger Exit Game.
+     */
+    update(
+        &controls,
+        &input,
+        &out);
+
     assert(out.system.exit_requested == 0);
+
+    /*
+     * Releasing MENU after the exit chord must not emit a
+     * delayed GameSwitcher request.
+     */
+    input.down[FLIP_BTN_MENU] = 0;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.gameswitcher_requested == 0);
 
     clear_input(
         &input);

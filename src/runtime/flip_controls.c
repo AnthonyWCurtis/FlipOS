@@ -141,17 +141,23 @@ int flip_controls_update(
     }
 
     int exit_now =
-        start_now &&
-        select_now;
+        menu_now &&
+        start_now;
 
     int exit_before =
-        controls->previous_start &&
-        controls->previous_select;
+        controls->previous_menu &&
+        controls->previous_start;
 
     if (exit_now &&
         !exit_before) {
 
         state->system.exit_requested = 1;
+
+        /*
+         * MENU is part of the Exit Game chord, so releasing it
+         * must not emit a delayed GameSwitcher request.
+         */
+        controls->menu_pending = 0;
     }
 
     state->system.lid_ready =
