@@ -193,7 +193,7 @@ static void test_malformed_file_does_not_hide_valid_session(void)
     char dir[768];
     snprintf(dir, sizeof(dir), "%s/GB", FLIP_SESSION_MANAGER_ROOT);
 
-    char malformed[768];
+    char malformed[1024];
     snprintf(malformed, sizeof(malformed), "%s/broken.session", dir);
 
     FILE *f = fopen(malformed, "w");
