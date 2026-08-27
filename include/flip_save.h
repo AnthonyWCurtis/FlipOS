@@ -9,6 +9,10 @@
 #define FLIP_SAVE_ROOT "/mnt/SDCARD/flipos-dev/saves"
 #endif
 
+#define FLIP_SAVE_CURRENT_SUFFIX ".sav"
+#define FLIP_SAVE_PREVIOUS_SUFFIX ".sav.prev"
+#define FLIP_SAVE_RECOVERY_SUFFIX ".sav.recovery"
+
 typedef struct {
     const char *system_id;
     const char *rom_path;
