@@ -41,4 +41,57 @@ for path in paths:
             print(f"legacy adapter token {token!r} remains in {path}")
             raise SystemExit(1)
 
+
+header = Path(
+    "include/flip_session_adapter.h"
+).read_text()
+
+source = Path(
+    "src/runtime/flip_session_adapter.c"
+).read_text()
+
+if "const char *persistence_system;" not in header:
+    print(
+        "session adapter missing explicit persistence namespace"
+    )
+    raise SystemExit(1)
+
+for adapter, namespace in [
+    ("gb_session_adapter", "gb"),
+    ("gbc_session_adapter", "gb"),
+]:
+    start = source.find(
+        f"{adapter} = {{"
+    )
+
+    if start < 0:
+        print(
+            f"missing session adapter: {adapter}"
+        )
+        raise SystemExit(1)
+
+    end = source.find(
+        "};",
+        start
+    )
+
+    if end < 0:
+        print(
+            f"unterminated session adapter: {adapter}"
+        )
+        raise SystemExit(1)
+
+    block = source[start:end]
+
+    token = (
+        f'.persistence_system = "{namespace}"'
+    )
+
+    if token not in block:
+        print(
+            f"{adapter} missing persistence namespace "
+            f"{namespace}"
+        )
+        raise SystemExit(1)
+
 print("session adapter naming boundary passed")

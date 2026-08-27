@@ -13,6 +13,7 @@
  */
 int flip_game_data_reset(
     const char *system_id,
+    const char *persistence_system_id,
     const char *rom_path);
 
 #endif

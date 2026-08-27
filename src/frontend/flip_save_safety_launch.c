@@ -315,6 +315,7 @@ static int run_save_safety_menu(
                     action_result =
                         flip_game_data_reset(
                             system->id,
+                            system->session_adapter->persistence_system,
                             rom_path);
                 } else {
                     action_result = restore

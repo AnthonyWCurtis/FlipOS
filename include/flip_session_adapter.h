@@ -8,6 +8,12 @@
 typedef struct {
     const char *system;
 
+    /*
+     * Persistence namespace used for saves/states/recovery.
+     * Public systems may intentionally share one persistence backend.
+     */
+    const char *persistence_system;
+
     int (*resume_available)(
         const char *rom_path);
 

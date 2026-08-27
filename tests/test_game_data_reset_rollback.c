@@ -117,6 +117,7 @@ int main(void)
      */
     assert(flip_game_data_reset(
         "gb",
+        "gb",
         rom) == -1);
 
     assert(exists(save));

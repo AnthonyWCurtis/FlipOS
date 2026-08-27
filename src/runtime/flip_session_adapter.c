@@ -140,6 +140,7 @@ gb_build_save_safety_argv(
 static const flip_session_adapter_t
 gb_session_adapter = {
     .system = "GB",
+    .persistence_system = "gb",
     .resume_available = gb_resume_available,
     .supports_save_safety = gb_supports_save_safety,
     .build_start_normal_argv = gb_build_start_normal_argv,
@@ -149,6 +150,7 @@ gb_session_adapter = {
 static const flip_session_adapter_t
 gbc_session_adapter = {
     .system = "GBC",
+    .persistence_system = "gb",
     .resume_available = gb_resume_available,
     .supports_save_safety = gb_supports_save_safety,
     .build_start_normal_argv = gb_build_start_normal_argv,

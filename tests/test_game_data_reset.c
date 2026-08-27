@@ -160,6 +160,7 @@ static void test_reset_quarantines_only_target_game(void)
 
     assert(flip_game_data_reset(
         "gb",
+        "gb",
         target) == 0);
 
     for (size_t i = 0;
@@ -227,6 +228,7 @@ static void test_reset_with_no_files_succeeds(void)
 
     assert(flip_game_data_reset(
         "gb",
+        "gb",
         "/mnt/SDCARD/Roms/GB/Empty.gb") == 0);
 }
 
@@ -237,21 +239,26 @@ static void test_invalid_inputs_fail_closed(void)
 
     assert(flip_game_data_reset(
         NULL,
+        "gb",
         "/mnt/SDCARD/Roms/GB/Test.gb") == -1);
 
     assert(flip_game_data_reset(
         "",
+        "gb",
         "/mnt/SDCARD/Roms/GB/Test.gb") == -1);
 
     assert(flip_game_data_reset(
         "gb/../../bad",
+        "gb",
         "/mnt/SDCARD/Roms/GB/Test.gb") == -1);
 
     assert(flip_game_data_reset(
         "gb",
+        "gb",
         NULL) == -1);
 
     assert(flip_game_data_reset(
+        "gb",
         "gb",
         "") == -1);
 }
@@ -283,6 +290,7 @@ static void test_existing_quarantine_refuses_overwrite(void)
     write_file(quarantine, "OLDER RESET");
 
     assert(flip_game_data_reset(
+        "gb",
         "gb",
         rom) == -1);
 
@@ -333,15 +341,101 @@ static void test_invalid_quarantine_destination_fails_before_moves(void)
 
     assert(flip_game_data_reset(
         "gb",
+        "gb",
         rom) == -1);
 
     assert(exists(save_path));
     assert(exists(state_path));
 }
 
+
+static void test_gbc_uses_shared_gb_persistence_namespace(void)
+{
+    reset_root();
+    make_dirs();
+
+    const char *rom =
+        "/mnt/SDCARD/Roms/GBC/Pokemon - Crystal.gbc";
+
+    char save[1024];
+    char state[1024];
+    char session_dir[1024];
+    char session[1024];
+
+    snprintf(
+        save,
+        sizeof(save),
+        "%s/saves/gb/259f8b87baf5b937.sav",
+        FLIP_GAME_DATA_TEST_ROOT);
+
+    snprintf(
+        state,
+        sizeof(state),
+        "%s/states/gb/259f8b87baf5b937.state",
+        FLIP_GAME_DATA_TEST_ROOT);
+
+    snprintf(
+        session_dir,
+        sizeof(session_dir),
+        "%s/sessions/GBC",
+        FLIP_GAME_DATA_TEST_ROOT);
+
+    mkdir_or_die(session_dir);
+
+    snprintf(
+        session,
+        sizeof(session),
+        "%s/sessions/GBC/259f8b87baf5b937.session",
+        FLIP_GAME_DATA_TEST_ROOT);
+
+    write_file(save, "GBC SAVE");
+    write_file(state, "GBC STATE");
+    write_file(session, "GBC SESSION");
+
+    /*
+     * Public system identity is GBC, while persistence is owned
+     * by the shared GB/GBC adapter namespace "gb".
+     */
+    assert(flip_game_data_reset(
+        "GBC",
+        "gb",
+        rom) == 0);
+
+    assert(!exists(save));
+    assert(!exists(state));
+    assert(!exists(session));
+
+    char reset_save[1024];
+    char reset_state[1024];
+    char reset_session[1024];
+
+    snprintf(
+        reset_save,
+        sizeof(reset_save),
+        "%s/reset/259f8b87baf5b937.sav",
+        FLIP_GAME_DATA_TEST_ROOT);
+
+    snprintf(
+        reset_state,
+        sizeof(reset_state),
+        "%s/reset/259f8b87baf5b937.state",
+        FLIP_GAME_DATA_TEST_ROOT);
+
+    snprintf(
+        reset_session,
+        sizeof(reset_session),
+        "%s/reset/259f8b87baf5b937.session",
+        FLIP_GAME_DATA_TEST_ROOT);
+
+    assert(exists(reset_save));
+    assert(exists(reset_state));
+    assert(exists(reset_session));
+}
+
 int main(void)
 {
     test_reset_quarantines_only_target_game();
+    test_gbc_uses_shared_gb_persistence_namespace();
     test_reset_with_no_files_succeeds();
     test_invalid_inputs_fail_closed();
     test_existing_quarantine_refuses_overwrite();

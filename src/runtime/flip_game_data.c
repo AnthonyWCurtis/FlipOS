@@ -175,9 +175,11 @@ static void rollback_moves(
 
 int flip_game_data_reset(
     const char *system_id,
+    const char *persistence_system_id,
     const char *rom_path)
 {
     if (!valid_system_id(system_id) ||
+        !valid_system_id(persistence_system_id) ||
         !rom_path ||
         !rom_path[0]) {
 
@@ -214,9 +216,16 @@ int flip_game_data_reset(
          i < artifact_count;
          ++i) {
 
+        const char *storage_system_id =
+            strcmp(
+                artifacts[i].category,
+                "sessions") == 0
+                ? system_id
+                : persistence_system_id;
+
         if (build_move(
                 &moves[i],
-                system_id,
+                storage_system_id,
                 hash,
                 artifacts[i].category,
                 artifacts[i].suffix) < 0) {
