@@ -2,9 +2,13 @@
 
 from pathlib import Path
 
-FRONTEND = Path("src/frontend/flip_frontend.c").read_text()
+FRONTEND_MAIN = Path("src/frontend/flip_frontend.c").read_text()
+FRONTEND_UI = Path("src/frontend/flip_save_safety_ui.c").read_text()
+FRONTEND_LAUNCH = Path("src/frontend/flip_save_safety_launch.c").read_text()
+FRONTEND = FRONTEND_UI + "\n" + FRONTEND_LAUNCH
 HEADER = Path("include/flip_session_adapter.h").read_text()
 ADAPTER = Path("src/runtime/flip_session_adapter.c").read_text()
+MAKEFILE = Path("Makefile").read_text()
 
 errors = []
 
@@ -36,23 +40,41 @@ required_frontend = [
     "build_start_normal_argv",
     "build_save_safety_argv",
     "FLIP_SAVE_SAFETY:",
+    "flip_save_safety_query(",
+    "flip_save_safety_restore_previous(",
+    "flip_save_safety_undo(",
+    "flip_session_launch_legacy(",
 ]
 for token in required_frontend:
     if token not in FRONTEND:
         errors.append(f"generic frontend Save Safety UX missing: {token}")
 
+required_makefile = [
+    "flip_save_safety_ui.o",
+    "flip_save_safety_launch.o",
+    "-Dflip_session_launch=flip_session_launch_legacy",
+]
+for token in required_makefile:
+    if token not in MAKEFILE:
+        errors.append(f"Save Safety frontend build wiring missing: {token}")
+
+# The frontend may use generic session.state metadata; it must not know
+# emulator persistence filenames, roots, hashes or marker names.
 forbidden_frontend = [
-    ".sav",
-    ".state",
-    ".recovery",
-    ".restore-pending",
+    '".sav"',
+    '".sav.prev"',
+    '".sav.recovery"',
+    '".state.recovery"',
+    '".restore-pending"',
     "FLIP_SAVE_ROOT",
     "FLIP_STATE_ROOT",
     "FLIP_SESSION_RECOVERY_ROOT",
     "792f9628ba43b7d9",
+    "/mnt/SDCARD/flipos-dev/saves/",
+    "/mnt/SDCARD/flipos-dev/states/",
 ]
 for token in forbidden_frontend:
-    if token in FRONTEND:
+    if token in FRONTEND_MAIN or token in FRONTEND:
         errors.append(f"frontend must not own persistence storage detail: {token}")
 
 if errors:
