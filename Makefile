@@ -164,6 +164,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 	$(BUILD)/test-flip-telemetry
 
 test-architecture:
+	python3 tests/test_session_manager_architecture.py
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
@@ -251,10 +252,11 @@ $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
-$(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c src/runtime/flip_session_manager.c include/flip_session_manager.h | $(BUILD)
+$(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c tests/test_session_manager_system_stub.c src/runtime/flip_session_manager.c src/runtime/flip_system.c include/flip_session_manager.h include/flip_system.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-DFLIP_SESSION_MANAGER_ROOT='"/tmp/flipos-session-manager-test"' -Iinclude \
-		tests/test_flip_session_manager.c src/runtime/flip_session_manager.c \
+		tests/test_flip_session_manager.c tests/test_session_manager_system_stub.c \
+		src/runtime/flip_session_manager.c src/runtime/flip_system.c \
 		-o $@
 
 $(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_save_safety.c src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_session_adapter.h include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)

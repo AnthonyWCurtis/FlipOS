@@ -34,6 +34,11 @@ int flip_session_manager_record(
 int flip_session_manager_load(
     flip_retained_session_list_t *list);
 
+int flip_session_manager_refresh(
+    flip_retained_session_list_t *list);
+
+int flip_session_manager_prune(void);
+
 void flip_session_manager_list_free(
     flip_retained_session_list_t *list);
 

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session_manager.h"
+#include "flip_system.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -380,8 +381,11 @@ int flip_session_manager_load(flip_retained_session_list_t *list)
             continue;
 
         DIR *dir = opendir(system_dir);
-        if (!dir)
-            continue;
+        if (!dir) {
+            closedir(root);
+            flip_session_manager_list_free(list);
+            return -1;
+        }
 
         struct dirent *entry;
         while ((entry = readdir(dir)) != NULL) {
@@ -430,6 +434,106 @@ int flip_session_manager_load(flip_retained_session_list_t *list)
             compare_recent_first);
     }
 
+    return 0;
+}
+
+
+int flip_session_manager_refresh(
+    flip_retained_session_list_t *list)
+{
+    if (!list)
+        return -1;
+
+    if (flip_session_manager_load(list) < 0)
+        return -1;
+
+    size_t write_index = 0;
+
+    for (size_t i = 0; i < list->count; ++i) {
+        flip_retained_session_t *session = &list->items[i];
+
+        const flip_system_t *system =
+            flip_system_find(session->system);
+
+        if (!system) {
+            flip_session_manager_remove(
+                session->system,
+                session->rom);
+            continue;
+        }
+
+        struct stat rom_st;
+        if (stat(session->rom, &rom_st) < 0 ||
+            !S_ISREG(rom_st.st_mode) ||
+            access(session->rom, R_OK) < 0) {
+
+            flip_session_manager_remove(
+                session->system,
+                session->rom);
+            continue;
+        }
+
+        if (!flip_system_supports_path(
+                system,
+                session->rom)) {
+
+            flip_session_manager_remove(
+                session->system,
+                session->rom);
+            continue;
+        }
+
+        session->resume_available =
+            flip_system_resume_available(
+                system,
+                session->rom);
+
+        int duplicate = 0;
+
+        for (size_t j = 0; j < write_index; ++j) {
+            if (strcmp(
+                    list->items[j].system,
+                    session->system) == 0 &&
+                strcmp(
+                    list->items[j].rom,
+                    session->rom) == 0) {
+
+                duplicate = 1;
+                break;
+            }
+        }
+
+        if (duplicate)
+            continue;
+
+        if (write_index != i)
+            list->items[write_index] = *session;
+
+        ++write_index;
+    }
+
+    list->count = write_index;
+
+    if (list->count == 0) {
+        free(list->items);
+        list->items = NULL;
+    }
+
+    return 0;
+}
+
+
+int flip_session_manager_prune(void)
+{
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    if (flip_session_manager_refresh(&list) < 0) {
+        flip_session_manager_list_free(&list);
+        return -1;
+    }
+
+    flip_session_manager_list_free(&list);
     return 0;
 }
 

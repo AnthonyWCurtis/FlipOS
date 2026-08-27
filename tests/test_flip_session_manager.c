@@ -242,6 +242,290 @@ static void test_failed_update_preserves_committed_session(void)
     flip_session_manager_list_free(&list);
 }
 
+
+static void test_refresh_prunes_unsupported_system(void)
+{
+    static const char *rom = "/tmp/flipos-session-manager-test-rom.gb";
+
+    reset_root();
+
+    FILE *f = fopen(rom, "w");
+    assert(f != NULL);
+    assert(fputs("fixture\n", f) >= 0);
+    assert(fclose(f) == 0);
+
+    assert(flip_session_manager_record(
+        "UNSUPPORTED",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        100) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_refresh(&list) == 0);
+    assert(list.count == 0);
+    assert(list.items == NULL);
+
+    flip_session_manager_list_free(&list);
+
+    assert(unlink(rom) == 0);
+}
+
+
+static void test_refresh_prunes_missing_rom(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-definitely-missing.gb";
+
+    reset_root();
+    unlink(rom);
+
+    assert(flip_session_manager_record(
+        "GB",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        200) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_refresh(&list) == 0);
+    assert(list.count == 0);
+    assert(list.items == NULL);
+
+    flip_session_manager_list_free(&list);
+}
+
+
+static void test_refresh_prunes_unsupported_rom_path(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-wrong-extension.gbc";
+
+    reset_root();
+
+    FILE *f = fopen(rom, "w");
+    assert(f != NULL);
+    assert(fputs("fixture\n", f) >= 0);
+    assert(fclose(f) == 0);
+
+    assert(flip_session_manager_record(
+        "GB",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        300) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_refresh(&list) == 0);
+    assert(list.count == 0);
+    assert(list.items == NULL);
+
+    flip_session_manager_list_free(&list);
+
+    assert(unlink(rom) == 0);
+}
+
+
+static void test_refresh_keeps_valid_session_without_resume(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-no-resume.gb";
+
+    reset_root();
+
+    FILE *f = fopen(rom, "w");
+    assert(f != NULL);
+    assert(fputs("fixture\n", f) >= 0);
+    assert(fclose(f) == 0);
+
+    assert(flip_session_manager_record(
+        "GB",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        400) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_refresh(&list) == 0);
+    assert(list.count == 1);
+    assert(list.items != NULL);
+    assert(list.items[0].resume_available == 0);
+
+    flip_session_manager_list_free(&list);
+    assert(unlink(rom) == 0);
+}
+
+static void test_refresh_derives_resume_availability(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-has-resume.gb";
+
+    reset_root();
+
+    FILE *f = fopen(rom, "w");
+    assert(f != NULL);
+    assert(fputs("fixture\n", f) >= 0);
+    assert(fclose(f) == 0);
+
+    assert(flip_session_manager_record(
+        "GB",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        500) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_refresh(&list) == 0);
+    assert(list.count == 1);
+    assert(list.items != NULL);
+    assert(list.items[0].resume_available == 1);
+
+    flip_session_manager_list_free(&list);
+    assert(unlink(rom) == 0);
+}
+
+
+static void test_refresh_deduplicates_same_system_and_rom(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-duplicate.gb";
+
+    reset_root();
+
+    FILE *f = fopen(rom, "w");
+    assert(f != NULL);
+    assert(fputs("fixture\n", f) >= 0);
+    assert(fclose(f) == 0);
+
+    assert(flip_session_manager_record(
+        "GB",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        600) == 0);
+
+    char original[1024];
+    session_path(
+        original,
+        sizeof(original),
+        "GB",
+        rom);
+
+    char duplicate[1024];
+    int written = snprintf(
+        duplicate,
+        sizeof(duplicate),
+        "%s/GB/duplicate.session",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(duplicate));
+
+    FILE *src = fopen(original, "r");
+    assert(src != NULL);
+
+    FILE *dst = fopen(duplicate, "w");
+    assert(dst != NULL);
+
+    char buffer[256];
+    size_t n;
+    while ((n = fread(buffer, 1, sizeof(buffer), src)) > 0)
+        assert(fwrite(buffer, 1, n, dst) == n);
+
+    assert(ferror(src) == 0);
+    assert(fclose(src) == 0);
+    assert(fclose(dst) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_refresh(&list) == 0);
+    assert(list.count == 1);
+    assert(list.items != NULL);
+    assert(strcmp(list.items[0].system, "GB") == 0);
+    assert(strcmp(list.items[0].rom, rom) == 0);
+
+    flip_session_manager_list_free(&list);
+
+    assert(unlink(rom) == 0);
+}
+
+
+static void test_prune_removes_invalid_metadata(void)
+{
+    static const char *missing_rom =
+        "/tmp/flipos-session-manager-prune-missing.gb";
+
+    reset_root();
+    unlink(missing_rom);
+
+    assert(flip_session_manager_record(
+        "GB",
+        missing_rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        700) == 0);
+
+    assert(flip_session_manager_prune() == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_load(&list) == 0);
+    assert(list.count == 0);
+    assert(list.items == NULL);
+
+    flip_session_manager_list_free(&list);
+}
+
+
+static void test_refresh_reports_unreadable_system_directory(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-unreadable-dir.gb";
+
+    reset_root();
+
+    FILE *f = fopen(rom, "w");
+    assert(f != NULL);
+    assert(fputs("fixture\n", f) >= 0);
+    assert(fclose(f) == 0);
+
+    assert(flip_session_manager_record(
+        "GB",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        800) == 0);
+
+    char system_dir[1024];
+    int written = snprintf(
+        system_dir,
+        sizeof(system_dir),
+        "%s/GB",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(system_dir));
+
+    assert(chmod(system_dir, 0000) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_refresh(&list) == -1);
+    assert(list.count == 0);
+    assert(list.items == NULL);
+
+    assert(chmod(system_dir, 0777) == 0);
+
+    flip_session_manager_list_free(&list);
+
+    assert(unlink(rom) == 0);
+}
+
 int main(void)
 {
     test_empty_registry();
@@ -251,6 +535,14 @@ int main(void)
     test_remove_only_target_session();
     test_malformed_file_does_not_hide_valid_session();
     test_failed_update_preserves_committed_session();
+    test_refresh_prunes_unsupported_system();
+    test_refresh_prunes_missing_rom();
+    test_refresh_prunes_unsupported_rom_path();
+    test_refresh_keeps_valid_session_without_resume();
+    test_refresh_derives_resume_availability();
+    test_refresh_deduplicates_same_system_and_rom();
+    test_prune_removes_invalid_metadata();
+    test_refresh_reports_unreadable_system_directory();
 
     reset_root();
     return 0;
