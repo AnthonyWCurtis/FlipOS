@@ -1,6 +1,7 @@
 #include "flip_gameswitcher_ui.h"
 #include "flip_frontend_global_controls.h"
 #include "flip_frontend_present.h"
+#include "flip_frontend_idle.h"
 #include "flip_session_manager.h"
 #include "flip_input.h"
 
@@ -311,6 +312,30 @@ static void test_non_resumable_session_blocks_resume_but_allows_close(void)
 }
 
 
+
+
+/*
+ * Headless idle stubs.
+ *
+ * GameSwitcher model tests do not exercise the real frontend idle
+ * timer; production idle behavior has its own dedicated tests.
+ */
+int flip_frontend_idle_global_process_input(
+    flip_input_state_t *input)
+{
+    (void)input;
+    return 0;
+}
+
+int flip_frontend_idle_global_active(void)
+{
+    return 0;
+}
+
+int flip_frontend_idle_global_redraw_due(void)
+{
+    return 0;
+}
 
 /*
  * Headless presentation stub.

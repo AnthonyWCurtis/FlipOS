@@ -13,6 +13,7 @@
 #include "flip_library.h"
 #include "flip_power.h"
 #include "flip_frontend_present.h"
+#include "flip_frontend_idle.h"
 
 #include <stdint.h>
 #include <ctype.h>
@@ -2270,6 +2271,15 @@ int main(void)
     load_recent_history();
     load_suspended_session();
 
+    /*
+     * One process-global idle state is shared by every
+     * FlipOS-owned frontend screen.
+     */
+    flip_frontend_idle_global_reset();
+
+    flip_frontend_present_set_idle(
+        flip_frontend_idle_global_state());
+
     draw_home(
         &drm,
         home_selected,
@@ -2290,6 +2300,17 @@ int main(void)
                 "FRONTEND: input poll failed\n");
 
             break;
+        }
+
+        int idle_input_consumed =
+            flip_frontend_idle_global_process_input(
+                &state);
+
+        if (idle_input_consumed < 0) {
+
+            fprintf(
+                stderr,
+                "FRONTEND: idle input handling failed\n");
         }
 
         /*
@@ -2450,6 +2471,12 @@ int main(void)
         }
 
         int redraw = 0;
+
+        if (flip_frontend_idle_global_redraw_due() ||
+            idle_input_consumed > 0) {
+
+            redraw = 1;
+        }
 
         /*
          * Static frontend screens need active redraws while

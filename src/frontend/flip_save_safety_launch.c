@@ -1,5 +1,6 @@
 #include "flip_save_safety_ui.h"
 #include "flip_frontend_present.h"
+#include "flip_frontend_idle.h"
 #include "flip_game_data.h"
 
 #include "flip_draw.h"
@@ -232,6 +233,21 @@ static int confirm_action(flip_drm_t *drm, const char *title)
         if (flip_input_poll(&state, 30) < 0)
             return 0;
 
+        int idle_input_consumed =
+            flip_frontend_idle_global_process_input(
+                &state);
+
+        if (idle_input_consumed < 0)
+            return 0;
+
+        if (flip_frontend_idle_global_redraw_due() ||
+            idle_input_consumed > 0) {
+
+            draw_confirmation(
+                drm,
+                title);
+        }
+
         if (poll_edge(&state, FLIP_BTN_A, &prev_a))
             return 1;
         if (poll_edge(&state, FLIP_BTN_B, &prev_b))
@@ -278,7 +294,20 @@ static int run_save_safety_menu(
         if (flip_input_poll(&state, 30) < 0)
             return -1;
 
+        int idle_input_consumed =
+            flip_frontend_idle_global_process_input(
+                &state);
+
+        if (idle_input_consumed < 0)
+            return -1;
+
         int redraw = 0;
+
+        if (flip_frontend_idle_global_redraw_due() ||
+            idle_input_consumed > 0) {
+
+            redraw = 1;
+        }
 
         if (poll_edge(&state, FLIP_BTN_UP, &prev_up)) {
             selected = (selected + 3) % 4;
@@ -387,7 +416,20 @@ static int choose_launch_mode(
         if (flip_input_poll(&state, 30) < 0)
             return -1;
 
+        int idle_input_consumed =
+            flip_frontend_idle_global_process_input(
+                &state);
+
+        if (idle_input_consumed < 0)
+            return -1;
+
         int redraw = 0;
+
+        if (flip_frontend_idle_global_redraw_due() ||
+            idle_input_consumed > 0) {
+
+            redraw = 1;
+        }
 
         if (poll_edge(&state, FLIP_BTN_UP, &prev_up)) {
             selected = (selected + count - 1) % count;

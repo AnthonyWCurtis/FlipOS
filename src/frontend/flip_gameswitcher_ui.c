@@ -1,6 +1,7 @@
 #include "flip_gameswitcher_ui.h"
 #include "flip_frontend_present.h"
 #include "flip_frontend_global_controls.h"
+#include "flip_frontend_idle.h"
 #include "flip_lifecycle.h"
 #include "flip_draw.h"
 #include "flip_input.h"
@@ -452,6 +453,16 @@ int flip_gameswitcher_run(
             return -1;
         }
 
+        int idle_input_consumed =
+            flip_frontend_idle_global_process_input(
+                &state);
+
+        if (idle_input_consumed < 0) {
+            fprintf(
+                stderr,
+                "GAMESWITCHER: idle input handling failed\n");
+        }
+
         int up =
             state.down[
                 FLIP_BTN_UP];
@@ -473,6 +484,12 @@ int flip_gameswitcher_run(
                 FLIP_BTN_X];
 
         int redraw = 0;
+
+        if (flip_frontend_idle_global_redraw_due() ||
+            idle_input_consumed > 0) {
+
+            redraw = 1;
+        }
 
         flip_frontend_global_controls_result_t
             global_result;
