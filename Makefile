@@ -28,6 +28,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_session_adapter.o \
 	$(BUILD)/flip_system.o \
 	$(BUILD)/flip_session.o \
+	$(BUILD)/flip_session_manager.o \
 	$(BUILD)/flip_recovery.o \
 	$(BUILD)/flip_save.o \
 	$(BUILD)/flip_state.o \
@@ -79,7 +80,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -102,6 +103,7 @@ verify:
 		$(MAKE) test-save && \
 		$(MAKE) test-recovery && \
 		$(MAKE) test-session-save-safety && \
+		$(MAKE) test-session-manager && \
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
 		$(MAKE) test-architecture && \
@@ -151,6 +153,9 @@ test-recovery: $(BUILD)/test-flip-recovery $(BUILD)/test-flip-recovery-transacti
 
 test-session-save-safety: $(BUILD)/test-flip-session-adapter-save-safety
 	$(BUILD)/test-flip-session-adapter-save-safety
+
+test-session-manager: $(BUILD)/test-flip-session-manager
+	$(BUILD)/test-flip-session-manager
 
 test-perf-diag: $(BUILD)/test-flip-perf-diag
 	$(BUILD)/test-flip-perf-diag
@@ -246,6 +251,12 @@ $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-flip-session-manager: tests/test_flip_session_manager.c src/runtime/flip_session_manager.c include/flip_session_manager.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_SESSION_MANAGER_ROOT='"/tmp/flipos-session-manager-test"' -Iinclude \
+		tests/test_flip_session_manager.c src/runtime/flip_session_manager.c \
+		-o $@
+
 $(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_save_safety.c src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_session_adapter.h include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_session_adapter_save_safety.c \
@@ -307,6 +318,9 @@ $(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
 
 $(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Dflip_session_launch=flip_session_launch_legacy -c $< -o $@
+
+$(BUILD)/flip_session_manager.o: src/runtime/flip_session_manager.c include/flip_session_manager.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_recovery.o: src/runtime/flip_recovery.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
@@ -411,5 +425,6 @@ clean:
 		$(BUILD)/test-flip-recovery \
 		$(BUILD)/test-flip-recovery-transactions \
 		$(BUILD)/test-flip-session-adapter-save-safety \
+		$(BUILD)/test-flip-session-manager \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
