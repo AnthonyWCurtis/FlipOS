@@ -56,6 +56,12 @@ Confirmed on hardware:
 - No stale `flip-gb` process remained after reboot.
 - Recovery log reported `SESSION_RECOVER: interrupted ... savestate=preserved`.
 - Hardware test used Pokemon Yellow with retained session hash `792f9628ba43b7d9`.
+- The recovered interrupted GameSwitcher entry resumed successfully.
+- Resume restored the existing savestate with `FLIP_STATE: RESTORE_CURRENT_OK`.
+- The resumed game returned to `state=running`.
+- Pressing MENU after recovery saved and suspended normally.
+- The retained session transitioned from `status=interrupted` back to `status=suspended`.
+- GameSwitcher reopened normally after the post-recovery suspend.
 
 ### Stale Session Pruning
 
