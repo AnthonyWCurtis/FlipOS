@@ -180,10 +180,13 @@ $(BUILD)/test-flip-save: tests/test_flip_save.c src/runtime/flip_save.c src/runt
 		tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c \
 		-o $@
 
-$(BUILD)/test-flip-recovery: tests/test_flip_recovery.c src/runtime/flip_recovery.c include/flip_recovery.h | $(BUILD)
+$(BUILD)/test-flip-recovery: tests/test_flip_recovery.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_SAVE_ROOT='"/tmp/flipos-save-test"' \
+		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' \
 		-DFLIP_SESSION_RECOVERY_ROOT='"/tmp/flipos-recovery-test"' -Iinclude \
 		tests/test_flip_recovery.c src/runtime/flip_recovery.c \
+		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
 $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
