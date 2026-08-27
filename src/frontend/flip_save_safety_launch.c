@@ -408,6 +408,19 @@ int flip_session_launch(
             result);
     }
 
+    if (metadata->automatic_resume) {
+        fprintf(
+            stderr,
+            "FLIP_SAVE_SAFETY: AUTOMATIC_RESUME\n");
+
+        return flip_session_launch_legacy(
+            drm,
+            program,
+            argv,
+            metadata,
+            result);
+    }
+
     int choice = choose_launch_mode(
         drm,
         metadata->system,

@@ -1887,7 +1887,8 @@ static void draw_recent(
 
 static int launch_game_once(
     flip_drm_t *drm,
-    const rom_entry_t *rom)
+    const rom_entry_t *rom,
+    int automatic_resume)
 {
     if (!rom ||
         !rom->system ||
@@ -1914,7 +1915,8 @@ static int launch_game_once(
 
     flip_session_metadata_t metadata = {
         .system = system,
-        .rom_path = rom->path
+        .rom_path = rom->path,
+        .automatic_resume = automatic_resume
     };
 
     flip_session_result_t result;
@@ -1974,12 +1976,18 @@ static int launch_game(
     flip_drm_t *drm,
     const rom_entry_t *rom)
 {
+    int automatic_resume = 0;
+
     for (;;) {
 
         int result =
             launch_game_once(
                 drm,
-                rom);
+                rom,
+                automatic_resume);
+
+        /* The intent applies to exactly one post-wake relaunch. */
+        automatic_resume = 0;
 
         if (result != FLIP_SESSION_ACTION_SUSPEND)
             return result;
@@ -2038,6 +2046,12 @@ static int launch_game(
             stderr,
             "FRONTEND_STANDBY auto resume rom=%s\n",
             rom->path);
+
+        /*
+         * This next launch is a continuation of the lid-suspended session,
+         * not a new user launch decision. Skip Game Options exactly once.
+         */
+        automatic_resume = 1;
 
         /*
          * Loop back through the normal session launcher.

@@ -15,6 +15,12 @@ typedef enum {
 typedef struct {
     const flip_system_t *system;
     const char *rom_path;
+
+    /*
+     * Non-zero only when the frontend is automatically continuing the
+     * same session after a lid wake. Deliberate launches remain interactive.
+     */
+    int automatic_resume;
 } flip_session_metadata_t;
 
 typedef struct {
