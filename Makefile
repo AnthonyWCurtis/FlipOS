@@ -29,6 +29,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_system.o \
 	$(BUILD)/flip_session.o \
 	$(BUILD)/flip_session_manager.o \
+        $(BUILD)/flip_game_data.o \
 	$(BUILD)/flip_recovery.o \
 	$(BUILD)/flip_save.o \
 	$(BUILD)/flip_state.o \
@@ -81,7 +82,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-session-manager-recovery test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-session-manager test-session-manager-recovery test-perf-diag test-telemetry test-architecture clean clean-objects test-gameswitcher-ui test-game-data-reset
 
 all: frontend gb
 
@@ -107,6 +108,7 @@ verify:
 		$(MAKE) test-session-manager && \
 		$(MAKE) test-session-manager-recovery && \
 		$(MAKE) test-gameswitcher-ui && \
+	$(MAKE) test-game-data-reset && \
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
 		$(MAKE) test-architecture && \
@@ -166,6 +168,10 @@ test-session-manager-recovery: $(BUILD)/test-session-manager-recovery
 test-gameswitcher-ui: $(BUILD)/test-gameswitcher-ui-model
 	$(BUILD)/test-gameswitcher-ui-model
 
+test-game-data-reset: $(BUILD)/test-game-data-reset $(BUILD)/test-game-data-reset-rollback
+	$(BUILD)/test-game-data-reset
+	$(BUILD)/test-game-data-reset-rollback
+
 test-perf-diag: $(BUILD)/test-flip-perf-diag
 	$(BUILD)/test-flip-perf-diag
 
@@ -187,6 +193,7 @@ test-architecture:
 	python3 tests/test_recovery_architecture.py
 	python3 tests/test_frontend_save_safety_architecture.py
 	python3 tests/test_save_safety_management_architecture.py
+	python3 tests/test_game_data_reset_architecture.py
 	python3 tests/test_verify_target_architecture.py
 
 $(BUILD):
@@ -291,6 +298,21 @@ $(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_
 		src/runtime/flip_state.c src/runtime/flip_core.c \
 		-Wl,--gc-sections -o $@
 
+$(BUILD)/test-game-data-reset: tests/test_game_data_reset.c src/runtime/flip_game_data.c include/flip_game_data.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+	-DFLIP_GAME_DATA_TEST_ROOT='"/tmp/flipos-game-data-reset-test"' \
+	-Iinclude \
+	tests/test_game_data_reset.c src/runtime/flip_game_data.c \
+	-o $@
+
+$(BUILD)/test-game-data-reset-rollback: tests/test_game_data_reset_rollback.c src/runtime/flip_game_data.c include/flip_game_data.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+	-DFLIP_GAME_DATA_TEST_ROOT='"/tmp/flipos-game-data-reset-rollback-test"' \
+	-DFLIP_GAME_DATA_TEST_FAIL_AFTER_MOVE=1 \
+	-Iinclude \
+	tests/test_game_data_reset_rollback.c src/runtime/flip_game_data.c \
+	-o $@
+
 $(BUILD)/test-flip-perf-diag: tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c include/flip_perf_diag.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c \
@@ -300,6 +322,9 @@ $(BUILD)/test-flip-telemetry: tests/test_flip_telemetry.c src/runtime/flip_telem
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror $(TELEMETRY_WARN) -Iinclude \
 		tests/test_flip_telemetry.c src/runtime/flip_telemetry.c \
 		-o $@ -lm
+
+$(BUILD)/flip_game_data.o: src/runtime/flip_game_data.c include/flip_game_data.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_gameswitcher_ui.o: src/frontend/flip_gameswitcher_ui.c include/flip_gameswitcher_ui.h include/flip_session_manager.h include/flip_draw.h include/flip_input.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
@@ -456,5 +481,7 @@ clean:
 		$(BUILD)/test-flip-recovery-transactions \
 		$(BUILD)/test-flip-session-adapter-save-safety \
 		$(BUILD)/test-flip-session-manager \
+            $(BUILD)/test-game-data-reset \
+            $(BUILD)/test-game-data-reset-rollback \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
