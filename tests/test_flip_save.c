@@ -113,6 +113,12 @@ static void test_paths_use_frozen_rom_identity(void)
 
     assert(flip_save_test_build_path(&context, ".sav.prev.tmp", path, sizeof(path)) == 0);
     assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.prev.tmp") == 0);
+
+    assert(flip_save_test_build_path(&context, ".sav.recovery", path, sizeof(path)) == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.recovery") == 0);
+
+    assert(flip_save_test_build_path(&context, ".sav.recovery.tmp", path, sizeof(path)) == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.recovery.tmp") == 0);
 }
 
 static void test_no_save_memory_is_noop(void)
@@ -291,6 +297,127 @@ static void test_tmp_open_failure_preserves_current_and_previous(void)
     assert(memcmp(previous_after, previous_before, sizeof(previous_after)) == 0);
 }
 
+static void init_recovery_fixture(
+    flip_save_context_t *context,
+    fake_save_core_t *fake,
+    flip_core_adapter_t *core)
+{
+    reset_root();
+    flip_save_context_init(
+        context,
+        "gb",
+        "/mnt/SDCARD/Roms/GB/Pokemon - Yellow.gb");
+    memset(fake, 0, sizeof(*fake));
+    fake->save_memory_size = sizeof(fake->save_memory);
+    *core = make_core(fake);
+}
+
+static void test_save_health_reports_structural_status(void)
+{
+    flip_save_context_t context;
+    fake_save_core_t fake;
+    flip_core_adapter_t core;
+    init_recovery_fixture(&context, &fake, &core);
+
+    assert(flip_save_health(&core, &context, ".sav") == FLIP_SAVE_HEALTH_MISSING);
+
+    unsigned char good[32];
+    memset(good, 0x44, sizeof(good));
+    write_bytes(&context, ".sav", good, sizeof(good));
+    assert(flip_save_health(&core, &context, ".sav") == FLIP_SAVE_HEALTH_HEALTHY);
+
+    const unsigned char short_file[3] = {1, 2, 3};
+    write_bytes(&context, ".sav", short_file, sizeof(short_file));
+    assert(flip_save_health(&core, &context, ".sav") == FLIP_SAVE_HEALTH_INVALID);
+
+    char path[640];
+    assert(flip_save_test_build_path(&context, ".sav", path, sizeof(path)) == 0);
+    assert(remove(path) == 0);
+    assert(mkdir(path, 0700) == 0);
+    assert(flip_save_health(&core, &context, ".sav") == FLIP_SAVE_HEALTH_INVALID);
+}
+
+static void test_restore_previous_preserves_current_recovery(void)
+{
+    flip_save_context_t context;
+    fake_save_core_t fake;
+    flip_core_adapter_t core;
+    init_recovery_fixture(&context, &fake, &core);
+
+    unsigned char current[32];
+    unsigned char previous[32];
+    memset(current, 0x11, sizeof(current));
+    memset(previous, 0x22, sizeof(previous));
+    write_bytes(&context, ".sav", current, sizeof(current));
+    write_bytes(&context, ".sav.prev", previous, sizeof(previous));
+
+    assert(flip_save_restore_previous(&core, &context) == 0);
+
+    unsigned char got[32];
+    read_bytes(&context, ".sav.recovery", got, sizeof(got));
+    assert(memcmp(got, current, sizeof(got)) == 0);
+    read_bytes(&context, ".sav", got, sizeof(got));
+    assert(memcmp(got, previous, sizeof(got)) == 0);
+    read_bytes(&context, ".sav.prev", got, sizeof(got));
+    assert(memcmp(got, previous, sizeof(got)) == 0);
+    assert(!path_exists(&context, ".sav.recovery.tmp"));
+    assert(!path_exists(&context, ".sav.tmp"));
+}
+
+static void test_restore_previous_staging_failure_preserves_authoritative_files(void)
+{
+    flip_save_context_t context;
+    fake_save_core_t fake;
+    flip_core_adapter_t core;
+    init_recovery_fixture(&context, &fake, &core);
+
+    unsigned char current[32];
+    unsigned char previous[32];
+    memset(current, 0x31, sizeof(current));
+    memset(previous, 0x41, sizeof(previous));
+    write_bytes(&context, ".sav", current, sizeof(current));
+    write_bytes(&context, ".sav.prev", previous, sizeof(previous));
+
+    char tmp_path[640];
+    assert(flip_save_test_build_path(
+        &context,
+        ".sav.recovery.tmp",
+        tmp_path,
+        sizeof(tmp_path)) == 0);
+    assert(mkdir(tmp_path, 0700) == 0);
+
+    assert(flip_save_restore_previous(&core, &context) == -1);
+
+    unsigned char got[32];
+    read_bytes(&context, ".sav", got, sizeof(got));
+    assert(memcmp(got, current, sizeof(got)) == 0);
+    read_bytes(&context, ".sav.prev", got, sizeof(got));
+    assert(memcmp(got, previous, sizeof(got)) == 0);
+}
+
+static void test_restore_recovery_restores_old_timeline_and_preserves_current(void)
+{
+    flip_save_context_t context;
+    fake_save_core_t fake;
+    flip_core_adapter_t core;
+    init_recovery_fixture(&context, &fake, &core);
+
+    unsigned char recovery[32];
+    unsigned char current[32];
+    memset(recovery, 0x51, sizeof(recovery));
+    memset(current, 0x61, sizeof(current));
+    write_bytes(&context, ".sav.recovery", recovery, sizeof(recovery));
+    write_bytes(&context, ".sav", current, sizeof(current));
+
+    assert(flip_save_restore_recovery(&core, &context) == 0);
+
+    unsigned char got[32];
+    read_bytes(&context, ".sav", got, sizeof(got));
+    assert(memcmp(got, recovery, sizeof(got)) == 0);
+    read_bytes(&context, ".sav.prev", got, sizeof(got));
+    assert(memcmp(got, current, sizeof(got)) == 0);
+}
+
 int main(void)
 {
     test_paths_use_frozen_rom_identity();
@@ -301,6 +428,10 @@ int main(void)
     test_commit_preserves_valid_current_as_previous();
     test_invalid_current_does_not_replace_existing_previous();
     test_tmp_open_failure_preserves_current_and_previous();
+    test_save_health_reports_structural_status();
+    test_restore_previous_preserves_current_recovery();
+    test_restore_previous_staging_failure_preserves_authoritative_files();
+    test_restore_recovery_restores_old_timeline_and_preserves_current();
 
     puts("flip_save tests passed");
     return 0;
