@@ -1,6 +1,7 @@
 #include "flip_core.h"
 #include "flip_core_host.h"
 #include "flip_gambatte_core.h"
+#include "flip_recovery.h"
 #include "flip_save.h"
 #include "flip_state.h"
 
@@ -74,6 +75,18 @@ static int commit_battery_save(
     return flip_save_commit(core, context);
 }
 
+static int persistence_complete(void *userdata)
+{
+    flip_recovery_context_t *context = userdata;
+
+    if (flip_recovery_clear_resume_block(context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: FAILED stage=clear-marker\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 int main(
     int argc,
     char **argv)
@@ -102,6 +115,7 @@ int main(
 
     flip_state_context_t state_context;
     flip_save_context_t save_context;
+    flip_recovery_context_t recovery_context;
 
     flip_state_context_init(
         &state_context,
@@ -113,11 +127,24 @@ int main(
         "gb",
         argv[1]);
 
+    flip_recovery_context_init(
+        &recovery_context,
+        "gb",
+        argv[1]);
+
+    int recovery_blocked =
+        flip_recovery_resume_blocked(
+            &recovery_context);
+
+    if (recovery_blocked)
+        fprintf(stderr, "FLIP_RECOVERY: RESUME_BLOCKED\n");
+
     fprintf(
         stderr,
-        "FLIPGB: rom=%s%s\n",
+        "FLIPGB: rom=%s%s%s\n",
         state_context.rom_path,
-        skip_resume ? " no-resume=1" : "");
+        skip_resume ? " no-resume=1" : "",
+        recovery_blocked ? " recovery-blocked=1" : "");
 
     flip_core_adapter_t *core =
         flip_gambatte_core_adapter();
@@ -130,8 +157,12 @@ int main(
         .commit_save = commit_battery_save,
         .save_userdata = &save_context,
         .save_state = save_resume_state,
-        .restore_state = skip_resume ? NULL : load_resume_state,
+        .restore_state = (skip_resume || recovery_blocked)
+            ? NULL
+            : load_resume_state,
         .state_userdata = &state_context,
+        .persistence_complete = persistence_complete,
+        .persistence_userdata = &recovery_context,
     };
 
     int exit_code = 0;
