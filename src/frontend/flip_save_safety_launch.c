@@ -430,7 +430,8 @@ static int run_save_safety_menu(
 static int choose_launch_mode(
     flip_drm_t *drm,
     const flip_system_t *system,
-    const char *rom_path)
+    const char *rom_path,
+    int game_options_resume)
 {
     int can_resume =
         flip_system_resume_available(
@@ -499,7 +500,9 @@ static int choose_launch_mode(
             redraw = 1;
         }
         if (poll_edge(&state, FLIP_BTN_B, &prev_b))
-            return 0;
+            return game_options_resume
+                ? 1
+                : 0;
 
         if (poll_edge(&state, FLIP_BTN_A, &prev_a)) {
             if (can_resume && selected == 0)
@@ -585,10 +588,18 @@ int flip_session_launch(
             result);
     }
 
+    if (metadata->game_options_resume) {
+
+        fprintf(
+            stderr,
+            "FLIP_SAVE_SAFETY: GAME_OPTIONS_RESUME\n");
+    }
+
     int choice = choose_launch_mode(
         drm,
         metadata->system,
-        metadata->rom_path);
+        metadata->rom_path,
+        metadata->game_options_resume);
 
     if (choice < 0)
         return -1;

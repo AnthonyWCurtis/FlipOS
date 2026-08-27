@@ -1843,7 +1843,8 @@ static int launch_game_once(
     flip_drm_t *drm,
     const rom_entry_t *rom,
     int automatic_resume,
-    int gameswitcher_resume)
+    int gameswitcher_resume,
+    int game_options_resume)
 {
     if (!rom ||
         !rom->system ||
@@ -1872,7 +1873,8 @@ static int launch_game_once(
         .system = system,
         .rom_path = rom->path,
         .automatic_resume = automatic_resume,
-        .gameswitcher_resume = gameswitcher_resume
+        .gameswitcher_resume = gameswitcher_resume,
+        .game_options_resume = game_options_resume
     };
 
     flip_session_result_t result;
@@ -1934,6 +1936,7 @@ static int launch_game(
     int gameswitcher_resume)
 {
     int automatic_resume = 0;
+    int game_options_resume = 0;
 
     for (;;) {
 
@@ -1942,7 +1945,8 @@ static int launch_game(
                 drm,
                 rom,
                 automatic_resume,
-                gameswitcher_resume);
+                gameswitcher_resume,
+                game_options_resume);
 
         /*
          * Continuation intents apply to exactly one launch. A later
@@ -1950,6 +1954,7 @@ static int launch_game(
          */
         automatic_resume = 0;
         gameswitcher_resume = 0;
+        game_options_resume = 0;
 
         /*
          * MENU tap requests Game Options. Re-enter the
@@ -1967,6 +1972,12 @@ static int launch_game(
                 stderr,
                 "FRONTEND_GAME_OPTIONS requested rom=%s\n",
                 rom->path);
+
+            /*
+             * Preserve only the fact that the next Game Options
+             * screen belongs to the currently running game.
+             */
+            game_options_resume = 1;
 
             continue;
         }

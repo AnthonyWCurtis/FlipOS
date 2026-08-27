@@ -67,4 +67,34 @@ if "record_gameswitcher" in window:
     )
     raise SystemExit(1)
 
+
+
+# In-game Game Options needs a distinct continuation intent.
+# Normal library launch must retain its existing cancel/back behavior.
+session_h = Path(
+    "include/flip_session.h"
+).read_text()
+
+save_launch = Path(
+    "src/frontend/flip_save_safety_launch.c"
+).read_text()
+
+if "game_options_resume" not in session_h:
+    print(
+        "session metadata cannot distinguish in-game Game Options"
+    )
+    raise SystemExit(1)
+
+if "metadata->game_options_resume" not in save_launch:
+    print(
+        "Game Options launch flow ignores in-game resume context"
+    )
+    raise SystemExit(1)
+
+if "FLIP_SAVE_SAFETY: GAME_OPTIONS_RESUME" not in save_launch:
+    print(
+        "in-game Game Options resume path lacks explicit diagnostic"
+    )
+    raise SystemExit(1)
+
 print("game-options handoff architecture passed")

@@ -36,6 +36,15 @@ typedef struct {
      * lid automatic resume.
      */
     int gameswitcher_resume;
+
+    /*
+     * Non-zero when the normal Game Options UI was entered
+     * from a running game via MENU tap.
+     *
+     * In this context B means Resume Game rather than
+     * canceling back to the ROM library.
+     */
+    int game_options_resume;
 } flip_session_metadata_t;
 
 typedef struct {
