@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -429,7 +430,15 @@ int flip_session_manager_load(flip_retained_session_list_t *list)
             if (read_session_file(path, &session) < 0)
                 continue;
 
-            if (strcmp(session.system, system_entry->d_name) != 0)
+            /*
+             * Session storage lives on FAT32 on the Miyoo Flip.
+             * FAT32 is case-insensitive but preserves directory spelling,
+             * so canonical system=GB metadata may be discovered through a
+             * directory entry named gb.
+             */
+            if (strcasecmp(
+                    session.system,
+                    system_entry->d_name) != 0)
                 continue;
 
             if (append_session(list, &session) < 0) {

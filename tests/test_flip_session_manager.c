@@ -106,6 +106,57 @@ static void test_record_round_trip_and_frozen_identity(void)
     flip_session_manager_list_free(&list);
 }
 
+static void test_load_accepts_case_variant_system_directory(void)
+{
+    static const char *rom =
+        "/mnt/SDCARD/Roms/GB/Pokemon - Yellow.gb";
+
+    reset_root();
+
+    assert(flip_session_manager_record(
+        "GB",
+        rom,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        100) == 0);
+
+    char upper_dir[768];
+    char lower_dir[768];
+
+    int written = snprintf(
+        upper_dir,
+        sizeof(upper_dir),
+        "%s/GB",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(upper_dir));
+
+    written = snprintf(
+        lower_dir,
+        sizeof(lower_dir),
+        "%s/gb",
+        FLIP_SESSION_MANAGER_ROOT);
+
+    assert(written > 0);
+    assert((size_t)written < sizeof(lower_dir));
+
+    /*
+     * Reproduce FAT32 preserving a lowercase directory entry while
+     * canonical session metadata remains system=GB.
+     */
+    assert(rename(upper_dir, lower_dir) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_load(&list) == 0);
+    assert(list.count == 1);
+    assert(strcmp(list.items[0].system, "GB") == 0);
+    assert(strcmp(list.items[0].rom, rom) == 0);
+
+    flip_session_manager_list_free(&list);
+}
+
 static void test_update_replaces_without_duplicate(void)
 {
     static const char *rom = "/roms/game.gb";
@@ -706,6 +757,7 @@ int main(void)
     test_touch_moves_session_to_most_recent();
     test_empty_registry();
     test_record_round_trip_and_frozen_identity();
+    test_load_accepts_case_variant_system_directory();
     test_update_replaces_without_duplicate();
     test_more_than_ten_sessions_and_recent_order();
     test_remove_only_target_session();
