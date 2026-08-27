@@ -474,6 +474,67 @@ flip_state_restore_result_t flip_state_restore(
     return FLIP_STATE_RESTORE_UNUSABLE;
 }
 
+flip_state_recovery_health_t flip_state_recovery_health(
+    flip_core_adapter_t *core,
+    const flip_state_context_t *context)
+{
+    if (!core || !context)
+        return FLIP_STATE_RECOVERY_ERROR;
+
+    size_t expected_size = flip_core_serialize_size(core);
+    if (expected_size == 0)
+        return FLIP_STATE_RECOVERY_INVALID;
+
+    char recovery_path[512];
+    if (flip_state_test_build_path(
+            context,
+            ".state.recovery",
+            recovery_path,
+            sizeof(recovery_path)) < 0)
+        return FLIP_STATE_RECOVERY_ERROR;
+
+    struct stat st;
+    if (stat(recovery_path, &st) < 0) {
+        if (errno == ENOENT)
+            return FLIP_STATE_RECOVERY_MISSING;
+        return FLIP_STATE_RECOVERY_ERROR;
+    }
+
+    if (!S_ISREG(st.st_mode) ||
+        st.st_size < 0 ||
+        (size_t)st.st_size != expected_size)
+        return FLIP_STATE_RECOVERY_INVALID;
+
+    FILE *file = fopen(recovery_path, "rb");
+    if (!file)
+        return FLIP_STATE_RECOVERY_ERROR;
+
+    unsigned char buffer[4096];
+    size_t remaining = expected_size;
+    int ok = 1;
+
+    while (remaining > 0) {
+        size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+        size_t got = fread(buffer, 1, chunk, file);
+        if (got != chunk) {
+            ok = 0;
+            break;
+        }
+        remaining -= got;
+    }
+
+    if (ok && fgetc(file) != EOF)
+        ok = 0;
+    if (ferror(file))
+        ok = 0;
+    if (fclose(file) != 0)
+        ok = 0;
+
+    return ok
+        ? FLIP_STATE_RECOVERY_AVAILABLE
+        : FLIP_STATE_RECOVERY_ERROR;
+}
+
 int flip_state_preserve_recovery(
     const flip_state_context_t *context)
 {
