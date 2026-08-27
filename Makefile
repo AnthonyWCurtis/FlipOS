@@ -29,6 +29,9 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_system.o \
 	$(BUILD)/flip_session.o \
 	$(BUILD)/flip_recovery.o \
+	$(BUILD)/flip_save.o \
+	$(BUILD)/flip_state.o \
+	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_power.o
 
 FRONTEND_OBJS := \
