@@ -45,6 +45,18 @@ Confirmed on hardware:
 - Wake input is consumed and does not activate the selected frontend action.
 - Screensaver architecture is shared across frontend-owned screens.
 
+### Interrupted Session Recovery
+
+Confirmed on hardware:
+- A real running GB session was interrupted by rebooting while `flip-gb` was active.
+- Before reboot, persisted current-session metadata reported `state=running`.
+- On FlipOS startup, the stale running session was rewritten to `state=interrupted`.
+- The generic retained-session registry created the matching GameSwitcher entry with `status=interrupted`.
+- Recovery preserved emulator savestate data.
+- No stale `flip-gb` process remained after reboot.
+- Recovery log reported `SESSION_RECOVER: interrupted ... savestate=preserved`.
+- Hardware test used Pokemon Yellow with retained session hash `792f9628ba43b7d9`.
+
 ### Stale Session Pruning
 
 Confirmed on hardware:
