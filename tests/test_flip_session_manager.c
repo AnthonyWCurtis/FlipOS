@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session_manager.h"
+#include "flip_system.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -526,6 +527,70 @@ static void test_refresh_reports_unreadable_system_directory(void)
     assert(unlink(rom) == 0);
 }
 
+
+static void test_record_gameswitcher_uses_suspended_status(void)
+{
+    static const char *rom =
+        "/tmp/flipos-session-manager-gameswitcher.gb";
+
+    reset_root();
+
+    FILE *f = fopen(rom, "w");
+    assert(f != NULL);
+    assert(fputs("fixture\n", f) >= 0);
+    assert(fclose(f) == 0);
+
+    const flip_system_t *system =
+        flip_system_find("GB");
+
+    assert(system != NULL);
+
+    assert(
+        flip_session_manager_record_gameswitcher(
+            system,
+            rom) == 0);
+
+    flip_retained_session_list_t list;
+    memset(&list, 0, sizeof(list));
+
+    assert(flip_session_manager_load(&list) == 0);
+    assert(list.count == 1);
+    assert(list.items != NULL);
+    assert(strcmp(list.items[0].system, "GB") == 0);
+    assert(strcmp(list.items[0].rom, rom) == 0);
+    assert(
+        list.items[0].status ==
+        FLIP_RETAINED_SESSION_SUSPENDED);
+    assert(list.items[0].last_active > 0);
+
+    flip_session_manager_list_free(&list);
+
+    assert(unlink(rom) == 0);
+}
+
+static void test_record_gameswitcher_rejects_invalid_input(void)
+{
+    const flip_system_t *system =
+        flip_system_find("GB");
+
+    assert(system != NULL);
+
+    assert(
+        flip_session_manager_record_gameswitcher(
+            NULL,
+            "/tmp/test.gb") == -1);
+
+    assert(
+        flip_session_manager_record_gameswitcher(
+            system,
+            NULL) == -1);
+
+    assert(
+        flip_session_manager_record_gameswitcher(
+            system,
+            "") == -1);
+}
+
 int main(void)
 {
     test_empty_registry();
@@ -543,6 +608,8 @@ int main(void)
     test_refresh_deduplicates_same_system_and_rom();
     test_prune_removes_invalid_metadata();
     test_refresh_reports_unreadable_system_directory();
+    test_record_gameswitcher_uses_suspended_status();
+    test_record_gameswitcher_rejects_invalid_input();
 
     reset_root();
     return 0;

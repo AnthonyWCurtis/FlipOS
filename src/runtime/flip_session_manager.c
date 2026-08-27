@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static uint64_t fnv1a64(const char *text)
@@ -157,6 +158,23 @@ static int parse_long_long(const char *text, long long *value)
 
     *value = parsed;
     return 0;
+}
+
+int flip_session_manager_record_gameswitcher(
+    const flip_system_t *system,
+    const char *rom_path)
+{
+    if (!system ||
+        !system->id ||
+        !rom_path ||
+        !rom_path[0])
+        return -1;
+
+    return flip_session_manager_record(
+        system->id,
+        rom_path,
+        FLIP_RETAINED_SESSION_SUSPENDED,
+        (long long)time(NULL));
 }
 
 int flip_session_manager_record(

@@ -6,6 +6,7 @@
 #include "flip_hotkeys.h"
 #include "flip_osd.h"
 #include "flip_session.h"
+#include "flip_session_manager.h"
 #include "flip_settings.h"
 #include "flip_system.h"
 #include "flip_library.h"
@@ -2024,6 +2025,15 @@ static int launch_game(
             fprintf(
                 stderr,
                 "FRONTEND_GAMESWITCHER requested\n");
+
+            if (flip_session_manager_record_gameswitcher(
+                    rom->system,
+                    rom->path) < 0) {
+
+                fprintf(
+                    stderr,
+                    "FLIP_SESSION_MANAGER: RECORD_FAILED\n");
+            }
 
             return result;
         }
