@@ -100,7 +100,7 @@ int flip_session_recover_current(void);
 int flip_session_close_suspended(void);
 
 /*
- * Remove one game from GameSwitcher/recent history.
+ * Remove one game from recently-played history.
  * Emulator savestates are not touched.
  */
 int flip_session_remove_recent(
@@ -108,7 +108,7 @@ int flip_session_remove_recent(
     const char *rom_path);
 
 /*
- * Repair GameSwitcher history in place.
+ * Repair recently-played history in place.
  *
  * Removes malformed, missing, unsupported and duplicate
  * entries. Emulator saves/states are never touched.

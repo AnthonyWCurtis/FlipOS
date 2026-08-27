@@ -86,16 +86,16 @@ static char suspended_rom_path[512];
 static int suspended_available = 0;
 
 typedef enum {
-    GAMESWITCHER_CONFIRM_NONE = 0,
-    GAMESWITCHER_CONFIRM_CLOSE,
-    GAMESWITCHER_CONFIRM_REMOVE
-} gameswitcher_confirm_t;
+    RECENT_CONFIRM_NONE = 0,
+    RECENT_CONFIRM_CLOSE,
+    RECENT_CONFIRM_REMOVE
+} recent_confirm_t;
 
-static gameswitcher_confirm_t
-    gameswitcher_confirm =
-        GAMESWITCHER_CONFIRM_NONE;
+static recent_confirm_t
+    recent_confirm =
+        RECENT_CONFIRM_NONE;
 
-static char gameswitcher_confirm_rom[512];
+static char recent_confirm_rom[512];
 
 static const char *home_items[] = {
     "GAMES",
@@ -443,7 +443,7 @@ static int load_recent_history(void)
          * no longer a supported content type for this system.
          *
          * This keeps stale archive/history entries from
-         * appearing as broken GameSwitcher sessions.
+         * appearing as broken Recent history entries.
          */
         if (access(
                 rom_path,
@@ -1787,12 +1787,12 @@ static void draw_recent(
         1,
         DIM);
 
-    if (gameswitcher_confirm !=
-        GAMESWITCHER_CONFIRM_NONE) {
+    if (recent_confirm !=
+        RECENT_CONFIRM_NONE) {
 
         const char *confirm_text =
-            gameswitcher_confirm ==
-                GAMESWITCHER_CONFIRM_CLOSE
+            recent_confirm ==
+                RECENT_CONFIRM_CLOSE
                 ? "CLOSE SESSION?"
                 : "REMOVE GAME?";
 
@@ -2441,8 +2441,8 @@ int main(void)
 
         if (b &&
             !prev_b &&
-            gameswitcher_confirm ==
-                GAMESWITCHER_CONFIRM_NONE) {
+            recent_confirm ==
+                RECENT_CONFIRM_NONE) {
 
             if (screen ==
                 SCREEN_GAMES) {
@@ -2476,15 +2476,15 @@ int main(void)
          * B cancels a GameSwitcher confirmation instead
          * of leaving the screen.
          */
-        if (gameswitcher_confirm !=
-                GAMESWITCHER_CONFIRM_NONE &&
+        if (recent_confirm !=
+                RECENT_CONFIRM_NONE &&
             b &&
             !prev_b) {
 
-            gameswitcher_confirm =
-                GAMESWITCHER_CONFIRM_NONE;
+            recent_confirm =
+                RECENT_CONFIRM_NONE;
 
-            gameswitcher_confirm_rom[0] =
+            recent_confirm_rom[0] =
                 '\0';
 
             fprintf(
@@ -2501,8 +2501,8 @@ int main(void)
          * Suspended entry -> CLOSE SESSION
          * Other entry     -> REMOVE FROM GAMESWITCHER
          */
-        if (gameswitcher_confirm ==
-                GAMESWITCHER_CONFIRM_NONE &&
+        if (recent_confirm ==
+                RECENT_CONFIRM_NONE &&
             x &&
             !prev_x &&
             screen == SCREEN_RECENT &&
@@ -2511,8 +2511,8 @@ int main(void)
             load_suspended_session();
 
             copy_string(
-                gameswitcher_confirm_rom,
-                sizeof(gameswitcher_confirm_rom),
+                recent_confirm_rom,
+                sizeof(recent_confirm_rom),
                 recent_roms[
                     recent_selected
                 ].path);
@@ -2520,13 +2520,13 @@ int main(void)
             int is_suspended =
                 suspended_available &&
                 strcmp(
-                    gameswitcher_confirm_rom,
+                    recent_confirm_rom,
                     suspended_rom_path) == 0;
 
-            gameswitcher_confirm =
+            recent_confirm =
                 is_suspended
-                    ? GAMESWITCHER_CONFIRM_CLOSE
-                    : GAMESWITCHER_CONFIRM_REMOVE;
+                    ? RECENT_CONFIRM_CLOSE
+                    : RECENT_CONFIRM_REMOVE;
 
             fprintf(
                 stderr,
@@ -2534,7 +2534,7 @@ int main(void)
                 is_suspended
                     ? "close"
                     : "remove",
-                gameswitcher_confirm_rom);
+                recent_confirm_rom);
 
             redraw = 1;
         }
@@ -2545,15 +2545,15 @@ int main(void)
          * Neither CLOSE nor REMOVE deletes emulator
          * savestate/SRAM data.
          */
-        if (gameswitcher_confirm !=
-                GAMESWITCHER_CONFIRM_NONE &&
+        if (recent_confirm !=
+                RECENT_CONFIRM_NONE &&
             a &&
             !prev_a) {
 
             int action_ok = 0;
 
-            if (gameswitcher_confirm ==
-                GAMESWITCHER_CONFIRM_CLOSE) {
+            if (recent_confirm ==
+                RECENT_CONFIRM_CLOSE) {
 
                 int close_result =
                     flip_session_close_suspended();
@@ -2563,7 +2563,7 @@ int main(void)
                     fprintf(
                         stderr,
                         "FRONTEND_GAMESWITCHER closed=%s\n",
-                        gameswitcher_confirm_rom);
+                        recent_confirm_rom);
 
                     action_ok = 1;
 
@@ -2582,14 +2582,14 @@ int main(void)
                 fprintf(
                     stderr,
                     "FRONTEND_GAMESWITCHER removing=%s\n",
-                    gameswitcher_confirm_rom);
+                    recent_confirm_rom);
             }
 
             if (action_ok) {
 
                 if (flip_session_remove_recent(
                         game_system,
-                        gameswitcher_confirm_rom) < 0) {
+                        recent_confirm_rom) < 0) {
 
                     fprintf(
                         stderr,
@@ -2600,13 +2600,13 @@ int main(void)
                     fprintf(
                         stderr,
                         "FRONTEND_GAMESWITCHER removed=%s\n",
-                        gameswitcher_confirm_rom);
+                        recent_confirm_rom);
                 }
 
-                gameswitcher_confirm =
-                    GAMESWITCHER_CONFIRM_NONE;
+                recent_confirm =
+                    RECENT_CONFIRM_NONE;
 
-                gameswitcher_confirm_rom[0] =
+                recent_confirm_rom[0] =
                     '\0';
 
                 load_suspended_session();
@@ -2630,8 +2630,8 @@ int main(void)
         if (a &&
             !prev_a &&
             !confirm_handled &&
-            gameswitcher_confirm ==
-                GAMESWITCHER_CONFIRM_NONE) {
+            recent_confirm ==
+                RECENT_CONFIRM_NONE) {
 
             if (screen ==
                 SCREEN_SYSTEMS &&

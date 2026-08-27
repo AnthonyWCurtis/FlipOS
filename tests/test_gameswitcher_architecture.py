@@ -411,4 +411,57 @@ if startup_recover >= gameswitcher_entry:
     )
     raise SystemExit(1)
 
+
+# Task 9: Recent history remains a separate feature and must
+# not retain GameSwitcher session-storage naming.
+recent_start = frontend.find(
+    "static int load_recent_history(void)"
+)
+
+recent_end = frontend.find(
+    "static int",
+    recent_start + 1
+)
+
+if recent_start < 0:
+    print(
+        "Recent history loader missing"
+    )
+    raise SystemExit(1)
+
+if recent_end < 0:
+    recent_end = len(frontend)
+
+recent_window = frontend[
+    recent_start:
+    recent_end
+]
+
+for forbidden in [
+    "GameSwitcher sessions",
+    "GAMESWITCHER_CONFIRM_",
+    "gameswitcher_confirm",
+]:
+    if forbidden in recent_window:
+        print(
+            "Recent history still carries GameSwitcher "
+            f"session naming: {forbidden}"
+        )
+        raise SystemExit(1)
+
+# The dedicated GameSwitcher UI must never parse or mutate
+# Recent/history storage.
+for forbidden in [
+    "/state/recent/history",
+    "load_recent_history(",
+    "flip_session_prune_recent(",
+    "flip_session_remove_recent(",
+]:
+    if forbidden in source_text:
+        print(
+            "GameSwitcher depends on Recent history: "
+            f"{forbidden}"
+        )
+        raise SystemExit(1)
+
 print("gameswitcher architecture boundary passed")
