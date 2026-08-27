@@ -31,6 +31,7 @@ required = [
     '#include "flip_core.h"',
     '#include "flip_core_host.h"',
     '#include "flip_gambatte_core.h"',
+    '#include "flip_recovery.h"',
     '#include "flip_save.h"',
     '#include "flip_state.h"',
     "flip_gambatte_core_adapter()",
@@ -44,9 +45,14 @@ required = [
     "flip_state_context_init(",
     "flip_state_save(",
     "flip_state_restore(",
+    "flip_recovery_context_init(",
+    "flip_recovery_resume_blocked(",
+    "flip_recovery_clear_resume_block(",
     '"--no-resume"',
     "skip_resume",
-    ".restore_state = skip_resume ? NULL : load_resume_state",
+    "recovery_blocked",
+    ".restore_state = (skip_resume || recovery_blocked)",
+    ".persistence_complete = persistence_complete",
 ]
 
 errors = []
