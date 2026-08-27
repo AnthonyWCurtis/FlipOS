@@ -17,18 +17,74 @@ typedef struct {
     size_t serialize_size;
 } fake_state_t;
 
+static int fake_ok(void *userdata)
+{
+    (void)userdata;
+    return 0;
+}
+
+static void fake_void(void *userdata)
+{
+    (void)userdata;
+}
+
+static int fake_load(void *userdata, const char *path)
+{
+    (void)userdata;
+    (void)path;
+    return 0;
+}
+
+static int fake_info(void *userdata, flip_core_info_t *info)
+{
+    (void)userdata;
+    (void)info;
+    return 0;
+}
+
+static int fake_input(void *userdata, const flip_game_input_t *input)
+{
+    (void)userdata;
+    (void)input;
+    return 0;
+}
+
 static size_t fake_serialize_size(void *userdata)
 {
     fake_state_t *state = userdata;
     return state->serialize_size;
 }
 
+static int fake_serialize(void *userdata, void *data, size_t size)
+{
+    (void)userdata;
+    (void)data;
+    return size > 0 ? 0 : -1;
+}
+
+static int fake_unserialize(void *userdata, const void *data, size_t size)
+{
+    (void)userdata;
+    (void)data;
+    return size > 0 ? 0 : -1;
+}
+
 static flip_core_adapter_t make_core(fake_state_t *state)
 {
-    flip_core_adapter_t core;
-    memset(&core, 0, sizeof(core));
-    core.userdata = state;
-    core.serialize_size = fake_serialize_size;
+    flip_core_adapter_t core = {
+        .userdata = state,
+        .init = fake_ok,
+        .deinit = fake_void,
+        .load_game = fake_load,
+        .unload_game = fake_void,
+        .get_info = fake_info,
+        .set_input = fake_input,
+        .run_frame = fake_ok,
+        .serialize_size = fake_serialize_size,
+        .serialize = fake_serialize,
+        .unserialize = fake_unserialize,
+    };
+
     return core;
 }
 
