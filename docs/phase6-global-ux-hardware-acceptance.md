@@ -105,3 +105,37 @@ flip-gb:
 - make verify: PASS
 - local/device flip-frontend hashes: MATCH
 - local/device flip-gb hashes: MATCH
+
+## MENU tap / hold Game Options and GameSwitcher acceptance
+
+Hardware tested on Miyoo Flip.
+
+Confirmed behavior:
+
+- Short MENU tap while a game is running opens Game Options.
+- Game Options uses a distinct saved handoff:
+  - exit code 21
+  - FLIP_SESSION_ACTION_GAME_OPTIONS
+- Pressing B from in-game Game Options resumes the same game.
+- Selecting Resume Game also resumes the same saved session.
+- Holding MENU for approximately 500 ms opens GameSwitcher.
+- MENU hold does not route through Game Options.
+- GameSwitcher continues to use the existing saved handoff:
+  - exit code 20
+  - FLIP_SESSION_ACTION_SUSPEND
+- GameSwitcher successfully resumed another retained game after the MENU hold handoff.
+
+Observed hardware log tokens included:
+
+- FRONTEND_GAME_OPTIONS requested
+- FLIP_SAVE_SAFETY: GAME_OPTIONS_RESUME
+- FLIP_CORE_HOST: resumed saved session
+- FRONTEND_GAMESWITCHER requested
+- FRONTEND_GAMESWITCHER entered
+- FLIP_SAVE_SAFETY: GAMESWITCHER_RESUME
+
+Accepted FlipOS control contract:
+
+- MENU tap = Game Options
+- MENU hold ~= 500 ms = GameSwitcher
+- B from in-game Game Options = Resume Game
