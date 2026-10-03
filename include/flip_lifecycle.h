@@ -2,6 +2,7 @@
 #define FLIP_LIFECYCLE_H
 
 #include "flip_controls.h"
+#include "flip_exit_protocol.h"
 #include "flip_timing.h"
 
 typedef enum {
@@ -28,7 +29,6 @@ typedef struct {
     int exit_code;
 } flip_lifecycle_result_t;
 
-#define FLIP_LIFECYCLE_EXIT_SWITCHER 20
 
 int flip_lifecycle_handle(
     const flip_system_actions_t *actions,
