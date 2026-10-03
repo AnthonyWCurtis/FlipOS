@@ -6,6 +6,7 @@
 #include "flip_hotkeys.h"
 #include "flip_osd.h"
 #include "flip_session.h"
+#include "flip_paths.h"
 #include "flip_session_registry.h"
 #include "flip_settings.h"
 #include "flip_system.h"
@@ -407,7 +408,7 @@ static int load_recent_history(void)
     }
 
     const char *history_file =
-        "/mnt/SDCARD/flipos-dev/state/recent/history";
+        FLIP_RECENT_FILE;
 
     recent_count = 0;
 
