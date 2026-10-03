@@ -12,7 +12,14 @@ assert "flip_session_close_registered(" in session
 assert "flip_session_registry_find_state(" in registry
 assert '#include "flip_session_registry.h"' in frontend
 assert 'flip_session_registry_find_state(\n            "suspended"' in frontend
-assert "recent_session_is_suspended(" in frontend
+assert "recent_session_registry_state(" in frontend
+assert "recent_session_is_recoverable(" in frontend
+assert "flip_session_reconcile_registry(" in session
+assert "flip_session_reconcile_registry()" in frontend
+assert '"interrupted"' in session
+assert '"SESSION_REGISTRY: pruned state=%s system=%s rom=%s\\n"' in session
+assert '"SESSION_REGISTRY: recovered interrupted system=%s rom=%s\\n"' in session
+assert '"RECOVER"' in frontend
 assert "gameswitcher_confirm_system" in frontend
 assert "flip_session_close_registered(" in frontend
 assert "flip_session_remove_recent(\n                        target_system" in frontend
