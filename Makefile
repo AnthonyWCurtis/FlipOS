@@ -166,6 +166,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 test-architecture:
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
+	python3 tests/test_session_registry_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
 	python3 tests/test_audio_callback_diagnostics_architecture.py
 	python3 tests/test_audio_rate_conversion_architecture.py
