@@ -498,3 +498,33 @@ int flip_session_registry_find(
     memset(entry, 0, sizeof(*entry));
     return 0;
 }
+
+int flip_session_registry_find_state(
+    const char *state,
+    flip_session_registry_entry_t *entry)
+{
+    if (!text_is_safe(state) ||
+        !entry)
+        return -1;
+
+    flip_session_registry_entry_t entries[
+        FLIP_SESSION_REGISTRY_MAX];
+
+    size_t count = 0;
+
+    if (flip_session_registry_load(
+            entries,
+            FLIP_SESSION_REGISTRY_MAX,
+            &count) < 0)
+        return -1;
+
+    for (size_t i = 0; i < count; ++i) {
+        if (strcmp(entries[i].state, state) == 0) {
+            *entry = entries[i];
+            return 1;
+        }
+    }
+
+    memset(entry, 0, sizeof(*entry));
+    return 0;
+}

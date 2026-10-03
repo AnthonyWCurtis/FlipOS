@@ -65,4 +65,19 @@ int flip_session_registry_find(
     const char *rom,
     flip_session_registry_entry_t *entry);
 
+/*
+ * Find the newest registry entry in a lifecycle state.
+ *
+ * Registry order is newest-first, so the first matching
+ * entry is the current GameSwitcher candidate for that state.
+ *
+ * Returns:
+ *   1 = found
+ *   0 = no matching session
+ *  -1 = malformed registry, invalid state, or I/O error
+ */
+int flip_session_registry_find_state(
+    const char *state,
+    flip_session_registry_entry_t *entry);
+
 #endif

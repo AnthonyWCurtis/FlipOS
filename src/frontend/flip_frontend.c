@@ -6,6 +6,7 @@
 #include "flip_hotkeys.h"
 #include "flip_osd.h"
 #include "flip_session.h"
+#include "flip_session_registry.h"
 #include "flip_settings.h"
 #include "flip_system.h"
 #include "flip_library.h"
@@ -261,19 +262,15 @@ static int load_suspended_session(void)
     suspended_available = 0;
     suspended_rom_path[0] = '\0';
 
-    flip_session_state_t session;
+    flip_session_registry_entry_t session;
 
     int read_result =
-        flip_session_read_current(
+        flip_session_registry_find_state(
+            "suspended",
             &session);
 
     if (read_result <= 0)
-        return 0;
-
-    if (strcmp(
-            session.state,
-            "suspended") != 0)
-        return 0;
+        return read_result;
 
     const flip_system_t *session_system =
         flip_system_find(
@@ -298,6 +295,11 @@ static int load_suspended_session(void)
         session.rom);
 
     suspended_available = 1;
+
+    fprintf(
+        stderr,
+        "FRONTEND_SESSION suspended registry rom=%s\n",
+        session.rom);
 
     return 1;
 }

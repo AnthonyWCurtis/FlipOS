@@ -131,6 +131,22 @@ int main(void)
     assert(strcmp(entries[0].system, "GBA") == 0);
     assert(strcmp(entries[1].system, "GB") == 0);
 
+    flip_session_registry_entry_t by_state;
+
+    assert(
+        flip_session_registry_find_state(
+            "suspended",
+            &by_state) == 1);
+
+    assert(strcmp(by_state.system, "GBA") == 0);
+    assert(strcmp(by_state.rom, gba.rom) == 0);
+    assert(by_state.updated == 400);
+
+    assert(
+        flip_session_registry_find_state(
+            "running",
+            &by_state) == 0);
+
     snprintf(
         gb.state,
         sizeof(gb.state),
@@ -152,6 +168,22 @@ int main(void)
     assert(strcmp(entries[0].state, "interrupted") == 0);
     assert(entries[0].updated == 500);
     assert(strcmp(entries[1].system, "GBA") == 0);
+
+    assert(
+        flip_session_registry_find_state(
+            "suspended",
+            &by_state) == 1);
+
+    assert(strcmp(by_state.system, "GBA") == 0);
+    assert(strcmp(by_state.rom, gba.rom) == 0);
+
+    assert(
+        flip_session_registry_find_state(
+            "interrupted",
+            &by_state) == 1);
+
+    assert(strcmp(by_state.system, "GB") == 0);
+    assert(strcmp(by_state.rom, gb.rom) == 0);
 
     assert(
         flip_session_registry_remove(
