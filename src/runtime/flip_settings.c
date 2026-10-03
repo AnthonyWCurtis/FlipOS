@@ -1,4 +1,5 @@
 #include "flip_settings.h"
+#include "flip_paths.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -6,12 +7,6 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
-
-#define SETTINGS_DIR \
-    "/mnt/SDCARD/flipos-dev/state/settings"
-
-#define SETTINGS_FILE \
-    "/mnt/SDCARD/flipos-dev/state/settings/global"
 
 #define DEFAULT_VOLUME 30
 #define DEFAULT_BRIGHTNESS 200
@@ -59,7 +54,7 @@ static int clamp_brightness(
 static int ensure_settings_dir(void)
 {
     if (mkdir(
-            "/mnt/SDCARD/flipos-dev/state",
+            FLIP_STATE_DATA_ROOT,
             0777) < 0 &&
         errno != EEXIST) {
 
@@ -67,7 +62,7 @@ static int ensure_settings_dir(void)
     }
 
     if (mkdir(
-            SETTINGS_DIR,
+            FLIP_SETTINGS_ROOT,
             0777) < 0 &&
         errno != EEXIST) {
 
@@ -117,7 +112,7 @@ int flip_settings_load(
 
     FILE *f =
         fopen(
-            SETTINGS_FILE,
+            FLIP_SETTINGS_FILE,
             "r");
 
     if (!f) {
@@ -213,7 +208,7 @@ int flip_settings_save(
         tmp_path,
         sizeof(tmp_path),
         "%s.tmp",
-        SETTINGS_FILE);
+        FLIP_SETTINGS_FILE);
 
     FILE *f =
         fopen(
@@ -276,7 +271,7 @@ int flip_settings_save(
 
     if (rename(
             tmp_path,
-            SETTINGS_FILE) < 0) {
+            FLIP_SETTINGS_FILE) < 0) {
 
         fprintf(
             stderr,
