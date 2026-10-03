@@ -94,6 +94,22 @@ int flip_session_recover_current(void);
 int flip_session_close_suspended(void);
 
 /*
+ * Close one suspended registry session identified by system and ROM.
+ *
+ * If the target is also the legacy current suspended session, update
+ * current metadata through the existing close path. Otherwise remove
+ * only the registry lifecycle entry. Emulator saves/states are preserved.
+ *
+ * Returns:
+ *   1 = closed
+ *   0 = target is not a suspended registry session
+ *  -1 = error
+ */
+int flip_session_close_registered(
+    const flip_system_t *system,
+    const char *rom_path);
+
+/*
  * Remove one game from GameSwitcher/recent history.
  * Emulator savestates are not touched.
  */
