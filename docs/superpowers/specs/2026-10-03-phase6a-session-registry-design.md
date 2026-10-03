@@ -85,4 +85,17 @@ Host acceptance:
 - malformed records fail closed
 - `make verify` passes
 
-Hardware acceptance is intentionally deferred until the registry is wired into actual frontend/session lifecycle behaviour in the next Phase 6 slice.
+Runtime integration acceptance:
+
+- legacy `state/session/current` remains authoritative
+- running/suspended/interrupted/signaled/error states mirror into the registry
+- exited/closed sessions are removed from the registry
+- registry write failures are non-fatal to the existing session path
+
+Hardware acceptance:
+
+- launch a GB title and observe a running registry entry
+- trigger GameSwitcher suspend and observe the same entry become suspended
+- resume and exit normally, then confirm the registry entry is removed
+- verify lid close/open automatic resume still bypasses Game Options
+- verify save/state persistence and RK817 post-resume audio remain unchanged
