@@ -1690,13 +1690,17 @@ int flip_session_close_registered(
     if (find_result <= 0)
         return find_result;
 
-    if (strcmp(
-            entry.state,
-            "suspended") != 0) {
+    int closable =
+        strcmp(entry.state, "suspended") == 0 ||
+        strcmp(entry.state, "interrupted") == 0 ||
+        strcmp(entry.state, "signaled") == 0 ||
+        strcmp(entry.state, "error") == 0;
+
+    if (!closable) {
 
         fprintf(
             stderr,
-            "SESSION_CLOSE: registry target not suspended state=%s rom=%s\n",
+            "SESSION_CLOSE: registry target not closable state=%s rom=%s\n",
             entry.state,
             rom_path);
 
@@ -1735,4 +1739,139 @@ int flip_session_close_registered(
         rom_path);
 
     return 1;
+}
+
+
+static int registry_state_known(
+    const char *state)
+{
+    return state &&
+           (strcmp(state, "running") == 0 ||
+            strcmp(state, "suspended") == 0 ||
+            strcmp(state, "interrupted") == 0 ||
+            strcmp(state, "signaled") == 0 ||
+            strcmp(state, "error") == 0 ||
+            strcmp(state, "exited") == 0 ||
+            strcmp(state, "closed") == 0);
+}
+
+int flip_session_reconcile_registry(void)
+{
+    flip_session_registry_entry_t entries[
+        FLIP_SESSION_REGISTRY_MAX];
+
+    size_t count = 0;
+
+    if (flip_session_registry_load(
+            entries,
+            FLIP_SESSION_REGISTRY_MAX,
+            &count) < 0) {
+
+        fprintf(
+            stderr,
+            "SESSION_REGISTRY: reconcile load failed\n");
+
+        return -1;
+    }
+
+    flip_session_state_t current;
+    int current_result =
+        flip_session_read_current(
+            &current);
+
+    int changed = 0;
+
+    for (size_t i = 0; i < count; ++i) {
+
+        flip_session_registry_entry_t *entry =
+            &entries[i];
+
+        const flip_system_t *system =
+            flip_system_find(
+                entry->system);
+
+        int launchable =
+            system &&
+            access(
+                entry->rom,
+                R_OK) == 0 &&
+            flip_system_supports_path(
+                system,
+                entry->rom);
+
+        if (!launchable ||
+            !registry_state_known(
+                entry->state) ||
+            strcmp(
+                entry->state,
+                "exited") == 0 ||
+            strcmp(
+                entry->state,
+                "closed") == 0) {
+
+            int remove_result =
+                flip_session_registry_remove(
+                    entry->system,
+                    entry->rom);
+
+            if (remove_result < 0)
+                return -1;
+
+            if (remove_result > 0) {
+                changed++;
+
+                fprintf(
+                    stderr,
+                    "SESSION_REGISTRY: pruned state=%s system=%s rom=%s\n",
+                    entry->state,
+                    entry->system,
+                    entry->rom);
+            }
+
+            continue;
+        }
+
+        if (strcmp(
+                entry->state,
+                "running") != 0)
+            continue;
+
+        int current_matches =
+            current_result > 0 &&
+            strcmp(
+                current.state,
+                "running") == 0 &&
+            strcmp(
+                current.system,
+                entry->system) == 0 &&
+            strcmp(
+                current.rom,
+                entry->rom) == 0;
+
+        if (current_matches)
+            continue;
+
+        snprintf(
+            entry->state,
+            sizeof(entry->state),
+            "%s",
+            "interrupted");
+
+        entry->updated =
+            now_epoch();
+
+        if (flip_session_registry_upsert(
+                entry) < 0)
+            return -1;
+
+        changed++;
+
+        fprintf(
+            stderr,
+            "SESSION_REGISTRY: recovered interrupted system=%s rom=%s\n",
+            entry->system,
+            entry->rom);
+    }
+
+    return changed;
 }
