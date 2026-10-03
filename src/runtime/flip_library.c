@@ -1,4 +1,5 @@
 #include "flip_library.h"
+#include "flip_paths.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -261,12 +262,6 @@ int flip_library_fingerprint(
 
     return 0;
 }
-
-#define FLIP_LIBRARY_CACHE_ROOT \
-    "/mnt/SDCARD/flipos-dev/cache"
-
-#define FLIP_LIBRARY_CACHE_DIR \
-    "/mnt/SDCARD/flipos-dev/cache/library"
 
 static int ensure_cache_dir(void)
 {
