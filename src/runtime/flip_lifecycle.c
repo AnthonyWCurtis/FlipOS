@@ -83,7 +83,7 @@ static int handle_save_to_switcher(
 
     result->should_exit = 1;
     result->exit_code =
-        FLIP_LIFECYCLE_EXIT_SWITCHER;
+        FLIP_EXIT_CODE_SUSPEND;
 
     return 1;
 }
@@ -185,7 +185,8 @@ int flip_lifecycle_handle(
             : "failed");
 
     result->should_exit = 1;
-    result->exit_code = 0;
+    result->exit_code =
+        FLIP_EXIT_CODE_NORMAL;
 
     return 1;
 }

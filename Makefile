@@ -25,6 +25,7 @@ COMMON_OBJS := \
 	$(BUILD)/flip_draw.o
 
 RUNTIME_OBJS := \
+	$(BUILD)/flip_exit_protocol.o \
 	$(BUILD)/flip_session_registry.o \
 	$(BUILD)/flip_session_adapter.o \
 	$(BUILD)/flip_system.o \
@@ -80,7 +81,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -95,6 +96,7 @@ verify:
 		$(MAKE) test-timing && \
 		$(MAKE) test-audio && \
 		$(MAKE) test-audio-resampler && \
+		$(MAKE) test-exit-protocol && \
 		$(MAKE) test-lifecycle && \
 		$(MAKE) test-core && \
 		$(MAKE) test-core-host && \
@@ -128,6 +130,9 @@ test-audio: $(BUILD)/test-flip-audio
 
 test-audio-resampler: $(BUILD)/test-flip-audio-resampler
 	$(BUILD)/test-flip-audio-resampler
+
+test-exit-protocol: $(BUILD)/test-flip-exit-protocol
+	$(BUILD)/test-flip-exit-protocol
 
 test-lifecycle: $(BUILD)/test-flip-lifecycle
 	$(BUILD)/test-flip-lifecycle
@@ -166,6 +171,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 test-architecture:
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
+	python3 tests/test_exit_protocol_architecture.py
 	python3 tests/test_session_registry_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
 	python3 tests/test_audio_callback_diagnostics_architecture.py
@@ -179,6 +185,11 @@ test-architecture:
 
 $(BUILD):
 	mkdir -p $(BUILD)
+
+$(BUILD)/test-flip-exit-protocol: tests/test_flip_exit_protocol.c src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_exit_protocol.c src/runtime/flip_exit_protocol.c \
+		-o $@
 
 $(BUILD)/test-flip-controls: tests/test_flip_controls.c src/runtime/flip_controls.c include/flip_controls.h include/flip_input.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
@@ -311,6 +322,9 @@ $(BUILD)/flip_osd.o: src/runtime/flip_osd.c | $(BUILD)
 $(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_exit_protocol.o: src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_session_registry.o: src/runtime/flip_session_registry.c include/flip_session_registry.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -417,6 +431,7 @@ clean:
 		$(BUILD)/test-flip-timing \
 		$(BUILD)/test-flip-audio \
 		$(BUILD)/test-flip-audio-resampler \
+		$(BUILD)/test-flip-exit-protocol \
 		$(BUILD)/test-flip-lifecycle \
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \

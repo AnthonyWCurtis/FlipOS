@@ -7,22 +7,6 @@
 #include <unistd.h>
 
 /*
- * Gambatte / FlipGB process protocol:
- *
- *   exit 0  = normal exit
- *   exit 20 = saved state + suspend/GameSwitcher request
- */
-static flip_session_action_t
-gb_map_exit_code(
-    int exit_code)
-{
-    if (exit_code == 20)
-        return FLIP_SESSION_ACTION_SUSPEND;
-
-    return FLIP_SESSION_ACTION_EXIT;
-}
-
-/*
  * FlipGB currently identifies automatic resume states using
  * an FNV-1a hash of the original ROM path.
  *
@@ -156,7 +140,6 @@ gb_build_save_safety_argv(
 static const flip_session_adapter_t
 gb_session_adapter = {
     .system = "GB",
-    .map_exit_code = gb_map_exit_code,
     .resume_available = gb_resume_available,
     .supports_save_safety = gb_supports_save_safety,
     .build_start_normal_argv = gb_build_start_normal_argv,
@@ -166,7 +149,6 @@ gb_session_adapter = {
 static const flip_session_adapter_t
 gbc_session_adapter = {
     .system = "GBC",
-    .map_exit_code = gb_map_exit_code,
     .resume_available = gb_resume_available,
     .supports_save_safety = gb_supports_save_safety,
     .build_start_normal_argv = gb_build_start_normal_argv,

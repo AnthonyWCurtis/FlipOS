@@ -129,7 +129,7 @@ static void test_suspend_success(void)
     assert(result.save_succeeded == 1);
     assert(result.should_exit == 1);
     assert(result.exit_code ==
-        FLIP_LIFECYCLE_EXIT_SWITCHER);
+        FLIP_EXIT_CODE_SUSPEND);
 }
 
 static void test_suspend_failure(void)
@@ -176,7 +176,7 @@ static void test_failed_suspend_then_switcher(void)
     assert(result.save_succeeded == 1);
     assert(result.should_exit == 1);
     assert(result.exit_code ==
-        FLIP_LIFECYCLE_EXIT_SWITCHER);
+        FLIP_EXIT_CODE_SUSPEND);
 }
 
 static void test_switcher_success(void)
@@ -199,7 +199,7 @@ static void test_switcher_success(void)
         FLIP_LIFECYCLE_REASON_GAMESWITCHER);
     assert(result.should_exit == 1);
     assert(result.exit_code ==
-        FLIP_LIFECYCLE_EXIT_SWITCHER);
+        FLIP_EXIT_CODE_SUSPEND);
 }
 
 static void test_immediate_ignores_exit(void)
@@ -241,7 +241,8 @@ static void test_after_frame_exit_success(void)
         FLIP_LIFECYCLE_REASON_EXIT);
     assert(result.save_succeeded == 1);
     assert(result.should_exit == 1);
-    assert(result.exit_code == 0);
+    assert(result.exit_code ==
+        FLIP_EXIT_CODE_NORMAL);
 }
 
 static void test_after_frame_exit_failure_still_exits(void)
@@ -262,7 +263,8 @@ static void test_after_frame_exit_failure_still_exits(void)
     assert(save_calls == 1);
     assert(result.save_succeeded == 0);
     assert(result.should_exit == 1);
-    assert(result.exit_code == 0);
+    assert(result.exit_code ==
+        FLIP_EXIT_CODE_NORMAL);
 }
 
 static void test_after_frame_ignores_immediate_actions(void)
