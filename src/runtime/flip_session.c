@@ -2,6 +2,7 @@
 
 #include "flip_session.h"
 #include "flip_session_adapter.h"
+#include "flip_session_registry.h"
 #include "flip_system.h"
 #include "flip_input.h"
 
@@ -272,6 +273,82 @@ static int write_session_state(
         metadata->rom_path
             ? metadata->rom_path
             : "");
+
+    /*
+     * Phase 6A mirrors lifecycle state into the multi-session
+     * registry without making it authoritative yet.
+     *
+     * The hardware-tested Phase 5C current-session record above
+     * remains the source of truth. Registry failures are logged
+     * but must not break launch/save/suspend/resume behaviour.
+     */
+    if (metadata &&
+        metadata->system &&
+        metadata->system->id &&
+        metadata->rom_path &&
+        program &&
+        state) {
+
+        int registry_result = 0;
+
+        if (strcmp(state, "exited") == 0 ||
+            strcmp(state, "closed") == 0) {
+
+            registry_result =
+                flip_session_registry_remove(
+                    metadata->system->id,
+                    metadata->rom_path);
+
+        } else {
+
+            flip_session_registry_entry_t entry;
+
+            memset(
+                &entry,
+                0,
+                sizeof(entry));
+
+            entry.valid = 1;
+
+            copy_string(
+                entry.system,
+                sizeof(entry.system),
+                metadata->system->id);
+
+            copy_string(
+                entry.rom,
+                sizeof(entry.rom),
+                metadata->rom_path);
+
+            copy_string(
+                entry.program,
+                sizeof(entry.program),
+                program);
+
+            copy_string(
+                entry.state,
+                sizeof(entry.state),
+                state);
+
+            entry.started = started;
+            entry.updated =
+                ended > 0
+                    ? ended
+                    : now_epoch();
+
+            registry_result =
+                flip_session_registry_upsert(
+                    &entry);
+        }
+
+        if (registry_result < 0) {
+            fprintf(
+                stderr,
+                "SESSION_REGISTRY: mirror failed state=%s rom=%s\n",
+                state,
+                metadata->rom_path);
+        }
+    }
 
     return 0;
 }

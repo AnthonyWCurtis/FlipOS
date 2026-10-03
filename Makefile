@@ -25,6 +25,7 @@ COMMON_OBJS := \
 	$(BUILD)/flip_draw.o
 
 RUNTIME_OBJS := \
+	$(BUILD)/flip_session_registry.o \
 	$(BUILD)/flip_session_adapter.o \
 	$(BUILD)/flip_system.o \
 	$(BUILD)/flip_session.o \
@@ -79,7 +80,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -101,6 +102,7 @@ verify:
 		$(MAKE) test-state-recovery-health && \
 		$(MAKE) test-save && \
 		$(MAKE) test-recovery && \
+		$(MAKE) test-session-registry && \
 		$(MAKE) test-session-save-safety && \
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
@@ -149,6 +151,9 @@ test-recovery: $(BUILD)/test-flip-recovery $(BUILD)/test-flip-recovery-transacti
 	$(BUILD)/test-flip-recovery
 	$(BUILD)/test-flip-recovery-transactions
 
+test-session-registry: $(BUILD)/test-flip-session-registry
+	$(BUILD)/test-flip-session-registry
+
 test-session-save-safety: $(BUILD)/test-flip-session-adapter-save-safety
 	$(BUILD)/test-flip-session-adapter-save-safety
 
@@ -161,6 +166,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 test-architecture:
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
+	python3 tests/test_session_registry_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
 	python3 tests/test_audio_callback_diagnostics_architecture.py
 	python3 tests/test_audio_rate_conversion_architecture.py
@@ -253,6 +259,12 @@ $(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-flip-session-registry: tests/test_flip_session_registry.c src/runtime/flip_session_registry.c include/flip_session_registry.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-DFLIP_SESSION_REGISTRY_ROOT='"/tmp/flipos-session-registry-test"' -Iinclude \
+		tests/test_flip_session_registry.c src/runtime/flip_session_registry.c \
+		-o $@
+
 $(BUILD)/test-flip-perf-diag: tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c include/flip_perf_diag.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_perf_diag.c src/runtime/flip_perf_diag.c \
@@ -297,6 +309,9 @@ $(BUILD)/flip_osd.o: src/runtime/flip_osd.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_session_registry.o: src/runtime/flip_session_registry.c include/flip_session_registry.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_session_adapter.o: src/runtime/flip_session_adapter.c | $(BUILD)
@@ -410,6 +425,7 @@ clean:
 		$(BUILD)/test-flip-save \
 		$(BUILD)/test-flip-recovery \
 		$(BUILD)/test-flip-recovery-transactions \
+		$(BUILD)/test-flip-session-registry \
 		$(BUILD)/test-flip-session-adapter-save-safety \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
