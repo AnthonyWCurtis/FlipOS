@@ -8,9 +8,14 @@ makefile = Path("Makefile").read_text()
 assert '#include "flip_session_registry.h"' in session
 assert "flip_session_registry_upsert(" in session
 assert "flip_session_registry_remove(" in session
+assert "flip_session_close_registered(" in session
 assert "flip_session_registry_find_state(" in registry
 assert '#include "flip_session_registry.h"' in frontend
 assert 'flip_session_registry_find_state(\n            "suspended"' in frontend
+assert "recent_session_is_suspended(" in frontend
+assert "gameswitcher_confirm_system" in frontend
+assert "flip_session_close_registered(" in frontend
+assert "flip_session_remove_recent(\n                        target_system" in frontend
 
 suspended_start = frontend.index("static int load_suspended_session(void)")
 suspended_end = frontend.index("static int recent_index_for_path", suspended_start)

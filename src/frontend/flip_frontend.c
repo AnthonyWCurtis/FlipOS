@@ -94,6 +94,7 @@ static gameswitcher_confirm_t
     gameswitcher_confirm =
         GAMESWITCHER_CONFIRM_NONE;
 
+static char gameswitcher_confirm_system[32];
 static char gameswitcher_confirm_rom[512];
 
 static const char *home_items[] = {
@@ -302,6 +303,31 @@ static int load_suspended_session(void)
         session.rom);
 
     return 1;
+}
+
+static int recent_session_is_suspended(
+    const rom_entry_t *rom)
+{
+    if (!rom ||
+        !rom->system ||
+        !rom->system->id ||
+        !rom->path[0])
+        return 0;
+
+    flip_session_registry_entry_t session;
+
+    int find_result =
+        flip_session_registry_find(
+            rom->system->id,
+            rom->path,
+            &session);
+
+    if (find_result <= 0)
+        return 0;
+
+    return strcmp(
+        session.state,
+        "suspended") == 0;
 }
 
 static int recent_index_for_path(
@@ -1617,6 +1643,8 @@ static void draw_recent(
     int selected,
     double poweroff_progress)
 {
+    (void)system;
+
     flip_draw_clear(drm, BG);
 
     load_suspended_session();
@@ -1740,14 +1768,13 @@ static void draw_recent(
                     ? FG
                     : DIM);
 
-            if (flip_system_resume_available(system, 
+            if (flip_system_resume_available(
+                    recent_roms[index].system,
                     recent_roms[index].path)) {
 
                 int is_suspended =
-                    suspended_available &&
-                    strcmp(
-                        recent_roms[index].path,
-                        suspended_rom_path) == 0;
+                    recent_session_is_suspended(
+                        &recent_roms[index]);
 
                 const char *status =
                     is_suspended
@@ -1789,14 +1816,12 @@ static void draw_recent(
 
         int can_resume =
             flip_system_resume_available(
-                system,
+                recent_roms[selected].system,
                 recent_roms[selected].path);
 
         int is_suspended =
-            suspended_available &&
-            strcmp(
-                recent_roms[selected].path,
-                suspended_rom_path) == 0;
+            recent_session_is_suspended(
+                &recent_roms[selected]);
 
         if (is_suspended) {
 
@@ -2514,6 +2539,9 @@ int main(void)
             gameswitcher_confirm =
                 GAMESWITCHER_CONFIRM_NONE;
 
+            gameswitcher_confirm_system[0] =
+                '\0';
+
             gameswitcher_confirm_rom[0] =
                 '\0';
 
@@ -2538,20 +2566,26 @@ int main(void)
             screen == SCREEN_RECENT &&
             recent_count > 0) {
 
-            load_suspended_session();
+            const rom_entry_t *target =
+                &recent_roms[
+                    recent_selected];
+
+            copy_string(
+                gameswitcher_confirm_system,
+                sizeof(gameswitcher_confirm_system),
+                target->system &&
+                target->system->id
+                    ? target->system->id
+                    : "");
 
             copy_string(
                 gameswitcher_confirm_rom,
                 sizeof(gameswitcher_confirm_rom),
-                recent_roms[
-                    recent_selected
-                ].path);
+                target->path);
 
             int is_suspended =
-                suspended_available &&
-                strcmp(
-                    gameswitcher_confirm_rom,
-                    suspended_rom_path) == 0;
+                recent_session_is_suspended(
+                    target);
 
             gameswitcher_confirm =
                 is_suspended
@@ -2585,8 +2619,16 @@ int main(void)
             if (gameswitcher_confirm ==
                 GAMESWITCHER_CONFIRM_CLOSE) {
 
+                const flip_system_t *target_system =
+                    flip_system_find(
+                        gameswitcher_confirm_system);
+
                 int close_result =
-                    flip_session_close_suspended();
+                    target_system
+                        ? flip_session_close_registered(
+                            target_system,
+                            gameswitcher_confirm_rom)
+                        : -1;
 
                 if (close_result > 0) {
 
@@ -2617,8 +2659,13 @@ int main(void)
 
             if (action_ok) {
 
-                if (flip_session_remove_recent(
-                        game_system,
+                const flip_system_t *target_system =
+                    flip_system_find(
+                        gameswitcher_confirm_system);
+
+                if (!target_system ||
+                    flip_session_remove_recent(
+                        target_system,
                         gameswitcher_confirm_rom) < 0) {
 
                     fprintf(
@@ -2635,6 +2682,9 @@ int main(void)
 
                 gameswitcher_confirm =
                     GAMESWITCHER_CONFIRM_NONE;
+
+                gameswitcher_confirm_system[0] =
+                    '\0';
 
                 gameswitcher_confirm_rom[0] =
                     '\0';
@@ -2731,7 +2781,9 @@ int main(void)
 
                 const char *launch_text =
                     flip_system_resume_available(
-                        game_system,
+                        recent_roms[
+                            recent_selected
+                        ].system,
                         recent_roms[
                             recent_selected
                         ].path)

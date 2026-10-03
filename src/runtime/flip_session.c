@@ -1667,3 +1667,72 @@ int flip_session_close_suspended(void)
 
     return 1;
 }
+
+
+int flip_session_close_registered(
+    const flip_system_t *system,
+    const char *rom_path)
+{
+    if (!system ||
+        !system->id ||
+        !rom_path ||
+        !rom_path[0])
+        return -1;
+
+    flip_session_registry_entry_t entry;
+
+    int find_result =
+        flip_session_registry_find(
+            system->id,
+            rom_path,
+            &entry);
+
+    if (find_result <= 0)
+        return find_result;
+
+    if (strcmp(
+            entry.state,
+            "suspended") != 0) {
+
+        fprintf(
+            stderr,
+            "SESSION_CLOSE: registry target not suspended state=%s rom=%s\n",
+            entry.state,
+            rom_path);
+
+        return 0;
+    }
+
+    flip_session_state_t current;
+
+    int current_result =
+        flip_session_read_current(
+            &current);
+
+    if (current_result > 0 &&
+        strcmp(current.state, "suspended") == 0 &&
+        strcmp(current.system, system->id) == 0 &&
+        strcmp(current.rom, rom_path) == 0) {
+
+        return flip_session_close_suspended();
+    }
+
+    if (flip_session_registry_remove(
+            system->id,
+            rom_path) < 0) {
+
+        fprintf(
+            stderr,
+            "SESSION_CLOSE: registry remove failed rom=%s\n",
+            rom_path);
+
+        return -1;
+    }
+
+    fprintf(
+        stderr,
+        "SESSION_CLOSE: closed registered rom=%s savestate=preserved\n",
+        rom_path);
+
+    return 1;
+}
