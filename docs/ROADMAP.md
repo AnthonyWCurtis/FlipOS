@@ -230,14 +230,14 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 
 ## Phase 6 — Global GameSwitcher / Session Manager
 
-- [ ] Suspend current game
-- [ ] Save state
-- [ ] Record active session
-- [ ] Switch games
-- [ ] Resume previous game
-- [ ] Close/remove sessions
-- [ ] Prune stale sessions
-- [ ] Recover interrupted sessions
+- [x] Suspend current game
+- [x] Save state
+- [x] Record active session
+- [x] Switch games
+- [x] Resume previous game
+- [x] Close/remove sessions
+- [x] Prune stale sessions
+- [x] Recover interrupted sessions
 - [ ] Clean up exit-code protocol
 
 ## Phase 7 — System Services
