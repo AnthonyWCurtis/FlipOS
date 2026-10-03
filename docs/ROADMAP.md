@@ -238,7 +238,7 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 - [x] Close/remove sessions
 - [x] Prune stale sessions
 - [x] Recover interrupted sessions
-- [ ] Clean up exit-code protocol
+- [x] Clean up exit-code protocol
 
 ## Phase 7 — System Services
 
