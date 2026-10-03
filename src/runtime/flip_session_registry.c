@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session_registry.h"
+#include "flip_paths.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -9,11 +10,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#ifndef FLIP_SESSION_REGISTRY_ROOT
-#define FLIP_SESSION_REGISTRY_ROOT "/mnt/SDCARD/flipos-dev/state/session"
-#endif
-
-#define REGISTRY_FILE FLIP_SESSION_REGISTRY_ROOT "/registry"
 #define REGISTRY_VERSION 1
 
 static int copy_string(
@@ -112,7 +108,7 @@ static int write_registry(
         tmp_path,
         sizeof(tmp_path),
         "%s.tmp",
-        REGISTRY_FILE);
+        FLIP_SESSION_REGISTRY_FILE);
 
     if (written < 0 ||
         (size_t)written >= sizeof(tmp_path))
@@ -174,7 +170,7 @@ static int write_registry(
         return -1;
     }
 
-    if (rename(tmp_path, REGISTRY_FILE) < 0) {
+    if (rename(tmp_path, FLIP_SESSION_REGISTRY_FILE) < 0) {
         fprintf(
             stderr,
             "SESSION_REGISTRY: rename failed: %s\n",
@@ -197,7 +193,7 @@ int flip_session_registry_load(
 
     *count = 0;
 
-    FILE *f = fopen(REGISTRY_FILE, "r");
+    FILE *f = fopen(FLIP_SESSION_REGISTRY_FILE, "r");
 
     if (!f) {
         if (errno == ENOENT)
