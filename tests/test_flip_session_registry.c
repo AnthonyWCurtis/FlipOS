@@ -211,6 +211,59 @@ int main(void)
             gba.rom,
             &found) == 0);
 
+    flip_session_registry_entry_t gb_blue =
+        make_entry(
+            "GB",
+            "/roms/Pokemon Blue.gb",
+            "suspended",
+            600,
+            700);
+
+    flip_session_registry_entry_t gb_red =
+        make_entry(
+            "GB",
+            "/roms/Pokemon Red.gb",
+            "suspended",
+            800,
+            900);
+
+    assert(flip_session_registry_upsert(&gb_blue) == 0);
+    assert(flip_session_registry_upsert(&gb_red) == 0);
+
+    assert(
+        flip_session_registry_find(
+            "GB",
+            gb_blue.rom,
+            &found) == 1);
+
+    assert(strcmp(found.state, "suspended") == 0);
+
+    assert(
+        flip_session_registry_find(
+            "GB",
+            gb_red.rom,
+            &found) == 1);
+
+    assert(strcmp(found.state, "suspended") == 0);
+
+    assert(
+        flip_session_registry_find_state(
+            "suspended",
+            &by_state) == 1);
+
+    assert(strcmp(by_state.rom, gb_red.rom) == 0);
+
+    assert(
+        flip_session_registry_remove(
+            "GB",
+            gb_blue.rom) == 1);
+
+    assert(
+        flip_session_registry_find(
+            "GB",
+            gb_red.rom,
+            &found) == 1);
+
     FILE *f = fopen(TEST_FILE, "w");
     assert(f != NULL);
     fputs("version=1\nentry\nsystem=GB\nend\n", f);
