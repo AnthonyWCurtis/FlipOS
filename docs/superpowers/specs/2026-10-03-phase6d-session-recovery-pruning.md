@@ -1,7 +1,7 @@
 # FlipOS Phase 6D — Session Recovery and Registry Pruning
 
 Date: 2026-10-03
-Status: host validation pending
+Status: hardware accepted
 Branch: `phase6/session-recovery-pruning`
 
 ## Goal
@@ -109,3 +109,99 @@ Planned controlled tests:
 5. resume that exact game and verify it returns to `running`
 6. lid automatic-resume regression
 7. verify save/state files remain present throughout
+
+
+## Hardware acceptance result
+
+Device: Miyoo Flip RK3566, Linux 5.10.160, AArch64.
+
+### Stale registry pruning
+
+A synthetically injected valid-format registry entry referencing:
+
+```text
+/mnt/SDCARD/Roms/GB/PHASE6D-MISSING-ROM.gb
+```
+
+was removed at frontend startup while the legitimate suspended Pokémon Blue session remained intact.
+
+Observed:
+
+```text
+SESSION_REGISTRY: pruned state=suspended system=GB rom=/mnt/SDCARD/Roms/GB/PHASE6D-MISSING-ROM.gb
+FRONTEND: session registry reconciled changes=1
+```
+
+Save/state file hashes remained unchanged across the reconciliation checkpoint.
+
+### Interrupted session recovery
+
+A synthetic Pokémon Red registry entry was injected as `state=running` while no matching current running session existed.
+
+On frontend startup it became:
+
+```text
+state=interrupted
+```
+
+Observed:
+
+```text
+SESSION_REGISTRY: recovered interrupted system=GB rom=/mnt/SDCARD/Roms/GB/Pokemon - Red Version (USA, Europe).gb
+FRONTEND: session registry reconciled changes=1
+```
+
+GameSwitcher visibly displayed:
+
+- Red: **RECOVER**
+- Blue: **SUSPENDED**
+
+Resuming Red restored its existing state successfully:
+
+```text
+FLIP_STATE: RESTORE_CURRENT_OK path=/mnt/SDCARD/flipos-dev/states/gb/f06ea3b0fd4ad958.state size=59650
+```
+
+Registry result:
+
+```text
+Red  -> running
+Blue -> suspended
+```
+
+### Lid regression
+
+A fresh-marker lid cycle on running Pokémon Red produced:
+
+```text
+SESSION_STATE: state=suspended ...Red...
+FRONTEND_STANDBY lid closed after suspend
+POWER: deep sleep enter brightness=200
+POWER: suspending
+POWER: resumed
+POWER: lid open
+POWER: deep sleep exit brightness=200
+FRONTEND_STANDBY auto resume rom=...Red...
+FLIP_SAVE_SAFETY: AUTOMATIC_RESUME
+flip_audio: RK817 state 17=06 38=00 40=69
+flip_audio: RK817 deep-resume recovery required
+flip_audio: RK817 deep-resume recovery applied
+flip_audio: RK817 audio recovered
+FLIP_STATE: RESTORE_CURRENT_OK ...Red...
+SESSION_STATE: state=running ...Red...
+SESSION_REGISTRY: upsert state=running ...Red... count=2
+```
+
+After wake:
+
+- Red returned to `running` with a new process id/start timestamp
+- Blue remained independently `suspended`
+- the registry still contained both entries
+- the exact known-broken RK817 signature triggered recovery
+- Save Safety automatic-resume behavior remained unchanged
+
+## Result
+
+Phase 6D is hardware accepted.
+
+At this point the Phase 6 Session Manager has hardware-proven support for suspend/save, persistent multi-session recording, switching/resuming, targeted close/remove, stale metadata pruning, and interrupted-session recovery. The remaining roadmap item is exit-code protocol cleanup.
