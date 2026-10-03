@@ -1,8 +1,6 @@
 #ifndef FLIP_SESSION_ADAPTER_H
 #define FLIP_SESSION_ADAPTER_H
 
-#include "flip_session.h"
-
 #include <stddef.h>
 
 typedef struct {
