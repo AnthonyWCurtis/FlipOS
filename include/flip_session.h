@@ -94,8 +94,9 @@ int flip_session_recover_current(void);
 int flip_session_close_suspended(void);
 
 /*
- * Close one suspended registry session identified by system and ROM.
+ * Close one recoverable registry session identified by system and ROM.
  *
+ * Suspended, interrupted, signaled and error sessions can be closed.
  * If the target is also the legacy current suspended session, update
  * current metadata through the existing close path. Otherwise remove
  * only the registry lifecycle entry. Emulator saves/states are preserved.
@@ -108,6 +109,18 @@ int flip_session_close_suspended(void);
 int flip_session_close_registered(
     const flip_system_t *system,
     const char *rom_path);
+
+/*
+ * Reconcile the persistent multi-session registry at frontend startup.
+ *
+ * - remove entries whose system/ROM is no longer launchable
+ * - remove terminal/unknown lifecycle states
+ * - convert orphaned "running" entries to "interrupted"
+ * - preserve suspended/interrupted/error save and state data
+ *
+ * Returns the number of repaired/removed entries, 0 if clean, or -1.
+ */
+int flip_session_reconcile_registry(void);
 
 /*
  * Remove one game from GameSwitcher/recent history.
