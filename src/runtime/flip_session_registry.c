@@ -147,10 +147,23 @@ static int write_registry(
         fprintf(f, "end\n");
     }
 
-    if (fflush(f) != 0 ||
-        fsync(fileno(f)) < 0 ||
-        fclose(f) != 0) {
-        int saved_errno = errno;
+    int write_failed = 0;
+    int saved_errno = 0;
+
+    if (fflush(f) != 0) {
+        write_failed = 1;
+        saved_errno = errno;
+    } else if (fsync(fileno(f)) < 0) {
+        write_failed = 1;
+        saved_errno = errno;
+    }
+
+    if (fclose(f) != 0 && !write_failed) {
+        write_failed = 1;
+        saved_errno = errno;
+    }
+
+    if (write_failed) {
         unlink(tmp_path);
         errno = saved_errno;
 
