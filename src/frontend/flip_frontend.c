@@ -341,20 +341,6 @@ static int recent_session_registry_state(
     return 1;
 }
 
-static int recent_session_is_suspended(
-    const rom_entry_t *rom)
-{
-    char state[32];
-
-    return recent_session_registry_state(
-               rom,
-               state,
-               sizeof(state)) > 0 &&
-           strcmp(
-               state,
-               "suspended") == 0;
-}
-
 static int recent_session_is_recoverable(
     const rom_entry_t *rom)
 {
