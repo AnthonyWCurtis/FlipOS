@@ -2,12 +2,9 @@
 #define FLIP_SAVE_H
 
 #include "flip_core.h"
+#include "flip_paths.h"
 
 #include <stddef.h>
-
-#ifndef FLIP_SAVE_ROOT
-#define FLIP_SAVE_ROOT "/mnt/SDCARD/flipos-dev/saves"
-#endif
 
 #define FLIP_SAVE_CURRENT_SUFFIX ".sav"
 #define FLIP_SAVE_PREVIOUS_SUFFIX ".sav.prev"
