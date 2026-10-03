@@ -2,10 +2,7 @@
 #define FLIP_STATE_H
 
 #include "flip_core.h"
-
-#ifndef FLIP_STATE_ROOT
-#define FLIP_STATE_ROOT "/mnt/SDCARD/flipos-dev/states"
-#endif
+#include "flip_paths.h"
 
 typedef struct {
     const char *system_id;
