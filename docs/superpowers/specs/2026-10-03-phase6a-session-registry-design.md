@@ -1,7 +1,7 @@
 # FlipOS Phase 6A — Persistent Session Registry
 
 Date: 2026-10-03
-Status: implementation branch
+Status: hardware accepted
 Branch: `phase6/session-registry`
 
 ## Goal
@@ -99,3 +99,45 @@ Hardware acceptance:
 - resume and exit normally, then confirm the registry entry is removed
 - verify lid close/open automatic resume still bypasses Game Options
 - verify save/state persistence and RK817 post-resume audio remain unchanged
+
+### 2026-10-03 hardware result
+
+Device: Miyoo Flip RK3566, Linux 5.10.160, AArch64.
+
+ROM used:
+
+```text
+/mnt/SDCARD/Roms/GB/Pokemon - Blue Version (USA, Europe).gb
+```
+
+Observed lifecycle:
+
+```text
+launch       -> registry state=running
+MENU         -> registry state=suspended
+resume       -> registry state=running
+START+SELECT -> current state=exited, registry entry removed
+```
+
+The registry contained a single `(GB, ROM)` entry throughout launch/suspend/resume; upsert did not create duplicates.
+
+Lid regression passed:
+
+- emulator returned suspend exit code 20
+- registry mirrored `state=suspended`
+- frontend entered deep sleep
+- lid open triggered `FRONTEND_STANDBY auto resume`
+- Save Safety reported `FLIP_SAVE_SAFETY: AUTOMATIC_RESUME`
+- RK817 exact broken signature `17=06 38=00 40=69` was detected
+- RK817 deep-resume recovery was applied successfully
+- cartridge save loaded successfully
+- current savestate restored successfully
+- registry returned to `state=running`
+- frame pacing remained around the expected ~59.7 FPS target
+
+UX observations retained for later Phase 6 GameSwitcher work:
+
+- deliberate GameSwitcher resume currently requires selecting the title and then confirming Resume Game in Game Options
+- START+SELECT exits the emulator cleanly and returns to GameSwitcher
+
+These are existing frontend navigation behaviours and are not Phase 6A registry failures.
