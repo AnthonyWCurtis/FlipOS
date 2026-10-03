@@ -1,7 +1,7 @@
 # FlipOS Phase 6E — Global Exit Protocol Cleanup
 
 Date: 2026-10-03
-Status: host validation pending
+Status: hardware accepted
 Branch: `phase6/exit-protocol-cleanup`
 
 ## Goal
@@ -95,3 +95,118 @@ Required:
 6. multi-session registry state remains correct
 
 A synthetic unexpected-exit classification is covered by host unit tests; hardware acceptance does not deliberately crash the emulator.
+
+
+## Hardware acceptance result
+
+Device: Miyoo Flip RK3566, Linux 5.10.160, AArch64.
+
+### Clean exit
+
+Pokémon Red was launched and exited with START+SELECT.
+
+Observed:
+
+```text
+FLIP_LIFECYCLE: exit requested
+FLIP_LIFECYCLE: exit save ok
+SESSION: child exited code=0 action=1
+SESSION_STATE: state=exited rom=...Pokemon - Red Version...
+SESSION_REGISTRY: removed system=GB rom=...Pokemon - Red Version... count=1
+```
+
+The current record contained:
+
+```text
+state=exited
+exit_code=0
+signal=0
+```
+
+The independently suspended Pokémon Blue session remained in the registry.
+
+### GameSwitcher suspend
+
+Pokémon Red was launched again and MENU requested GameSwitcher.
+
+Observed:
+
+```text
+FLIP_LIFECYCLE: gameswitcher requested
+FLIP_LIFECYCLE: gameswitcher save ok
+SESSION: child exited code=20 action=2
+SESSION_STATE: state=suspended rom=...Pokemon - Red Version...
+SESSION_REGISTRY: upsert state=suspended ... count=2
+FRONTEND_GAMESWITCHER requested
+```
+
+The current record contained:
+
+```text
+state=suspended
+exit_code=20
+signal=0
+```
+
+Both Red and Blue remained independently suspended.
+
+### Exact resume
+
+Red was resumed from GameSwitcher.
+
+Observed:
+
+```text
+SESSION_STATE: state=running rom=...Pokemon - Red Version...
+SESSION_REGISTRY: upsert state=running ... count=2
+FLIP_STATE: RESTORE_CURRENT_OK path=/mnt/SDCARD/flipos-dev/states/gb/f06ea3b0fd4ad958.state size=59650
+```
+
+Result:
+
+```text
+Red  -> running
+Blue -> suspended
+```
+
+### Lid / automatic-resume regression
+
+A fresh-marker lid cycle while Red was running produced:
+
+```text
+SESSION: child exited code=20 action=2
+SESSION_STATE: state=suspended rom=...Pokemon - Red Version...
+SESSION_REGISTRY: upsert state=suspended ... count=2
+FRONTEND_STANDBY lid closed after suspend
+POWER: deep sleep enter brightness=200
+POWER: suspending
+POWER: resumed
+POWER: lid open
+POWER: deep sleep exit brightness=200
+FRONTEND_STANDBY auto resume rom=...Pokemon - Red Version...
+FLIP_SAVE_SAFETY: AUTOMATIC_RESUME
+flip_audio: RK817 state 17=06 38=00 40=69
+flip_audio: RK817 deep-resume recovery required
+flip_audio: RK817 deep-resume recovery applied
+flip_audio: RK817 audio recovered
+FLIP_STATE: RESTORE_CURRENT_OK path=/mnt/SDCARD/flipos-dev/states/gb/f06ea3b0fd4ad958.state size=59650
+SESSION_STATE: state=running rom=...Pokemon - Red Version...
+SESSION_REGISTRY: upsert state=running ... count=2
+```
+
+After wake, Red had a new process id/start timestamp and was `running`. Blue remained independently `suspended`.
+
+## Result
+
+Phase 6E is hardware accepted.
+
+The emulator-process protocol is now a global FlipOS contract:
+
+```text
+0          -> clean exit
+20         -> saved suspend/GameSwitcher
+other code -> recoverable error
+signal     -> recoverable signaled session
+```
+
+This completes the Phase 6 Global GameSwitcher / Session Manager roadmap.
