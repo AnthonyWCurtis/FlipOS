@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session.h"
-#include "flip_session_adapter.h"
+#include "flip_exit_protocol.h"
 #include "flip_session_registry.h"
 #include "flip_system.h"
 #include "flip_input.h"
@@ -1019,23 +1019,23 @@ int flip_session_launch(
         result->exit_code =
             exit_code;
 
-        const flip_session_adapter_t *session_adapter =
-            metadata &&
-            metadata->system
-                ? metadata->system->session_adapter
-                : NULL;
-
-        if (session_adapter &&
-            session_adapter->map_exit_code) {
-
+        switch (flip_exit_protocol_classify(
+                    exit_code)) {
+        case FLIP_EXIT_PROTOCOL_SUSPEND:
             result->action =
-                session_adapter->map_exit_code(
-                    exit_code);
+                FLIP_SESSION_ACTION_SUSPEND;
+            break;
 
-        } else {
-
+        case FLIP_EXIT_PROTOCOL_NORMAL:
             result->action =
                 FLIP_SESSION_ACTION_EXIT;
+            break;
+
+        case FLIP_EXIT_PROTOCOL_ERROR:
+        default:
+            result->action =
+                FLIP_SESSION_ACTION_ERROR;
+            break;
         }
 
         fprintf(
@@ -1076,6 +1076,13 @@ int flip_session_launch(
 
         session_state =
             "suspended";
+
+    } else if (
+        result->action ==
+            FLIP_SESSION_ACTION_ERROR) {
+
+        session_state =
+            "error";
 
     } else {
         session_state =
