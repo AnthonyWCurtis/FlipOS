@@ -305,9 +305,17 @@ static int load_suspended_session(void)
     return 1;
 }
 
-static int recent_session_is_suspended(
-    const rom_entry_t *rom)
+static int recent_session_registry_state(
+    const rom_entry_t *rom,
+    char *state,
+    size_t state_size)
 {
+    if (!state ||
+        state_size == 0)
+        return -1;
+
+    state[0] = '\0';
+
     if (!rom ||
         !rom->system ||
         !rom->system->id ||
@@ -323,11 +331,45 @@ static int recent_session_is_suspended(
             &session);
 
     if (find_result <= 0)
+        return find_result;
+
+    copy_string(
+        state,
+        state_size,
+        session.state);
+
+    return 1;
+}
+
+static int recent_session_is_suspended(
+    const rom_entry_t *rom)
+{
+    char state[32];
+
+    return recent_session_registry_state(
+               rom,
+               state,
+               sizeof(state)) > 0 &&
+           strcmp(
+               state,
+               "suspended") == 0;
+}
+
+static int recent_session_is_recoverable(
+    const rom_entry_t *rom)
+{
+    char state[32];
+
+    if (recent_session_registry_state(
+            rom,
+            state,
+            sizeof(state)) <= 0)
         return 0;
 
-    return strcmp(
-        session.state,
-        "suspended") == 0;
+    return strcmp(state, "suspended") == 0 ||
+           strcmp(state, "interrupted") == 0 ||
+           strcmp(state, "signaled") == 0 ||
+           strcmp(state, "error") == 0;
 }
 
 static int recent_index_for_path(
@@ -1772,19 +1814,45 @@ static void draw_recent(
                     recent_roms[index].system,
                     recent_roms[index].path)) {
 
+                char session_state[32];
+
+                int have_session =
+                    recent_session_registry_state(
+                        &recent_roms[index],
+                        session_state,
+                        sizeof(session_state)) > 0;
+
                 int is_suspended =
-                    recent_session_is_suspended(
-                        &recent_roms[index]);
+                    have_session &&
+                    strcmp(
+                        session_state,
+                        "suspended") == 0;
+
+                int needs_recovery =
+                    have_session &&
+                    (strcmp(
+                         session_state,
+                         "interrupted") == 0 ||
+                     strcmp(
+                         session_state,
+                         "signaled") == 0 ||
+                     strcmp(
+                         session_state,
+                         "error") == 0);
 
                 const char *status =
                     is_suspended
                         ? "SUSPENDED"
-                        : "RESUME";
+                        : needs_recovery
+                            ? "RECOVER"
+                            : "RESUME";
 
                 int status_x =
                     is_suspended
                         ? 470
-                        : 500;
+                        : needs_recovery
+                            ? 488
+                            : 500;
 
                 flip_draw_text(
                     drm,
@@ -1819,11 +1887,11 @@ static void draw_recent(
                 recent_roms[selected].system,
                 recent_roms[selected].path);
 
-        int is_suspended =
-            recent_session_is_suspended(
+        int is_recoverable =
+            recent_session_is_recoverable(
                 &recent_roms[selected]);
 
-        if (is_suspended) {
+        if (is_recoverable) {
 
             recent_help =
                 "A RESUME   X CLOSE   B BACK";
@@ -2187,6 +2255,23 @@ int main(void)
         fprintf(
             stderr,
             "FRONTEND: session recovery failed\n");
+    }
+
+    int registry_reconcile =
+        flip_session_reconcile_registry();
+
+    if (registry_reconcile < 0) {
+
+        fprintf(
+            stderr,
+            "FRONTEND: session registry reconcile failed\n");
+
+    } else if (registry_reconcile > 0) {
+
+        fprintf(
+            stderr,
+            "FRONTEND: session registry reconciled changes=%d\n",
+            registry_reconcile);
     }
 
     /*
@@ -2583,19 +2668,19 @@ int main(void)
                 sizeof(gameswitcher_confirm_rom),
                 target->path);
 
-            int is_suspended =
-                recent_session_is_suspended(
+            int is_recoverable =
+                recent_session_is_recoverable(
                     target);
 
             gameswitcher_confirm =
-                is_suspended
+                is_recoverable
                     ? GAMESWITCHER_CONFIRM_CLOSE
                     : GAMESWITCHER_CONFIRM_REMOVE;
 
             fprintf(
                 stderr,
                 "FRONTEND_GAMESWITCHER action requested=%s rom=%s\n",
-                is_suspended
+                is_recoverable
                     ? "close"
                     : "remove",
                 gameswitcher_confirm_rom);
