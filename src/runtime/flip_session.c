@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session.h"
+#include "flip_paths.h"
 #include "flip_exit_protocol.h"
 #include "flip_session_registry.h"
 #include "flip_system.h"
@@ -16,18 +17,6 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
-
-#define SESSION_DIR \
-    "/mnt/SDCARD/flipos-dev/state/session"
-
-#define SESSION_FILE \
-    "/mnt/SDCARD/flipos-dev/state/session/current"
-
-#define RECENT_DIR \
-    "/mnt/SDCARD/flipos-dev/state/recent"
-
-#define RECENT_FILE \
-    "/mnt/SDCARD/flipos-dev/state/recent/history"
 
 #define RECENT_MAX 10
 
@@ -76,13 +65,13 @@ static int copy_string(
 static int ensure_session_dir(void)
 {
     if (mkdir(
-            "/mnt/SDCARD/flipos-dev/state",
+            FLIP_STATE_DATA_ROOT,
             0777) < 0 &&
         errno != EEXIST)
         return -1;
 
     if (mkdir(
-            SESSION_DIR,
+            FLIP_SESSION_ROOT,
             0777) < 0 &&
         errno != EEXIST)
         return -1;
@@ -175,7 +164,7 @@ static int write_session_state(
         tmp_path,
         sizeof(tmp_path),
         "%s.tmp",
-        SESSION_FILE);
+        FLIP_SESSION_FILE);
 
     FILE *f =
         fopen(
@@ -253,7 +242,7 @@ static int write_session_state(
 
     if (rename(
             tmp_path,
-            SESSION_FILE) < 0) {
+            FLIP_SESSION_FILE) < 0) {
 
         fprintf(
             stderr,
@@ -365,7 +354,7 @@ static int update_recent_history(
         return 0;
 
     if (mkdir(
-            RECENT_DIR,
+            FLIP_RECENT_ROOT,
             0777) < 0 &&
         errno != EEXIST) {
 
@@ -387,7 +376,7 @@ static int update_recent_history(
 
     FILE *f =
         fopen(
-            RECENT_FILE,
+            FLIP_RECENT_FILE,
             "r");
 
     if (f) {
@@ -455,7 +444,7 @@ static int update_recent_history(
         tmp_path,
         sizeof(tmp_path),
         "%s.tmp",
-        RECENT_FILE);
+        FLIP_RECENT_FILE);
 
     f =
         fopen(
@@ -495,7 +484,7 @@ static int update_recent_history(
 
     if (rename(
             tmp_path,
-            RECENT_FILE) < 0) {
+            FLIP_RECENT_FILE) < 0) {
 
         fprintf(
             stderr,
@@ -536,7 +525,7 @@ int flip_session_remove_recent(
 
     FILE *f =
         fopen(
-            RECENT_FILE,
+            FLIP_RECENT_FILE,
             "r");
 
     if (!f)
@@ -610,7 +599,7 @@ int flip_session_remove_recent(
         tmp_path,
         sizeof(tmp_path),
         "%s.tmp",
-        RECENT_FILE);
+        FLIP_RECENT_FILE);
 
     f =
         fopen(
@@ -644,7 +633,7 @@ int flip_session_remove_recent(
 
     if (rename(
             tmp_path,
-            RECENT_FILE) < 0) {
+            FLIP_RECENT_FILE) < 0) {
 
         fprintf(
             stderr,
@@ -680,7 +669,7 @@ int flip_session_prune_recent(void)
 
     FILE *f =
         fopen(
-            RECENT_FILE,
+            FLIP_RECENT_FILE,
             "r");
 
     if (!f)
@@ -799,7 +788,7 @@ int flip_session_prune_recent(void)
         tmp_path,
         sizeof(tmp_path),
         "%s.tmp",
-        RECENT_FILE);
+        FLIP_RECENT_FILE);
 
     f =
         fopen(
@@ -833,7 +822,7 @@ int flip_session_prune_recent(void)
 
     if (rename(
             tmp_path,
-            RECENT_FILE) < 0) {
+            FLIP_RECENT_FILE) < 0) {
 
         fprintf(
             stderr,
@@ -1170,7 +1159,7 @@ int flip_session_read_current(
 
     FILE *f =
         fopen(
-            SESSION_FILE,
+            FLIP_SESSION_FILE,
             "r");
 
     if (!f) {
@@ -1454,7 +1443,7 @@ static int quarantine_invalid_session(void)
             invalid_path,
             sizeof(invalid_path),
             "%s.invalid.%lld",
-            SESSION_FILE,
+            FLIP_SESSION_FILE,
             now_epoch());
 
     if (written < 0 ||
@@ -1468,7 +1457,7 @@ static int quarantine_invalid_session(void)
     }
 
     if (rename(
-            SESSION_FILE,
+            FLIP_SESSION_FILE,
             invalid_path) < 0) {
 
         fprintf(

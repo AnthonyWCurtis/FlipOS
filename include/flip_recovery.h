@@ -2,12 +2,9 @@
 #define FLIP_RECOVERY_H
 
 #include "flip_core.h"
+#include "flip_paths.h"
 #include "flip_save.h"
 #include "flip_state.h"
-
-#ifndef FLIP_SESSION_RECOVERY_ROOT
-#define FLIP_SESSION_RECOVERY_ROOT "/mnt/SDCARD/flipos-dev/sessions"
-#endif
 
 typedef struct {
     const char *system_id;
