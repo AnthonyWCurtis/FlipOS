@@ -1,4 +1,5 @@
 #include "flip_telemetry.h"
+#include "flip_settings.h"
 #include "flip_video.h"
 
 #include <string.h>
@@ -47,4 +48,9 @@ void flip_video_set_perf_overlay(
 {
     (void)enabled;
     (void)snapshot;
+}
+
+int flip_settings_init(void)
+{
+    return 0;
 }

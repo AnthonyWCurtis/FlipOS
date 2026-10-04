@@ -24,6 +24,7 @@ static int current_brightness =
     DEFAULT_BRIGHTNESS;
 
 static int settings_dirty = 0;
+static int settings_ready = 0;
 
 static struct timespec dirty_since;
 
@@ -98,7 +99,7 @@ static long long elapsed_ms(
         nsec / 1000000LL;
 }
 
-int flip_settings_load(
+static int load_settings(
     flip_settings_t *settings)
 {
     if (!settings)
@@ -186,7 +187,7 @@ int flip_settings_load(
     return 1;
 }
 
-int flip_settings_save(
+static int save_settings(
     const flip_settings_t *settings)
 {
     if (!settings)
@@ -302,6 +303,32 @@ int flip_settings_save(
     return 0;
 }
 
+int flip_settings_init(void)
+{
+    if (settings_ready)
+        return 0;
+
+    flip_settings_t settings;
+
+    if (load_settings(&settings) < 0)
+        return -1;
+
+    settings_ready = 1;
+
+    fprintf(
+        stderr,
+        "SETTINGS: initialized volume=%d brightness=%d\n",
+        current_volume,
+        current_brightness);
+
+    return 0;
+}
+
+int flip_settings_is_ready(void)
+{
+    return settings_ready;
+}
+
 int flip_settings_get_volume(void)
 {
     return current_volume;
@@ -373,7 +400,7 @@ int flip_settings_flush(void)
             current_brightness
     };
 
-    if (flip_settings_save(
+    if (save_settings(
             &settings) < 0) {
 
         return -1;
