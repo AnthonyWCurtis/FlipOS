@@ -11,6 +11,7 @@
 #include "flip_settings.h"
 #include "flip_system.h"
 #include "flip_library.h"
+#include "flip_log.h"
 #include "flip_power.h"
 
 #include <stdint.h>
@@ -298,9 +299,10 @@ static int load_suspended_session(void)
 
     suspended_available = 1;
 
-    fprintf(
-        stderr,
-        "FRONTEND_SESSION suspended registry rom=%s\n",
+    flip_log_write(
+        FLIP_LOG_INFO,
+        "FRONTEND_SESSION",
+        "suspended registry rom=%s",
         session.rom);
 
     return 1;

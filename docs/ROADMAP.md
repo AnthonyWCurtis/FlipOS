@@ -249,7 +249,7 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 - [x] State Manager
 - [x] Library/cache service
 - [x] BIOS manager
-- [ ] Logging
+- [x] Logging
 - [ ] Battery service
 - [ ] Performance profiles
 - [x] Paths/storage service

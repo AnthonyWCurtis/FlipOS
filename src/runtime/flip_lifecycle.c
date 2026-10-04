@@ -2,10 +2,10 @@
 
 #include "flip_audio.h"
 #include "flip_input.h"
+#include "flip_log.h"
 #include "flip_settings.h"
 #include "flip_video.h"
 
-#include <stdio.h>
 #include <string.h>
 
 static int run_save(
@@ -58,9 +58,10 @@ static int handle_save_to_switcher(
 {
     result->reason = reason;
 
-    fprintf(
-        stderr,
-        "FLIP_LIFECYCLE: %s requested\n",
+    flip_log_write(
+        FLIP_LOG_INFO,
+        "FLIP_LIFECYCLE",
+        "%s requested",
         reason_name(reason));
 
     if (run_save(
@@ -68,17 +69,19 @@ static int handle_save_to_switcher(
             userdata,
             result) < 0) {
 
-        fprintf(
-            stderr,
-            "FLIP_LIFECYCLE: %s save failed\n",
+        flip_log_write(
+            FLIP_LOG_ERROR,
+            "FLIP_LIFECYCLE",
+            "%s save failed",
             reason_name(reason));
 
         return 0;
     }
 
-    fprintf(
-        stderr,
-        "FLIP_LIFECYCLE: %s save ok\n",
+    flip_log_write(
+        FLIP_LOG_INFO,
+        "FLIP_LIFECYCLE",
+        "%s save ok",
         reason_name(reason));
 
     result->should_exit = 1;
@@ -125,9 +128,10 @@ int flip_lifecycle_handle(
         FLIP_LIFECYCLE_CHECKPOINT_IMMEDIATE) {
 
         if (actions->lid_changed) {
-            fprintf(
-                stderr,
-                "FLIP_LIFECYCLE: lid %s\n",
+            flip_log_write(
+                FLIP_LOG_INFO,
+                "FLIP_LIFECYCLE",
+                "lid %s",
                 actions->lid_closed
                     ? "closed"
                     : "open");
@@ -168,18 +172,22 @@ int flip_lifecycle_handle(
     result->reason =
         FLIP_LIFECYCLE_REASON_EXIT;
 
-    fprintf(
-        stderr,
-        "FLIP_LIFECYCLE: exit requested\n");
+    flip_log_write(
+        FLIP_LOG_INFO,
+        "FLIP_LIFECYCLE",
+        "exit requested");
 
     run_save(
         save_fn,
         userdata,
         result);
 
-    fprintf(
-        stderr,
-        "FLIP_LIFECYCLE: exit save %s\n",
+    flip_log_write(
+        result->save_succeeded
+            ? FLIP_LOG_INFO
+            : FLIP_LOG_WARN,
+        "FLIP_LIFECYCLE",
+        "exit save %s",
         result->save_succeeded
             ? "ok"
             : "failed");
@@ -201,9 +209,10 @@ int flip_lifecycle_resume_timing(
         flip_timing_resync(timing);
 
     if (rc == 0) {
-        fprintf(
-            stderr,
-            "FLIP_LIFECYCLE: timing resynced\n");
+        flip_log_write(
+            FLIP_LOG_DEBUG,
+            "FLIP_LIFECYCLE",
+            "timing resynced");
     }
 
     return rc;
@@ -215,9 +224,10 @@ int flip_lifecycle_shutdown_shared(void)
         flip_settings_flush();
 
     if (settings_result < 0) {
-        fprintf(
-            stderr,
-            "FLIP_LIFECYCLE: settings flush failed\n");
+        flip_log_write(
+            FLIP_LOG_ERROR,
+            "FLIP_LIFECYCLE",
+            "settings flush failed");
     }
 
     flip_audio_close();

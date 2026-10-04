@@ -26,6 +26,7 @@ COMMON_OBJS := \
 
 RUNTIME_OBJS := \
 	$(BUILD)/flip_paths.o \
+	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_exit_protocol.o \
 	$(BUILD)/flip_session_registry.o \
 	$(BUILD)/flip_session_adapter.o \
@@ -59,6 +60,7 @@ GB_OBJS := \
 	$(BUILD)/flip_gambatte_core.o \
 	$(BUILD)/flip_bios.o \
 	$(BUILD)/flip_paths.o \
+	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_state.o \
@@ -84,7 +86,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -100,6 +102,7 @@ verify:
 		$(MAKE) test-audio && \
 		$(MAKE) test-audio-resampler && \
 		$(MAKE) test-paths && \
+		$(MAKE) test-log && \
 		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
@@ -144,6 +147,9 @@ test-audio-resampler: $(BUILD)/test-flip-audio-resampler
 
 test-paths: $(BUILD)/test-flip-paths
 	$(BUILD)/test-flip-paths
+
+test-log: $(BUILD)/test-flip-log
+	$(BUILD)/test-flip-log
 
 test-bios: $(BUILD)/test-flip-bios
 	$(BUILD)/test-flip-bios
@@ -207,6 +213,7 @@ test-architecture:
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_paths_architecture.py
+	python3 tests/test_logging_architecture.py
 	python3 tests/test_bios_architecture.py
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
@@ -231,6 +238,13 @@ $(BUILD):
 $(BUILD)/test-flip-paths: tests/test_flip_paths.c src/runtime/flip_paths.c include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_paths.c src/runtime/flip_paths.c \
+		-o $@
+
+$(BUILD)/test-flip-log: tests/test_flip_log.c src/runtime/flip_log.c src/runtime/flip_paths.c include/flip_log.h include/flip_paths.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_LOG_ROOT='"/tmp/flipos-log-service-test/logs"' -Iinclude \
+		tests/test_flip_log.c src/runtime/flip_log.c src/runtime/flip_paths.c \
 		-o $@
 
 $(BUILD)/test-flip-bios: tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c include/flip_bios.h include/flip_paths.h | $(BUILD)
@@ -277,9 +291,9 @@ $(BUILD)/test-flip-audio-resampler: tests/test_flip_audio_resampler.c src/audio/
 		tests/test_flip_audio_resampler.c src/audio/flip_audio_resampler.c \
 		-o $@
 
-$(BUILD)/test-flip-lifecycle: tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_timing.c include/flip_lifecycle.h | $(BUILD)
+$(BUILD)/test-flip-lifecycle: tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_log.c src/runtime/flip_paths.c src/runtime/flip_timing.c include/flip_lifecycle.h include/flip_log.h include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
-		tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_timing.c \
+		tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_log.c src/runtime/flip_paths.c src/runtime/flip_timing.c \
 		-o $@
 
 $(BUILD)/test-flip-core: tests/test_flip_core.c src/runtime/flip_core.c include/flip_core.h | $(BUILD)
@@ -401,6 +415,9 @@ $(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
 $(BUILD)/flip_paths.o: src/runtime/flip_paths.c include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_log.o: src/runtime/flip_log.c include/flip_log.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_bios.o: src/runtime/flip_bios.c include/flip_bios.h include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -514,6 +531,7 @@ clean:
 		$(BUILD)/test-flip-audio \
 		$(BUILD)/test-flip-audio-resampler \
 		$(BUILD)/test-flip-paths \
+		$(BUILD)/test-flip-log \
 		$(BUILD)/test-flip-bios \
 		$(BUILD)/test-flip-library-cache \
 		$(BUILD)/test-flip-exit-protocol \
