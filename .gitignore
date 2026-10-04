@@ -25,6 +25,7 @@
 # Local test/generated data
 # =========================================================
 /testdata/
+/.worktrees/
 
 # =========================================================
 # Development backups / temporary source copies
