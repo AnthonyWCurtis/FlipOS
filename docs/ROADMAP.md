@@ -247,7 +247,7 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 - [x] Formal Power/lid service
 - [x] Save Manager
 - [x] State Manager
-- [ ] Library/cache service
+- [x] Library/cache service
 - [ ] BIOS manager
 - [ ] Logging
 - [ ] Battery service

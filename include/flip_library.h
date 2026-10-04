@@ -6,6 +6,43 @@
 #include <stdint.h>
 #include <stddef.h>
 
+typedef enum {
+    FLIP_LIBRARY_CACHE_ERROR = -1,
+    FLIP_LIBRARY_CACHE_HIT = 0,
+    FLIP_LIBRARY_CACHE_MISS = 1,
+    FLIP_LIBRARY_CACHE_CHANGED = 2
+} flip_library_cache_state_t;
+
+typedef struct {
+    flip_library_cache_state_t state;
+    uint64_t live_fingerprint;
+    int live_rom_count;
+    uint64_t cached_fingerprint;
+    int cached_rom_count;
+} flip_library_cache_status_t;
+
+/*
+ * Evaluate the complete logical cache generation for one
+ * system. A cache is a HIT only when fingerprint metadata
+ * matches the live ROM directory and the persisted index is
+ * structurally valid for that same ROM count.
+ */
+int flip_library_cache_evaluate(
+    const flip_system_t *system,
+    flip_library_cache_status_t *status);
+
+/*
+ * Commit one complete cache generation.
+ *
+ * The ordered filename index is written first. The live
+ * directory fingerprint is then recomputed and committed only
+ * when its ROM count matches the provided index count.
+ */
+int flip_library_commit_generation(
+    const flip_system_t *system,
+    const char *const *names,
+    int count);
+
 /*
  * Compute a cheap content fingerprint for one system's
  * ROM directory.

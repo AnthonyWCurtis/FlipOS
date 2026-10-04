@@ -558,6 +558,93 @@ static int index_path(
     return 0;
 }
 
+static int validate_index_generation(
+    const flip_system_t *system,
+    int expected_live_count)
+{
+    if (!system || expected_live_count < 0)
+        return -1;
+
+    char path[512];
+
+    if (index_path(
+            system,
+            path,
+            sizeof(path)) < 0)
+        return -1;
+
+    FILE *f = fopen(path, "r");
+
+    if (!f)
+        return errno == ENOENT ? 0 : -1;
+
+    char line[768];
+    int version = 0;
+    int declared_count = -1;
+    int count = 0;
+    int valid = 1;
+
+    while (fgets(line, sizeof(line), f)) {
+        size_t length = strlen(line);
+
+        if (length > 0 && line[length - 1] == '\n')
+            line[--length] = '\0';
+
+        if (length > 0 && line[length - 1] == '\r')
+            line[--length] = '\0';
+
+        if (sscanf(line, "version=%d", &version) == 1)
+            continue;
+
+        if (sscanf(line, "rom_count=%d", &declared_count) == 1)
+            continue;
+
+        if (strncmp(line, "rom=", 4) != 0)
+            continue;
+
+        const char *name = line + 4;
+
+        if (!name[0] ||
+            strchr(name, '/') ||
+            strlen(name) >= 512) {
+            valid = 0;
+            break;
+        }
+
+        char rom_path[768];
+        int written = snprintf(
+            rom_path,
+            sizeof(rom_path),
+            "%s/%s",
+            system->rom_directory,
+            name);
+
+        if (written < 0 ||
+            (size_t)written >= sizeof(rom_path) ||
+            !flip_system_supports_path(system, rom_path)) {
+            valid = 0;
+            break;
+        }
+
+        count++;
+    }
+
+    if (ferror(f))
+        valid = 0;
+
+    if (fclose(f) != 0)
+        valid = 0;
+
+    if (!valid ||
+        version != 1 ||
+        declared_count < 0 ||
+        declared_count != count ||
+        declared_count != expected_live_count)
+        return 0;
+
+    return 1;
+}
+
 int flip_library_save_index(
     const flip_system_t *system,
     const char *const *names,
@@ -704,6 +791,163 @@ int flip_library_save_index(
         system->id
             ? system->id
             : "?",
+        count);
+
+    return 0;
+}
+
+int flip_library_cache_evaluate(
+    const flip_system_t *system,
+    flip_library_cache_status_t *status)
+{
+    if (!system || !status)
+        return -1;
+
+    memset(status, 0, sizeof(*status));
+    status->state = FLIP_LIBRARY_CACHE_ERROR;
+
+    if (flip_library_fingerprint(
+            system,
+            &status->live_fingerprint,
+            &status->live_rom_count) < 0) {
+
+        fprintf(
+            stderr,
+            "LIBRARY_CACHE: fingerprint failed system=%s\n",
+            system->id ? system->id : "?");
+
+        return -1;
+    }
+
+    int load_result =
+        flip_library_load_fingerprint(
+            system,
+            &status->cached_fingerprint,
+            &status->cached_rom_count);
+
+    if (load_result <= 0) {
+        if (load_result < 0) {
+            fprintf(
+                stderr,
+                "LIBRARY_CACHE: invalid system=%s\n",
+                system->id ? system->id : "?");
+        }
+
+        status->state = FLIP_LIBRARY_CACHE_MISS;
+
+        fprintf(
+            stderr,
+            "LIBRARY_CACHE: MISS system=%s roms=%d\n",
+            system->id ? system->id : "?",
+            status->live_rom_count);
+
+        return 0;
+    }
+
+    if (status->cached_fingerprint != status->live_fingerprint ||
+        status->cached_rom_count != status->live_rom_count) {
+
+        status->state = FLIP_LIBRARY_CACHE_CHANGED;
+
+        fprintf(
+            stderr,
+            "LIBRARY_CACHE: CHANGED system=%s old_roms=%d new_roms=%d\n",
+            system->id ? system->id : "?",
+            status->cached_rom_count,
+            status->live_rom_count);
+
+        return 0;
+    }
+
+    int index_valid =
+        validate_index_generation(
+            system,
+            status->live_rom_count);
+
+    if (index_valid < 0) {
+        status->state = FLIP_LIBRARY_CACHE_ERROR;
+        return -1;
+    }
+
+    if (index_valid == 0) {
+        status->state = FLIP_LIBRARY_CACHE_MISS;
+
+        fprintf(
+            stderr,
+            "LIBRARY_CACHE: index invalid system=%s rebuilding\n",
+            system->id ? system->id : "?");
+
+        return 0;
+    }
+
+    status->state = FLIP_LIBRARY_CACHE_HIT;
+
+    fprintf(
+        stderr,
+        "LIBRARY_CACHE: HIT system=%s roms=%d\n",
+        system->id ? system->id : "?",
+        status->live_rom_count);
+
+    return 0;
+}
+
+int flip_library_commit_generation(
+    const flip_system_t *system,
+    const char *const *names,
+    int count)
+{
+    if (!system ||
+        count < 0 ||
+        (count > 0 && !names))
+        return -1;
+
+    if (flip_library_save_index(
+            system,
+            names,
+            count) < 0) {
+
+        fprintf(
+            stderr,
+            "LIBRARY_CACHE: index save failed system=%s\n",
+            system->id ? system->id : "?");
+
+        return -1;
+    }
+
+    uint64_t fingerprint = 0;
+    int fingerprint_count = 0;
+
+    if (flip_library_fingerprint(
+            system,
+            &fingerprint,
+            &fingerprint_count) < 0 ||
+        fingerprint_count != count) {
+
+        fprintf(
+            stderr,
+            "LIBRARY_CACHE: fingerprint commit failed system=%s\n",
+            system->id ? system->id : "?");
+
+        return -1;
+    }
+
+    if (flip_library_save_fingerprint(
+            system,
+            fingerprint,
+            fingerprint_count) < 0) {
+
+        fprintf(
+            stderr,
+            "LIBRARY_CACHE: fingerprint save failed system=%s\n",
+            system->id ? system->id : "?");
+
+        return -1;
+    }
+
+    fprintf(
+        stderr,
+        "LIBRARY_CACHE: index rebuilt system=%s roms=%d\n",
+        system->id ? system->id : "?",
         count);
 
     return 0;

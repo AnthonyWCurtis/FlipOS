@@ -613,105 +613,6 @@ static int load_recent_history(void)
  * the Systems screen remains inexpensive.
  */
 
-static int update_system_fingerprint(
-    const flip_system_t *system)
-{
-    if (!system)
-        return -1;
-
-    uint64_t current_fingerprint = 0;
-    int current_count = 0;
-
-    if (flip_library_fingerprint(
-            system,
-            &current_fingerprint,
-            &current_count) < 0) {
-
-        fprintf(
-            stderr,
-            "LIBRARY_CACHE: fingerprint failed system=%s\n",
-            system->id
-                ? system->id
-                : "?");
-
-        return -1;
-    }
-
-    uint64_t cached_fingerprint = 0;
-    int cached_count = 0;
-
-    int load_result =
-        flip_library_load_fingerprint(
-            system,
-            &cached_fingerprint,
-            &cached_count);
-
-    if (load_result < 0) {
-
-        fprintf(
-            stderr,
-            "LIBRARY_CACHE: invalid system=%s\n",
-            system->id
-                ? system->id
-                : "?");
-
-        /*
-         * Treat an invalid fingerprint cache as a miss.
-         * The new fingerprint is committed only after the
-         * ROM index has been rebuilt successfully.
-         */
-        fprintf(
-            stderr,
-            "LIBRARY_CACHE: MISS system=%s roms=%d\n",
-            system->id
-                ? system->id
-                : "?",
-            current_count);
-
-        return 1;
-    }
-
-    if (load_result == 0) {
-
-        fprintf(
-            stderr,
-            "LIBRARY_CACHE: MISS system=%s roms=%d\n",
-            system->id
-                ? system->id
-                : "?",
-            current_count);
-
-        return 1;
-    }
-
-    if (cached_fingerprint ==
-            current_fingerprint &&
-        cached_count ==
-            current_count) {
-
-        fprintf(
-            stderr,
-            "LIBRARY_CACHE: HIT system=%s roms=%d\n",
-            system->id
-                ? system->id
-                : "?",
-            current_count);
-
-        return 0;
-    }
-
-    fprintf(
-        stderr,
-        "LIBRARY_CACHE: CHANGED system=%s old_roms=%d new_roms=%d\n",
-        system->id
-            ? system->id
-            : "?",
-        cached_count,
-        current_count);
-
-    return 1;
-}
-
 static int system_has_roms(
     const flip_system_t *system)
 {
@@ -788,8 +689,11 @@ static void refresh_available_systems(void)
         if (!system)
             continue;
 
-        if (update_system_fingerprint(
-                system) < 0) {
+        flip_library_cache_status_t cache_status;
+
+        if (flip_library_cache_evaluate(
+                system,
+                &cache_status) < 0) {
 
             fprintf(
                 stderr,
@@ -1048,59 +952,17 @@ static int rebuild_system_roms(
             roms[i].name;
     }
 
-    if (flip_library_save_index(
+    if (flip_library_commit_generation(
             system,
             index_names,
             rom_count) < 0) {
 
         fprintf(
             stderr,
-            "LIBRARY_CACHE: index save failed system=%s\n",
+            "LIBRARY_CACHE: generation commit failed system=%s\n",
             system->id
                 ? system->id
                 : "?");
-
-    } else {
-
-        uint64_t fingerprint = 0;
-        int fingerprint_count = 0;
-
-        if (flip_library_fingerprint(
-                system,
-                &fingerprint,
-                &fingerprint_count) < 0 ||
-            fingerprint_count != rom_count) {
-
-            fprintf(
-                stderr,
-                "LIBRARY_CACHE: fingerprint commit failed system=%s\n",
-                system->id
-                    ? system->id
-                    : "?");
-
-        } else if (
-            flip_library_save_fingerprint(
-                system,
-                fingerprint,
-                fingerprint_count) < 0) {
-
-            fprintf(
-                stderr,
-                "LIBRARY_CACHE: fingerprint save failed system=%s\n",
-                system->id
-                    ? system->id
-                    : "?");
-
-        } else {
-
-            fprintf(
-                stderr,
-                "LIBRARY_CACHE: index rebuilt system=%s roms=%d\n",
-                system->id
-                    ? system->id
-                    : "?",
-                rom_count);
-        }
     }
 
     fprintf(
@@ -1127,15 +989,20 @@ static int load_system_roms(
     if (!system)
         return -1;
 
-    int cache_state =
-        update_system_fingerprint(
-            system);
+    flip_library_cache_status_t cache_status;
+
+    int cache_result =
+        flip_library_cache_evaluate(
+            system,
+            &cache_status);
 
     /*
-     * Fingerprint HIT:
+     * Complete cache-generation HIT:
      * try the cached index first.
      */
-    if (cache_state == 0) {
+    if (cache_result == 0 &&
+        cache_status.state ==
+            FLIP_LIBRARY_CACHE_HIT) {
 
         int loaded =
             load_system_roms_from_index(
@@ -1167,7 +1034,9 @@ static int load_system_roms(
                 : "?");
     }
 
-    if (cache_state > 0) {
+    if (cache_result == 0 &&
+        cache_status.state !=
+            FLIP_LIBRARY_CACHE_HIT) {
 
         fprintf(
             stderr,
@@ -1176,7 +1045,7 @@ static int load_system_roms(
                 ? system->id
                 : "?");
 
-    } else if (cache_state < 0) {
+    } else if (cache_result < 0) {
 
         fprintf(
             stderr,

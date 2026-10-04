@@ -82,7 +82,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -98,11 +98,16 @@ verify:
 		$(MAKE) test-audio && \
 		$(MAKE) test-audio-resampler && \
 		$(MAKE) test-paths && \
+		$(MAKE) test-settings && \
+		$(MAKE) test-osd && \
+		$(MAKE) test-power && \
+		$(MAKE) test-library-cache && \
 		$(MAKE) test-exit-protocol && \
 		$(MAKE) test-lifecycle && \
 		$(MAKE) test-core && \
 		$(MAKE) test-core-host && \
 		$(MAKE) test-state && \
+		$(MAKE) test-state-manager && \
 		$(MAKE) test-state-recovery-health && \
 		$(MAKE) test-save && \
 		$(MAKE) test-save-manager && \
@@ -145,6 +150,9 @@ test-osd: $(BUILD)/test-flip-osd
 
 test-power: $(BUILD)/test-flip-power
 	$(BUILD)/test-flip-power
+
+test-library-cache: $(BUILD)/test-flip-library-cache
+	$(BUILD)/test-flip-library-cache
 
 test-exit-protocol: $(BUILD)/test-flip-exit-protocol
 	$(BUILD)/test-flip-exit-protocol
@@ -196,6 +204,7 @@ test-architecture:
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
+	python3 tests/test_library_cache_architecture.py
 	python3 tests/test_save_manager_architecture.py
 	python3 tests/test_exit_protocol_architecture.py
 	python3 tests/test_session_registry_architecture.py
@@ -225,6 +234,9 @@ $(BUILD)/test-flip-osd: tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c s
 
 $(BUILD)/test-flip-power: tests/test_flip_power.c src/runtime/flip_power.c include/flip_power.h include/flip_input.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L 		-DFLIP_BACKLIGHT_BRIGHTNESS='"/tmp/flipos-power-service-test/brightness"' 		-Iinclude tests/test_flip_power.c src/runtime/flip_power.c 		-o $@
+
+$(BUILD)/test-flip-library-cache: tests/test_flip_library_cache.c src/runtime/flip_library.c include/flip_library.h include/flip_paths.h include/flip_system.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L 		-DFLIP_STORAGE_ROOT='"/tmp/flipos-library-service-test"' -Iinclude 		tests/test_flip_library_cache.c src/runtime/flip_library.c 		-o $@
 
 $(BUILD)/test-flip-exit-protocol: tests/test_flip_exit_protocol.c src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
@@ -485,11 +497,13 @@ clean:
 		$(BUILD)/test-flip-audio \
 		$(BUILD)/test-flip-audio-resampler \
 		$(BUILD)/test-flip-paths \
+		$(BUILD)/test-flip-library-cache \
 		$(BUILD)/test-flip-exit-protocol \
 		$(BUILD)/test-flip-lifecycle \
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
-		$(BUILD)/test-flip-state 		$(BUILD)/test-flip-state-manager \
+		$(BUILD)/test-flip-state \
+		$(BUILD)/test-flip-state-manager \
 		$(BUILD)/test-flip-state-recovery-health \
 		$(BUILD)/test-flip-save \
 		$(BUILD)/test-flip-save-manager \
