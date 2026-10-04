@@ -57,6 +57,8 @@ GB_LIBRETRO_OBJS := \
 GB_OBJS := \
 	$(BUILD)/flip_gb.o \
 	$(BUILD)/flip_gambatte_core.o \
+	$(BUILD)/flip_bios.o \
+	$(BUILD)/flip_paths.o \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_state.o \
@@ -98,6 +100,7 @@ verify:
 		$(MAKE) test-audio && \
 		$(MAKE) test-audio-resampler && \
 		$(MAKE) test-paths && \
+		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
 		$(MAKE) test-power && \
@@ -204,6 +207,7 @@ test-architecture:
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_paths_architecture.py
+	python3 tests/test_bios_architecture.py
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
@@ -397,6 +401,9 @@ $(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
 $(BUILD)/flip_paths.o: src/runtime/flip_paths.c include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_bios.o: src/runtime/flip_bios.c include/flip_bios.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_exit_protocol.o: src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -507,6 +514,7 @@ clean:
 		$(BUILD)/test-flip-audio \
 		$(BUILD)/test-flip-audio-resampler \
 		$(BUILD)/test-flip-paths \
+		$(BUILD)/test-flip-bios \
 		$(BUILD)/test-flip-library-cache \
 		$(BUILD)/test-flip-exit-protocol \
 		$(BUILD)/test-flip-lifecycle \

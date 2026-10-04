@@ -3,6 +3,7 @@
 #include "flip_gambatte_core.h"
 
 #include "flip_audio.h"
+#include "flip_bios.h"
 #include "flip_video.h"
 
 #include "libretro/libretro.h"
@@ -17,6 +18,7 @@ typedef struct {
     enum retro_pixel_format pixel_format;
     flip_game_input_t input;
     struct retro_game_info game;
+    char system_directory[FLIP_BIOS_PATH_MAX];
     int initialized;
     int loaded;
 } flip_gambatte_state_t;
@@ -64,7 +66,15 @@ static bool env_cb(
         case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
         {
             const char **dir = data;
-            *dir = "/mnt/SDCARD/flipos-dev/system/gb";
+
+            if (flip_bios_system_directory(
+                    "GB",
+                    gambatte.system_directory,
+                    sizeof(gambatte.system_directory)) < 0) {
+                return false;
+            }
+
+            *dir = gambatte.system_directory;
             return true;
         }
 
