@@ -28,6 +28,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_paths.o \
 	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_battery.o \
+	$(BUILD)/flip_performance.o \
 	$(BUILD)/flip_exit_protocol.o \
 	$(BUILD)/flip_session_registry.o \
 	$(BUILD)/flip_session_adapter.o \
@@ -63,6 +64,7 @@ GB_OBJS := \
 	$(BUILD)/flip_paths.o \
 	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_battery.o \
+	$(BUILD)/flip_performance.o \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_state.o \
@@ -88,7 +90,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -106,6 +108,7 @@ verify:
 		$(MAKE) test-paths && \
 		$(MAKE) test-log && \
 		$(MAKE) test-battery && \
+		$(MAKE) test-performance && \
 		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
@@ -156,6 +159,9 @@ test-log: $(BUILD)/test-flip-log
 
 test-battery: $(BUILD)/test-flip-battery
 	$(BUILD)/test-flip-battery
+
+test-performance: $(BUILD)/test-flip-performance
+	$(BUILD)/test-flip-performance
 
 test-bios: $(BUILD)/test-flip-bios
 	$(BUILD)/test-flip-bios
@@ -221,6 +227,7 @@ test-architecture:
 	python3 tests/test_paths_architecture.py
 	python3 tests/test_logging_architecture.py
 	python3 tests/test_battery_architecture.py
+	python3 tests/test_performance_architecture.py
 	python3 tests/test_bios_architecture.py
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
@@ -259,6 +266,14 @@ $(BUILD)/test-flip-battery: tests/test_flip_battery.c src/runtime/flip_battery.c
 		-D_POSIX_C_SOURCE=200809L \
 		-DFLIP_BATTERY_ROOT='"/tmp/flipos-battery-service-test"' -Iinclude \
 		tests/test_flip_battery.c src/runtime/flip_battery.c \
+		-o $@
+
+$(BUILD)/test-flip-performance: tests/test_flip_performance.c src/runtime/flip_performance.c include/flip_performance.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_PERF_CPU_POLICY_ROOT='"/tmp/flipos-performance-test/cpu"' \
+		-DFLIP_PERF_GPU_ROOT='"/tmp/flipos-performance-test/gpu"' -Iinclude \
+		tests/test_flip_performance.c src/runtime/flip_performance.c \
 		-o $@
 
 $(BUILD)/test-flip-bios: tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c include/flip_bios.h include/flip_paths.h | $(BUILD)
@@ -435,6 +450,9 @@ $(BUILD)/flip_log.o: src/runtime/flip_log.c include/flip_log.h include/flip_path
 $(BUILD)/flip_battery.o: src/runtime/flip_battery.c include/flip_battery.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_performance.o: src/runtime/flip_performance.c include/flip_performance.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_bios.o: src/runtime/flip_bios.c include/flip_bios.h include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -550,6 +568,7 @@ clean:
 		$(BUILD)/test-flip-paths \
 		$(BUILD)/test-flip-log \
 		$(BUILD)/test-flip-battery \
+		$(BUILD)/test-flip-performance \
 		$(BUILD)/test-flip-bios \
 		$(BUILD)/test-flip-library-cache \
 		$(BUILD)/test-flip-exit-protocol \
