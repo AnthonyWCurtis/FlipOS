@@ -30,6 +30,11 @@ const char *flip_paths_system_root(void)
     return FLIP_SYSTEM_ROOT;
 }
 
+const char *flip_paths_log_root(void)
+{
+    return FLIP_LOG_ROOT;
+}
+
 const char *flip_paths_save_root(void)
 {
     return FLIP_SAVE_ROOT;
