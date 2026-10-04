@@ -7,6 +7,7 @@
 #include "flip_hotkeys.h"
 #include "flip_input.h"
 #include "flip_lifecycle.h"
+#include "flip_osd.h"
 #include "flip_perf_diag.h"
 #include "flip_settings.h"
 #include "flip_telemetry.h"
@@ -162,6 +163,8 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
         return -1;
 
     *exit_code = 0;
+
+    flip_osd_init();
 
     if (flip_settings_init() < 0) {
         fprintf(stderr, "FLIP_CORE_HOST: settings initialization failed\n");

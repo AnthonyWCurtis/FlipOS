@@ -10,6 +10,23 @@ typedef enum {
     FLIP_OSD_STATUS
 } flip_osd_type_t;
 
+#define FLIP_OSD_STATUS_MAX 64
+
+typedef struct {
+    flip_osd_type_t type;
+    int percent;
+    char status[FLIP_OSD_STATUS_MAX];
+    int poweroff_active;
+    int poweroff_percent;
+} flip_osd_snapshot_t;
+
+void flip_osd_init(void);
+
+void flip_osd_reset(void);
+
+int flip_osd_snapshot(
+    flip_osd_snapshot_t *snapshot);
+
 void flip_osd_show_volume(
     int volume);
 
