@@ -2046,14 +2046,6 @@ static int launch_game_once(
     return (int)result.action;
 }
 
-static int wait_for_lid_open(
-    flip_input_state_t *state)
-{
-    return flip_power_sleep_until_lid_open(
-        state);
-}
-
-
 static int launch_game(
     flip_drm_t *drm,
     const rom_entry_t *rom)
@@ -2085,9 +2077,11 @@ static int launch_game(
             0,
             sizeof(lid_state));
 
-        if (flip_input_poll(
-                &lid_state,
-                0) < 0) {
+        flip_power_lid_state_t lid =
+            flip_power_refresh_lid_state(
+                &lid_state);
+
+        if (lid == FLIP_POWER_LID_ERROR) {
 
             fprintf(
                 stderr,
@@ -2097,11 +2091,10 @@ static int launch_game(
         }
 
         /*
-         * A suspend action with the lid open means MENU
-         * requested the normal GameSwitcher.
+         * A suspend action without a confirmed closed lid
+         * means MENU requested the normal GameSwitcher.
          */
-        if (!lid_state.lid_ready ||
-            !lid_state.lid_closed) {
+        if (lid != FLIP_POWER_LID_CLOSED) {
 
             fprintf(
                 stderr,
@@ -2114,7 +2107,7 @@ static int launch_game(
             stderr,
             "FRONTEND_STANDBY lid closed after suspend\n");
 
-        if (wait_for_lid_open(
+        if (flip_power_sleep_until_lid_open(
                 &lid_state) < 0) {
 
             fprintf(
@@ -2307,7 +2300,7 @@ int main(void)
                     stderr,
                     "FRONTEND_LID CLOSED\n");
 
-                if (wait_for_lid_open(
+                if (flip_power_sleep_until_lid_open(
                         &state) < 0) {
 
                     fprintf(

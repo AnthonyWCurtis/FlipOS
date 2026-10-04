@@ -24,6 +24,20 @@
  *     on lid-open.
  */
 
+typedef enum {
+    FLIP_POWER_LID_ERROR = -1,
+    FLIP_POWER_LID_UNKNOWN = 0,
+    FLIP_POWER_LID_OPEN,
+    FLIP_POWER_LID_CLOSED
+} flip_power_lid_state_t;
+
+/*
+ * Refresh the authoritative hall-backed lid state through
+ * the Input service and classify it for Power consumers.
+ */
+flip_power_lid_state_t flip_power_refresh_lid_state(
+    flip_input_state_t *state);
+
 /*
  * Enter RK3566 deep suspend while the lid remains closed.
  *
