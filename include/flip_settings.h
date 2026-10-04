@@ -6,11 +6,17 @@ typedef struct {
     int brightness;
 } flip_settings_t;
 
-int flip_settings_load(
-    flip_settings_t *settings);
+/*
+ * Initialize the process-local Settings service.
+ *
+ * Idempotent: subsequent calls do not reload the file or
+ * replace in-memory values.
+ *
+ * Returns 0 on success, -1 on load failure.
+ */
+int flip_settings_init(void);
 
-int flip_settings_save(
-    const flip_settings_t *settings);
+int flip_settings_is_ready(void);
 
 int flip_settings_get_volume(void);
 

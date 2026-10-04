@@ -2228,13 +2228,10 @@ int main(void)
         return 3;
     }
 
-    flip_settings_t global_settings;
-
-    if (flip_settings_load(
-            &global_settings) >= 0) {
+    if (flip_settings_init() == 0) {
 
         flip_power_set_brightness(
-            global_settings.brightness);
+            flip_settings_get_brightness());
     }
 
     if (flip_session_recover_current() < 0) {

@@ -8,6 +8,7 @@
 #include "flip_input.h"
 #include "flip_lifecycle.h"
 #include "flip_perf_diag.h"
+#include "flip_settings.h"
 #include "flip_telemetry.h"
 #include "flip_timing.h"
 #include "flip_video.h"
@@ -161,6 +162,10 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
         return -1;
 
     *exit_code = 0;
+
+    if (flip_settings_init() < 0) {
+        fprintf(stderr, "FLIP_CORE_HOST: settings initialization failed\n");
+    }
 
     if (flip_video_open() < 0) {
         fprintf(stderr, "FLIP_CORE_HOST: video initialization failed\n");

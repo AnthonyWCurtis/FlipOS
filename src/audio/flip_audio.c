@@ -394,14 +394,8 @@ int flip_audio_open(
         return -1;
     }
 
-    flip_settings_t settings;
-
-    if (flip_settings_load(
-            &settings) >= 0) {
-
-        speaker_volume =
-            settings.volume;
-    }
+    speaker_volume =
+        flip_settings_get_volume();
 
     fprintf(
         stderr,
