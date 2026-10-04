@@ -243,7 +243,7 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 ## Phase 7 — System Services
 
 - [x] Formal Settings service
-- [ ] Formal OSD service
+- [x] Formal OSD service
 - [ ] Formal Power/lid service
 - [ ] Save Manager
 - [ ] State Manager
