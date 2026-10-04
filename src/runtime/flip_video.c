@@ -4,6 +4,7 @@
 
 #include "flip_drm.h"
 #include "flip_osd.h"
+#include "flip_video_layout.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -450,33 +451,40 @@ int flip_video_submit(
         sizeof(uint32_t);
 
     /*
-     * Phase 4A1 preserves the proven Game Boy presentation
-     * exactly:
-     *
-     *   160x144 -> 480x432
-     *
-     * using 3x integer scaling, centred in 640x480.
-     *
-     * Scaling policy becomes configurable later. This phase
-     * only moves ownership out of Flip_GB.
+     * Use the largest integer scale that fits the active
+     * display. This preserves the proven Game Boy layout
+     * exactly (160x144 -> 480x432 at 3x) while allowing
+     * larger cores such as GBA (240x160 -> 480x320 at 2x)
+     * to reuse the same Video Host safely.
      */
-    const unsigned scale = 3;
+    flip_video_layout_t layout;
 
-    unsigned out_w =
-        width * scale;
+    if (flip_video_layout_compute(
+            width,
+            height,
+            video_drm.width,
+            video_drm.height,
+            &layout) < 0) {
 
-    unsigned out_h =
-        height * scale;
+        fprintf(
+            stderr,
+            "VIDEO: unsupported layout source=%ux%u display=%ux%u\n",
+            width,
+            height,
+            video_drm.width,
+            video_drm.height);
+
+        return -1;
+    }
+
+    const unsigned scale =
+        layout.scale;
 
     int x0 =
-        ((int)video_drm.width -
-         (int)out_w) /
-        2;
+        layout.x;
 
     int y0 =
-        ((int)video_drm.height -
-         (int)out_h) /
-        2;
+        layout.y;
 
     memset(
         video_drm.pixels,

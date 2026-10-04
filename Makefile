@@ -80,6 +80,7 @@ EMULATOR_OBJS := \
 	$(BUILD)/flip_hotkeys.o \
 	$(BUILD)/flip_osd.o \
 	$(BUILD)/flip_video.o \
+	$(BUILD)/flip_video_layout.o \
 	$(BUILD)/flip_power.o \
 	$(BUILD)/flip_input.o \
 	$(BUILD)/flip_controls.o \
@@ -101,7 +102,7 @@ GBA_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb gba verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -131,6 +132,7 @@ verify:
 		$(MAKE) test-lifecycle && \
 		$(MAKE) test-core && \
 		$(MAKE) test-core-host && \
+		$(MAKE) test-video-layout && \
 		$(MAKE) test-state && \
 		$(MAKE) test-state-manager && \
 		$(MAKE) test-state-recovery-health && \
@@ -205,6 +207,9 @@ test-core: $(BUILD)/test-flip-core
 
 test-core-host: $(BUILD)/test-flip-core-host
 	$(BUILD)/test-flip-core-host
+
+test-video-layout: $(BUILD)/test-flip-video-layout
+	$(BUILD)/test-flip-video-layout
 
 test-state: $(BUILD)/test-flip-state
 	$(BUILD)/test-flip-state
@@ -361,6 +366,11 @@ $(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_h
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c \
 		src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c \
+		-o $@
+
+$(BUILD)/test-flip-video-layout: tests/test_flip_video_layout.c src/runtime/flip_video_layout.c include/flip_video_layout.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_video_layout.c src/runtime/flip_video_layout.c \
 		-o $@
 
 $(BUILD)/test-flip-state: tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
@@ -562,7 +572,10 @@ $(BUILD)/flip_perf_diag.o: src/runtime/flip_perf_diag.c | $(BUILD)
 $(BUILD)/flip_telemetry.o: src/runtime/flip_telemetry.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(TELEMETRY_WARN) -c $< -o $@
 
-$(BUILD)/flip_video.o: src/runtime/flip_video.c | $(BUILD)
+$(BUILD)/flip_video.o: src/runtime/flip_video.c include/flip_video_layout.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_video_layout.o: src/runtime/flip_video_layout.c include/flip_video_layout.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_timing.o: src/runtime/flip_timing.c | $(BUILD)
@@ -669,6 +682,7 @@ clean:
 		$(BUILD)/test-flip-lifecycle \
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
+		$(BUILD)/test-flip-video-layout \
 		$(BUILD)/test-flip-state \
 		$(BUILD)/test-flip-state-manager \
 		$(BUILD)/test-flip-state-recovery-health \
