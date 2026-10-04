@@ -16,7 +16,7 @@ required = [
     "flip_core_unload_game(",
     "flip_core_deinit(",
     "flip_save_query_status(",
-    "flip_state_recovery_health(",
+    "flip_state_query_status(",
     "flip_recovery_restore_previous(",
     "flip_recovery_undo(",
     "FLIP_SAVE_SAFETY: current=%s previous=%s recovery=%s resume=%s undo_state=%s",
@@ -37,6 +37,7 @@ forbidden = [
     "FLIP_STATE_ROOT",
     "FLIP_SESSION_RECOVERY_ROOT",
     "flip_save_health(",
+    "flip_state_recovery_health(",
 ]
 
 for token in forbidden:

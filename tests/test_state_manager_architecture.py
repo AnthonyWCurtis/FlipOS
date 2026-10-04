@@ -9,12 +9,14 @@ FORBIDDEN = [
     "fsync(",
     "rename(",
     "GB_STATE_DIR",
+    "flip_state_recovery_health(",
 ]
 
 REQUIRED = [
     "flip_state_context_t",
     "flip_state_save",
     "flip_state_restore",
+    "flip_state_query_status",
 ]
 
 for token in FORBIDDEN:
