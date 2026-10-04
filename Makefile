@@ -82,7 +82,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -141,6 +141,9 @@ test-audio-resampler: $(BUILD)/test-flip-audio-resampler
 
 test-paths: $(BUILD)/test-flip-paths
 	$(BUILD)/test-flip-paths
+
+test-bios: $(BUILD)/test-flip-bios
+	$(BUILD)/test-flip-bios
 
 test-settings: $(BUILD)/test-flip-settings
 	$(BUILD)/test-flip-settings
@@ -224,6 +227,13 @@ $(BUILD):
 $(BUILD)/test-flip-paths: tests/test_flip_paths.c src/runtime/flip_paths.c include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_paths.c src/runtime/flip_paths.c \
+		-o $@
+
+$(BUILD)/test-flip-bios: tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c include/flip_bios.h include/flip_paths.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_SYSTEM_ROOT='"/tmp/flipos-bios-manager-test"' -Iinclude \
+		tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c \
 		-o $@
 
 $(BUILD)/test-flip-settings: tests/test_flip_settings.c src/runtime/flip_settings.c include/flip_settings.h include/flip_paths.h | $(BUILD)

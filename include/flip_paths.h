@@ -29,6 +29,10 @@
 #define FLIP_CACHE_ROOT FLIP_STORAGE_ROOT "/cache"
 #endif
 
+#ifndef FLIP_SYSTEM_ROOT
+#define FLIP_SYSTEM_ROOT FLIP_STORAGE_ROOT "/system"
+#endif
+
 #ifndef FLIP_SAVE_ROOT
 #define FLIP_SAVE_ROOT FLIP_STORAGE_ROOT "/saves"
 #endif
@@ -75,6 +79,7 @@ const char *flip_paths_roms_root(void);
 const char *flip_paths_bin_root(void);
 const char *flip_paths_state_data_root(void);
 const char *flip_paths_cache_root(void);
+const char *flip_paths_system_root(void);
 const char *flip_paths_save_root(void);
 const char *flip_paths_state_root(void);
 const char *flip_paths_recovery_root(void);
