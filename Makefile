@@ -30,6 +30,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_battery.o \
 	$(BUILD)/flip_performance.o \
 	$(BUILD)/flip_exit_protocol.o \
+	$(BUILD)/flip_session_persistence.o \
 	$(BUILD)/flip_session_registry.o \
 	$(BUILD)/flip_session_adapter.o \
 	$(BUILD)/flip_system.o \
@@ -90,7 +91,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -124,6 +125,7 @@ verify:
 		$(MAKE) test-save && \
 		$(MAKE) test-save-manager && \
 		$(MAKE) test-recovery && \
+		$(MAKE) test-session-persistence && \
 		$(MAKE) test-session-registry && \
 		$(MAKE) test-session-save-safety && \
 		$(MAKE) test-perf-diag && \
@@ -209,6 +211,9 @@ test-recovery: $(BUILD)/test-flip-recovery $(BUILD)/test-flip-recovery-transacti
 	$(BUILD)/test-flip-recovery
 	$(BUILD)/test-flip-recovery-transactions
 
+test-session-persistence: $(BUILD)/test-flip-session-persistence
+	$(BUILD)/test-flip-session-persistence
+
 test-session-registry: $(BUILD)/test-flip-session-registry
 	$(BUILD)/test-flip-session-registry
 
@@ -236,6 +241,7 @@ test-architecture:
 	python3 tests/test_save_manager_architecture.py
 	python3 tests/test_exit_protocol_architecture.py
 	python3 tests/test_session_registry_architecture.py
+	python3 tests/test_session_persistence_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
 	python3 tests/test_audio_callback_diagnostics_architecture.py
 	python3 tests/test_audio_rate_conversion_architecture.py
@@ -389,6 +395,13 @@ $(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-flip-session-persistence: tests/test_flip_session_persistence.c src/runtime/flip_session_persistence.c include/flip_session_persistence.h include/flip_paths.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_STORAGE_ROOT='"/tmp/flipos-session-persistence-test"' -Iinclude \
+		tests/test_flip_session_persistence.c src/runtime/flip_session_persistence.c \
+		-o $@
+
 $(BUILD)/test-flip-session-registry: tests/test_flip_session_registry.c src/runtime/flip_session_registry.c include/flip_session_registry.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-DFLIP_SESSION_REGISTRY_ROOT='"/tmp/flipos-session-registry-test"' -Iinclude \
@@ -459,6 +472,9 @@ $(BUILD)/flip_bios.o: src/runtime/flip_bios.c include/flip_bios.h include/flip_p
 $(BUILD)/flip_exit_protocol.o: src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_session_persistence.o: src/runtime/flip_session_persistence.c include/flip_session_persistence.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_session_registry.o: src/runtime/flip_session_registry.c include/flip_session_registry.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -468,7 +484,7 @@ $(BUILD)/flip_session_adapter.o: src/runtime/flip_session_adapter.c | $(BUILD)
 $(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/flip_session.o: src/runtime/flip_session.c | $(BUILD)
+$(BUILD)/flip_session.o: src/runtime/flip_session.c include/flip_session.h include/flip_session_persistence.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Dflip_session_launch=flip_session_launch_legacy -c $< -o $@
 
 $(BUILD)/flip_recovery.o: src/runtime/flip_recovery.c | $(BUILD)
@@ -582,6 +598,7 @@ clean:
 		$(BUILD)/test-flip-save-manager \
 		$(BUILD)/test-flip-recovery \
 		$(BUILD)/test-flip-recovery-transactions \
+		$(BUILD)/test-flip-session-persistence \
 		$(BUILD)/test-flip-session-registry \
 		$(BUILD)/test-flip-session-adapter-save-safety \
 		$(BUILD)/test-flip-perf-diag \

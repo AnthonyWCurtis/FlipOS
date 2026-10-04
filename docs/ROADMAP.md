@@ -253,7 +253,7 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 - [x] Battery service
 - [x] Performance profiles
 - [x] Paths/storage service
-- [ ] Session persistence
+- [x] Session persistence
 
 ## Phase 8 — Second Emulator / Architecture Proof
 
