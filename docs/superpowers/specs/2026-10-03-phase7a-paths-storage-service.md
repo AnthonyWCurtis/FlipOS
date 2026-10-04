@@ -1,7 +1,7 @@
 # FlipOS Phase 7A — Paths / Storage Service
 
 Date: 2026-10-03
-Status: host validation pending
+Status: hardware accepted
 Branch: `phase7/paths-storage-service`
 
 ## Goal
@@ -132,3 +132,111 @@ Because this is a path-ownership refactor, hardware acceptance should prove exis
 9. no save/state/session files move or disappear
 
 Only after those checks pass should the Phase 7 Paths/storage roadmap item be marked complete.
+
+
+## Host validation result
+
+Host validation passed:
+
+- `make test-paths`
+- `make test-session-registry`
+- `make test-state`
+- `make test-save`
+- `make test-recovery`
+- `make test-architecture`
+- `make clean && make verify`
+
+Built binaries:
+
+```text
+flip-frontend  8f3ae351c707e3f5f0aa9e2447eaff717ceb2a073cb6cddf068e9d9fcd0c785c
+flip-gb        52aedcd285d88d185d269dde6abcbf92102288aa49641e22ea51af1b84c3dc1a
+```
+
+The `flip-gb` binary remained byte-for-byte identical to the Phase 6 hardware-tested binary.
+
+## Hardware acceptance result
+
+Hardware: Miyoo Flip RK3566, Linux 5.10.160, AArch64.
+
+### Existing storage and metadata
+
+The Phase 7A frontend booted successfully from the existing SD layout.
+
+Observed:
+
+```text
+SETTINGS: loaded volume=5 brightness=200
+FRONTEND_RECENT count=2
+FRONTEND_RECENT index=0 ...Blue...
+FRONTEND_RECENT index=1 ...Red...
+```
+
+Existing settings, library cache, current-session metadata, session registry, saves and states remained readable in their original locations.
+
+No duplicate storage tree was created.
+
+### Existing state resume
+
+Pokémon Red resumed from the existing protected save/state paths:
+
+```text
+FLIP_SAVE: LOAD_CURRENT_OK size=32768
+FLIP_STATE: RESTORE_CURRENT_OK path=/mnt/SDCARD/flipos-dev/states/gb/f06ea3b0fd4ad958.state size=59650
+SESSION_STATE: state=running ...Red...
+SESSION_REGISTRY: upsert state=running ... count=2
+```
+
+### GameSwitcher suspend
+
+An injected physical-button-equivalent MENU event exercised the real input path.
+
+Observed:
+
+```text
+FLIP_LIFECYCLE: gameswitcher requested
+FLIP_SAVE: SAVE_OK path=/mnt/SDCARD/flipos-dev/saves/gb/f06ea3b0fd4ad958.sav size=32768
+FLIP_STATE: SAVE_OK path=/mnt/SDCARD/flipos-dev/states/gb/f06ea3b0fd4ad958.state size=59650
+SESSION: child exited code=20 action=2
+SESSION_STATE: state=suspended ...Red...
+SESSION_REGISTRY: upsert state=suspended ... count=2
+FRONTEND_GAMESWITCHER requested
+```
+
+Blue remained independently recoverable in the session registry.
+
+### Physical lid / deep-suspend regression
+
+A real physical lid-close/open cycle produced:
+
+```text
+FLIP_LIFECYCLE: lid closed
+FLIP_LIFECYCLE: suspend requested
+FLIP_SAVE: SAVE_OK path=/mnt/SDCARD/flipos-dev/saves/gb/f06ea3b0fd4ad958.sav size=32768
+FLIP_STATE: SAVE_OK path=/mnt/SDCARD/flipos-dev/states/gb/f06ea3b0fd4ad958.state size=59650
+SESSION: child exited code=20 action=2
+SESSION_STATE: state=suspended ...Red...
+SESSION_REGISTRY: upsert state=suspended ... count=2
+FRONTEND_STANDBY lid closed after suspend
+POWER: deep sleep enter brightness=200
+POWER: suspending
+POWER: resumed
+POWER: lid open
+POWER: deep sleep exit brightness=200
+FRONTEND_STANDBY auto resume ...Red...
+FLIP_SAVE_SAFETY: AUTOMATIC_RESUME
+flip_audio: RK817 state 17=06 38=00 40=69
+flip_audio: RK817 deep-resume recovery required
+flip_audio: RK817 deep-resume recovery applied
+FLIP_STATE: RESTORE_CURRENT_OK path=/mnt/SDCARD/flipos-dev/states/gb/f06ea3b0fd4ad958.state size=59650
+SESSION_STATE: state=running ...Red...
+SESSION_REGISTRY: upsert state=running ... count=2
+```
+
+After wake, Red had a new process id/start timestamp and was `running`. Blue remained independently `interrupted`.
+
+## Result
+
+Phase 7A is hardware accepted.
+
+The Paths/Storage service now owns canonical FlipOS storage locations without changing any existing on-disk path, format, identity or persistence behavior.
