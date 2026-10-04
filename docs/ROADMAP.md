@@ -251,7 +251,7 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 - [x] BIOS manager
 - [x] Logging
 - [x] Battery service
-- [ ] Performance profiles
+- [x] Performance profiles
 - [x] Paths/storage service
 - [ ] Session persistence
 
