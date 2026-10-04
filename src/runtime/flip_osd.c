@@ -17,9 +17,7 @@ static flip_osd_type_t current_type =
 
 static int current_percent = 0;
 
-#define OSD_STATUS_MAX 64
-
-static char current_status[OSD_STATUS_MAX];
+static char current_status[FLIP_OSD_STATUS_MAX];
 
 static struct timespec shown_at;
 
@@ -53,6 +51,21 @@ static int clamp_percent(
         return 100;
 
     return percent;
+}
+
+void flip_osd_reset(void)
+{
+    current_type = FLIP_OSD_NONE;
+    current_percent = 0;
+    current_status[0] = '\0';
+    memset(&shown_at, 0, sizeof(shown_at));
+    poweroff_active = 0;
+    poweroff_percent = 0;
+}
+
+void flip_osd_init(void)
+{
+    flip_osd_reset();
 }
 
 static void show(
@@ -150,17 +163,9 @@ void flip_osd_set_poweroff_progress(
             poweroff_percent);
 }
 
-int flip_osd_active(void)
+static int transient_active(void)
 {
-    /*
-     * Power-off takes priority over temporary
-     * volume/brightness feedback.
-     */
-    if (poweroff_active)
-        return 1;
-
-    if (current_type ==
-        FLIP_OSD_NONE)
+    if (current_type == FLIP_OSD_NONE)
         return 0;
 
     struct timespec now;
@@ -174,8 +179,9 @@ int flip_osd_active(void)
             &now) >=
         OSD_DURATION_MS) {
 
-        current_type =
-            FLIP_OSD_NONE;
+        current_type = FLIP_OSD_NONE;
+        current_percent = 0;
+        current_status[0] = '\0';
 
         return 0;
     }
@@ -183,44 +189,98 @@ int flip_osd_active(void)
     return 1;
 }
 
+int flip_osd_snapshot(
+    flip_osd_snapshot_t *snapshot)
+{
+    if (!snapshot)
+        return -1;
+
+    int active =
+        poweroff_active ||
+        transient_active();
+
+    memset(
+        snapshot,
+        0,
+        sizeof(*snapshot));
+
+    snapshot->type =
+        current_type;
+
+    snapshot->percent =
+        current_percent;
+
+    snprintf(
+        snapshot->status,
+        sizeof(snapshot->status),
+        "%s",
+        current_status);
+
+    snapshot->poweroff_active =
+        poweroff_active;
+
+    snapshot->poweroff_percent =
+        poweroff_percent;
+
+    return active ? 1 : 0;
+}
+
+int flip_osd_active(void)
+{
+    flip_osd_snapshot_t snapshot;
+
+    int rc =
+        flip_osd_snapshot(
+            &snapshot);
+
+    return rc > 0
+        ? 1
+        : 0;
+}
+
 int flip_osd_draw(
     flip_drm_t *drm)
 {
-    if (!drm ||
-        !flip_osd_active())
+    if (!drm)
+        return 0;
+
+    flip_osd_snapshot_t snapshot;
+
+    if (flip_osd_snapshot(
+            &snapshot) <= 0)
         return 0;
 
     const char *label;
     int percent = 0;
     int status_only = 0;
 
-    if (poweroff_active) {
+    if (snapshot.poweroff_active) {
 
         label =
             "POWER OFF";
 
         percent =
-            poweroff_percent;
+            snapshot.poweroff_percent;
 
     } else if (
-        current_type ==
+        snapshot.type ==
             FLIP_OSD_STATUS) {
 
         label =
-            current_status;
+            snapshot.status;
 
         status_only = 1;
 
     } else {
 
         label =
-            current_type ==
+            snapshot.type ==
                 FLIP_OSD_VOLUME
                 ? "VOLUME"
                 : "BRIGHTNESS";
 
         percent =
-            current_percent;
+            snapshot.percent;
     }
 
     /*
@@ -308,7 +368,7 @@ int flip_osd_draw(
          * but power-off progress is clearer without
          * numeric clutter.
          */
-        if (!poweroff_active) {
+        if (!snapshot.poweroff_active) {
 
             char percent_text[16];
 

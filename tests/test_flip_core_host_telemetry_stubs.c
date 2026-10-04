@@ -1,5 +1,6 @@
 #include "flip_telemetry.h"
 #include "flip_settings.h"
+#include "flip_osd.h"
 #include "flip_video.h"
 
 #include <string.h>
@@ -53,4 +54,8 @@ void flip_video_set_perf_overlay(
 int flip_settings_init(void)
 {
     return 0;
+}
+
+void flip_osd_init(void)
+{
 }

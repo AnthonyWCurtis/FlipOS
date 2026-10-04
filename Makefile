@@ -82,7 +82,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -139,6 +139,9 @@ test-paths: $(BUILD)/test-flip-paths
 test-settings: $(BUILD)/test-flip-settings
 	$(BUILD)/test-flip-settings
 
+test-osd: $(BUILD)/test-flip-osd
+	$(BUILD)/test-flip-osd
+
 test-exit-protocol: $(BUILD)/test-flip-exit-protocol
 	$(BUILD)/test-flip-exit-protocol
 
@@ -181,6 +184,7 @@ test-architecture:
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_paths_architecture.py
 	python3 tests/test_settings_architecture.py
+	python3 tests/test_osd_architecture.py
 	python3 tests/test_exit_protocol_architecture.py
 	python3 tests/test_session_registry_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
@@ -203,6 +207,9 @@ $(BUILD)/test-flip-paths: tests/test_flip_paths.c src/runtime/flip_paths.c inclu
 
 $(BUILD)/test-flip-settings: tests/test_flip_settings.c src/runtime/flip_settings.c include/flip_settings.h include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L 		-DFLIP_STORAGE_ROOT='"/tmp/flipos-settings-service-test"' -Iinclude 		tests/test_flip_settings.c src/runtime/flip_settings.c 		-o $@
+
+$(BUILD)/test-flip-osd: tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c src/runtime/flip_osd.c include/flip_osd.h include/flip_draw.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L -Iinclude 		tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c src/runtime/flip_osd.c 		-o $@
 
 $(BUILD)/test-flip-exit-protocol: tests/test_flip_exit_protocol.c src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \

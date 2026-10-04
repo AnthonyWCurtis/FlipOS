@@ -2228,6 +2228,8 @@ int main(void)
         return 3;
     }
 
+    flip_osd_init();
+
     if (flip_settings_init() == 0) {
 
         flip_power_set_brightness(
