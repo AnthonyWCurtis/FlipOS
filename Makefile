@@ -82,7 +82,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -105,6 +105,7 @@ verify:
 		$(MAKE) test-state && \
 		$(MAKE) test-state-recovery-health && \
 		$(MAKE) test-save && \
+		$(MAKE) test-save-manager && \
 		$(MAKE) test-recovery && \
 		$(MAKE) test-session-registry && \
 		$(MAKE) test-session-save-safety && \
@@ -166,6 +167,9 @@ test-state-recovery-health: $(BUILD)/test-flip-state-recovery-health
 test-save: $(BUILD)/test-flip-save
 	$(BUILD)/test-flip-save
 
+test-save-manager: $(BUILD)/test-flip-save-manager
+	$(BUILD)/test-flip-save-manager
+
 test-recovery: $(BUILD)/test-flip-recovery $(BUILD)/test-flip-recovery-transactions
 	$(BUILD)/test-flip-recovery
 	$(BUILD)/test-flip-recovery-transactions
@@ -189,6 +193,7 @@ test-architecture:
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
+	python3 tests/test_save_manager_architecture.py
 	python3 tests/test_exit_protocol_architecture.py
 	python3 tests/test_session_registry_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
@@ -275,6 +280,13 @@ $(BUILD)/test-flip-save: tests/test_flip_save.c src/runtime/flip_save.c src/runt
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-DFLIP_SAVE_ROOT='"/tmp/flipos-save-test"' -Iinclude \
 		tests/test_flip_save.c src/runtime/flip_save.c src/runtime/flip_core.c \
+		-o $@
+
+$(BUILD)/test-flip-save-manager: tests/test_flip_save_manager.c src/runtime/flip_save.c src/runtime/flip_core.c include/flip_save.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_SAVE_ROOT='"/tmp/flipos-save-manager-test"' -Iinclude \
+		tests/test_flip_save_manager.c src/runtime/flip_save.c src/runtime/flip_core.c \
 		-o $@
 
 $(BUILD)/test-flip-recovery: tests/test_flip_recovery.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
@@ -474,6 +486,7 @@ clean:
 		$(BUILD)/test-flip-state \
 		$(BUILD)/test-flip-state-recovery-health \
 		$(BUILD)/test-flip-save \
+		$(BUILD)/test-flip-save-manager \
 		$(BUILD)/test-flip-recovery \
 		$(BUILD)/test-flip-recovery-transactions \
 		$(BUILD)/test-flip-session-registry \
