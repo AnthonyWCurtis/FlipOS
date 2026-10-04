@@ -58,9 +58,9 @@ GB_LIBRETRO_OBJS := \
 	$(BUILD)/libretro_rtime.o \
 	$(BUILD)/libretro_vfs.o
 
-GB_OBJS := \
-	$(BUILD)/flip_gb.o \
-	$(BUILD)/flip_gambatte_core.o \
+EMULATOR_OBJS := \
+	$(BUILD)/flip_emulator_runner.o \
+	$(BUILD)/flip_libretro_core.o \
 	$(BUILD)/flip_bios.o \
 	$(BUILD)/flip_paths.o \
 	$(BUILD)/flip_log.o \
@@ -86,18 +86,30 @@ GB_OBJS := \
 	$(BUILD)/flip_timing.o \
 	$(BUILD)/flip_lifecycle.o \
 	$(BUILD)/flip_drm.o \
-	$(BUILD)/flip_draw.o \
+	$(BUILD)/flip_draw.o
+
+GB_OBJS := \
+	$(BUILD)/flip_gb.o \
+	$(BUILD)/flip_gambatte_core.o \
+	$(EMULATOR_OBJS) \
 	$(GB_LIBRETRO_OBJS)
+
+GBA_OBJS := \
+	$(BUILD)/flip_gba.o \
+	$(BUILD)/flip_mgba_core.o \
+	$(EMULATOR_OBJS)
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb gba verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
-all: frontend gb
+all: frontend gb gba
 
 frontend: $(BUILD)/flip-frontend
 
 gb: $(BUILD)/flip-gb
+
+gba: $(BUILD)/flip-gba
 
 verify:
 	@log=/tmp/flipos-verify.log; \
@@ -127,6 +139,8 @@ verify:
 		$(MAKE) test-recovery && \
 		$(MAKE) test-session-persistence && \
 		$(MAKE) test-session-registry && \
+		$(MAKE) test-session-adapter && \
+		$(MAKE) test-system-registry && \
 		$(MAKE) test-session-save-safety && \
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
@@ -217,6 +231,12 @@ test-session-persistence: $(BUILD)/test-flip-session-persistence
 test-session-registry: $(BUILD)/test-flip-session-registry
 	$(BUILD)/test-flip-session-registry
 
+test-session-adapter: $(BUILD)/test-flip-session-adapter
+	$(BUILD)/test-flip-session-adapter
+
+test-system-registry: $(BUILD)/test-flip-system-registry
+	$(BUILD)/test-flip-system-registry
+
 test-session-save-safety: $(BUILD)/test-flip-session-adapter-save-safety
 	$(BUILD)/test-flip-session-adapter-save-safety
 
@@ -228,6 +248,7 @@ test-telemetry: $(BUILD)/test-flip-telemetry
 
 test-architecture:
 	python3 tests/test_flip_gb_architecture.py
+	python3 tests/test_gba_architecture.py
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_paths_architecture.py
 	python3 tests/test_logging_architecture.py
@@ -388,6 +409,18 @@ $(BUILD)/test-flip-recovery-transactions: tests/test_flip_recovery_transactions.
 		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
 
+$(BUILD)/test-flip-session-adapter: tests/test_flip_session_adapter.c src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_session_adapter.c src/runtime/flip_session_adapter.c \
+		src/runtime/flip_recovery.c src/runtime/flip_save.c \
+		src/runtime/flip_state.c src/runtime/flip_core.c -o $@
+
+$(BUILD)/test-flip-system-registry: tests/test_flip_system_registry.c src/runtime/flip_system.c src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_system_registry.c src/runtime/flip_system.c \
+		src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c \
+		src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c -o $@
+
 $(BUILD)/test-flip-session-adapter-save-safety: tests/test_flip_session_adapter_save_safety.c src/runtime/flip_session_adapter.c src/runtime/flip_recovery.c src/runtime/flip_save.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_session_adapter.h include/flip_recovery.h include/flip_save.h include/flip_state.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_session_adapter_save_safety.c \
@@ -499,6 +532,18 @@ $(BUILD)/flip_gb.o: src/emulators/flip_gb.c | $(BUILD)
 $(BUILD)/flip_gambatte_core.o: src/emulators/flip_gambatte_core.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_gba.o: src/emulators/flip_gba.c include/flip_emulator_runner.h include/flip_mgba_core.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_mgba_core.o: src/emulators/flip_mgba_core.c include/flip_mgba_core.h include/flip_libretro_core.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_libretro_core.o: src/emulators/flip_libretro_core.c include/flip_libretro_core.h include/libretro/libretro.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_emulator_runner.o: src/runtime/flip_emulator_runner.c include/flip_emulator_runner.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_core.o: src/runtime/flip_core.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -559,10 +604,40 @@ $(BUILD)/libretro_vfs.o: external/gambatte-libretro/libgambatte/libretro-common/
 $(BUILD)/flip-frontend: $(FRONTEND_OBJS)
 	$(CC) -static -o $@ $(FRONTEND_OBJS) -lm
 
+$(BUILD)/libgambatte_libretro.a: external/gambatte-libretro/Makefile.libretro | $(BUILD)
+	$(MAKE) -C external/gambatte-libretro -f Makefile.libretro clean >/dev/null
+	$(MAKE) -C external/gambatte-libretro -f Makefile.libretro -j$$(nproc) \
+		platform=unix STATIC_LINKING=1 TARGET=$(abspath $@) \
+		CC=$(CC) CXX=$(CXX) AR=$(CROSS)ar
+
+$(BUILD)/mgba_libretro.a: external/mgba/CMakeLists.txt external/mgba/FLIPOS_UPSTREAM.txt | $(BUILD)
+	cmake -S external/mgba -B $(BUILD)/mgba \
+		-DCMAKE_SYSTEM_NAME=Linux \
+		-DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DBUILD_LIBRETRO=ON -DM_CORE_GBA=ON -DM_CORE_GB=OFF \
+		-DBUILD_QT=OFF -DBUILD_SDL=OFF -DBUILD_GL=OFF \
+		-DBUILD_GLES2=OFF -DBUILD_GLES3=OFF -DBUILD_HEADLESS=OFF \
+		-DBUILD_TEST=OFF -DBUILD_SUITE=OFF -DBUILD_PYTHON=OFF \
+		-DBUILD_EXAMPLE=OFF -DUSE_DISCORD_RPC=OFF -DUSE_FFMPEG=OFF \
+		-DUSE_LIBZIP=OFF -DUSE_SQLITE3=OFF -DUSE_LZMA=OFF \
+		-DUSE_ZLIB=OFF -DUSE_PNG=OFF -DUSE_ELF=OFF
+	cmake --build $(BUILD)/mgba --target mgba_libretro -j$$(nproc)
+	cp $(BUILD)/mgba/mgba_libretro.a $@
+
 $(BUILD)/flip-gb: $(GB_OBJS) $(BUILD)/libgambatte_libretro.a
 	$(CXX) -static -o $@ \
 		$(GB_OBJS) \
 		$(BUILD)/libgambatte_libretro.a \
+		-pthread \
+		-lm
+
+$(BUILD)/flip-gba: $(GBA_OBJS) $(BUILD)/mgba_libretro.a
+	$(CXX) -static -o $@ \
+		$(GBA_OBJS) \
+		$(BUILD)/mgba_libretro.a \
 		-pthread \
 		-lm
 
@@ -577,6 +652,9 @@ clean:
 		$(BUILD)/*.d \
 		$(BUILD)/flip-frontend \
 		$(BUILD)/flip-gb \
+		$(BUILD)/flip-gba \
+		$(BUILD)/libgambatte_libretro.a \
+		$(BUILD)/mgba_libretro.a \
 		$(BUILD)/test-flip-controls \
 		$(BUILD)/test-flip-timing \
 		$(BUILD)/test-flip-audio \
@@ -600,6 +678,10 @@ clean:
 		$(BUILD)/test-flip-recovery-transactions \
 		$(BUILD)/test-flip-session-persistence \
 		$(BUILD)/test-flip-session-registry \
+		$(BUILD)/test-flip-session-adapter \
+		$(BUILD)/test-flip-system-registry \
 		$(BUILD)/test-flip-session-adapter-save-safety \
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
+	rm -rf $(BUILD)/mgba
+	$(MAKE) -C external/gambatte-libretro -f Makefile.libretro clean >/dev/null

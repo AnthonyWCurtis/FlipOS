@@ -1,6 +1,6 @@
 from pathlib import Path
 
-SOURCE = Path("src/emulators/flip_gb.c").read_text(encoding="utf-8")
+SOURCE = Path("src/runtime/flip_emulator_runner.c").read_text(encoding="utf-8")
 
 FORBIDDEN = [
     "state_path_hash",
@@ -20,9 +20,9 @@ REQUIRED = [
 ]
 
 for token in FORBIDDEN:
-    assert token not in SOURCE, f"flip_gb.c still owns state storage token: {token}"
+    assert token not in SOURCE, f"shared emulator runner still owns state storage token: {token}"
 
 for token in REQUIRED:
-    assert token in SOURCE, f"flip_gb.c missing State Manager integration token: {token}"
+    assert token in SOURCE, f"shared emulator runner missing State Manager integration token: {token}"
 
 print("state manager architecture test passed")

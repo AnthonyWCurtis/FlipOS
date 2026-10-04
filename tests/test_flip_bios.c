@@ -9,14 +9,18 @@
 
 #define TEST_ROOT FLIP_SYSTEM_ROOT
 #define TEST_GB_DIR FLIP_SYSTEM_ROOT "/gb"
+#define TEST_GBA_DIR FLIP_SYSTEM_ROOT "/gba"
 
 static void cleanup_fixture(void)
 {
     unlink(TEST_GB_DIR "/gb_bios.bin");
     unlink(TEST_GB_DIR "/gbc_bios.bin");
+    unlink(TEST_GBA_DIR "/gba_bios.bin");
     rmdir(TEST_GB_DIR "/gb_bios.bin");
     rmdir(TEST_GB_DIR "/gbc_bios.bin");
+    rmdir(TEST_GBA_DIR "/gba_bios.bin");
     rmdir(TEST_GB_DIR);
+    rmdir(TEST_GBA_DIR);
     rmdir(TEST_ROOT);
 }
 
@@ -28,6 +32,9 @@ static void ensure_fixture(void)
         assert(errno == EEXIST);
 
     if (mkdir(TEST_GB_DIR, 0700) < 0)
+        assert(errno == EEXIST);
+
+    if (mkdir(TEST_GBA_DIR, 0700) < 0)
         assert(errno == EEXIST);
 }
 
@@ -53,6 +60,13 @@ static void test_system_directory(void)
         sizeof(path)) == 0);
 
     assert(strcmp(path, TEST_GB_DIR) == 0);
+
+    assert(flip_bios_system_directory(
+        "GBA",
+        path,
+        sizeof(path)) == 0);
+
+    assert(strcmp(path, TEST_GBA_DIR) == 0);
 
     assert(flip_bios_system_directory(
         "UNKNOWN",
@@ -90,6 +104,19 @@ static void test_missing_bioses(void)
     assert(strcmp(info.filename, "gbc_bios.bin") == 0);
     assert(info.expected_size == 2304);
     assert(info.actual_size == 0);
+
+    assert(flip_bios_query(
+        FLIP_BIOS_GBA,
+        &info) == 0);
+
+    assert(info.status == FLIP_BIOS_MISSING);
+    assert(strcmp(info.system_id, "GBA") == 0);
+    assert(strcmp(info.filename, "gba_bios.bin") == 0);
+    assert(info.expected_size == 16384);
+    assert(info.actual_size == 0);
+    assert(strcmp(
+        info.path,
+        TEST_GBA_DIR "/gba_bios.bin") == 0);
 }
 
 static void test_valid_exact_sizes(void)
@@ -117,6 +144,17 @@ static void test_valid_exact_sizes(void)
 
     assert(info.status == FLIP_BIOS_VALID);
     assert(info.actual_size == 2304);
+
+    write_sized_file(
+        TEST_GBA_DIR "/gba_bios.bin",
+        16384);
+
+    assert(flip_bios_query(
+        FLIP_BIOS_GBA,
+        &info) == 0);
+
+    assert(info.status == FLIP_BIOS_VALID);
+    assert(info.actual_size == 16384);
 }
 
 static void test_wrong_sizes(void)

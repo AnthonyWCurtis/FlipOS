@@ -1,73 +1,54 @@
 #!/usr/bin/env python3
-
 from pathlib import Path
 
-PATH = Path("src/emulators/flip_gb.c")
+gb = Path("src/emulators/flip_gb.c").read_text()
+runner = Path("src/runtime/flip_emulator_runner.c").read_text()
 
-text = PATH.read_text()
+errors = []
 
-forbidden = [
-    "retro_run(",
-    "retro_set_environment(",
-    "retro_set_video_refresh(",
-    "retro_set_audio_sample(",
-    "retro_set_input_state(",
-    "flip_input_poll(",
-    "flip_controls_update(",
-    "flip_timing_wait_frame(",
-    "flip_lifecycle_handle(",
-    "RETRO_DEVICE_ID_JOYPAD_",
-    "flip_core_serialize_size(",
-    "flip_core_serialize(",
-    "flip_core_unserialize(",
-    "retro_get_memory_data(",
-    "retro_get_memory_size(",
-    "fopen(",
-    "fwrite(",
-    "rename(",
-]
-
-required = [
-    '#include "flip_core.h"',
-    '#include "flip_core_host.h"',
+for token in [
+    '#include "flip_emulator_runner.h"',
     '#include "flip_gambatte_core.h"',
-    '#include "flip_recovery.h"',
-    '#include "flip_save.h"',
-    '#include "flip_state.h"',
-    "flip_gambatte_core_adapter()",
+    'flip_gambatte_core_adapter()',
+    'flip_emulator_run(&config, argc, argv)',
+    '.storage_id = "gb"',
+]:
+    if token not in gb:
+        errors.append(f"thin GB launcher missing: {token}")
+
+for token in [
+    "flip_video_",
+    "flip_audio_",
+    "flip_input_",
+    "flip_controls_",
+    "flip_timing_",
+    "flip_lifecycle_",
+    "retro_",
+    "flip_save_",
+    "flip_state_",
+    "flip_recovery_",
+]:
+    if token in gb:
+        errors.append(f"GB launcher must not own host/persistence detail: {token}")
+
+for token in [
     "flip_core_host_run(",
     "flip_save_context_init(",
     "flip_save_load(",
     "flip_save_commit(",
-    ".load_save =",
-    ".commit_save =",
-    ".save_userdata =",
     "flip_state_context_init(",
     "flip_state_save(",
     "flip_state_restore(",
     "flip_recovery_context_init(",
     "flip_recovery_resume_blocked(",
-    "flip_recovery_clear_resume_block(",
-    '"--no-resume"',
-    "skip_resume",
-    "recovery_blocked",
-    ".restore_state = (skip_resume || recovery_blocked)",
     ".persistence_complete = persistence_complete",
-]
-
-errors = []
-
-for token in forbidden:
-    if token in text:
-        errors.append(f"forbidden host/core/storage detail remains: {token}")
-
-for token in required:
-    if token not in text:
-        errors.append(f"required composition token missing: {token}")
+]:
+    if token not in runner:
+        errors.append(f"shared emulator runner missing composition token: {token}")
 
 if errors:
     for error in errors:
         print(error)
     raise SystemExit(1)
 
-print("flip_gb architecture boundary passed")
+print("GB thin-launcher/shared-runner architecture passed")

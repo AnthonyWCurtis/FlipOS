@@ -7,7 +7,8 @@
 
 typedef enum {
     FLIP_BIOS_GB_DMG = 0,
-    FLIP_BIOS_GB_CGB
+    FLIP_BIOS_GB_CGB,
+    FLIP_BIOS_GBA
 } flip_bios_kind_t;
 
 typedef enum {
