@@ -182,8 +182,16 @@ static int run_save_safety_management(
         goto cleanup;
     }
 
-    flip_state_recovery_health_t undo_state =
-        flip_state_recovery_health(core, &state_context);
+    flip_state_status_t state_status;
+
+    if (flip_state_query_status(
+            core,
+            &state_context,
+            &state_status) < 0) {
+        result = 1;
+        goto cleanup;
+    }
+
     int resume_blocked =
         flip_recovery_resume_blocked(&recovery_context);
 
@@ -194,12 +202,12 @@ static int run_save_safety_management(
         save_health_name(save_status.previous),
         save_health_name(save_status.recovery),
         resume_blocked ? "BLOCKED" : "AVAILABLE",
-        state_recovery_health_name(undo_state));
+        state_recovery_health_name(state_status.recovery));
 
     if (save_status.current == FLIP_SAVE_HEALTH_ERROR ||
         save_status.previous == FLIP_SAVE_HEALTH_ERROR ||
         save_status.recovery == FLIP_SAVE_HEALTH_ERROR ||
-        undo_state == FLIP_STATE_RECOVERY_ERROR) {
+        state_status.recovery == FLIP_STATE_HEALTH_ERROR) {
         result = 1;
     }
 

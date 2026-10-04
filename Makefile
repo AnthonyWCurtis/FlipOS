@@ -82,7 +82,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -160,6 +160,9 @@ test-core-host: $(BUILD)/test-flip-core-host
 
 test-state: $(BUILD)/test-flip-state
 	$(BUILD)/test-flip-state
+
+test-state-manager: $(BUILD)/test-flip-state-manager
+	$(BUILD)/test-flip-state-manager
 
 test-state-recovery-health: $(BUILD)/test-flip-state-recovery-health
 	$(BUILD)/test-flip-state-recovery-health
@@ -269,6 +272,9 @@ $(BUILD)/test-flip-state: tests/test_flip_state.c src/runtime/flip_state.c src/r
 		-DFLIP_STATE_ROOT='"/tmp/flipos-state-test"' -Iinclude \
 		tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c \
 		-o $@
+
+$(BUILD)/test-flip-state-manager: tests/test_flip_state_manager.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L 		-DFLIP_STATE_ROOT='"/tmp/flipos-state-manager-test"' -Iinclude 		tests/test_flip_state_manager.c src/runtime/flip_state.c src/runtime/flip_core.c 		-o $@
 
 $(BUILD)/test-flip-state-recovery-health: tests/test_flip_state_recovery_health.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
@@ -483,7 +489,7 @@ clean:
 		$(BUILD)/test-flip-lifecycle \
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
-		$(BUILD)/test-flip-state \
+		$(BUILD)/test-flip-state 		$(BUILD)/test-flip-state-manager \
 		$(BUILD)/test-flip-state-recovery-health \
 		$(BUILD)/test-flip-save \
 		$(BUILD)/test-flip-save-manager \

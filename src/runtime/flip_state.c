@@ -474,40 +474,41 @@ flip_state_restore_result_t flip_state_restore(
     return FLIP_STATE_RESTORE_UNUSABLE;
 }
 
-flip_state_recovery_health_t flip_state_recovery_health(
+static flip_state_health_t state_file_health(
     flip_core_adapter_t *core,
-    const flip_state_context_t *context)
+    const flip_state_context_t *context,
+    const char *suffix)
 {
-    if (!core || !context)
-        return FLIP_STATE_RECOVERY_ERROR;
+    if (!core || !context || !suffix)
+        return FLIP_STATE_HEALTH_ERROR;
 
     size_t expected_size = flip_core_serialize_size(core);
     if (expected_size == 0)
-        return FLIP_STATE_RECOVERY_INVALID;
+        return FLIP_STATE_HEALTH_INVALID;
 
-    char recovery_path[512];
+    char path[512];
     if (flip_state_test_build_path(
             context,
-            ".state.recovery",
-            recovery_path,
-            sizeof(recovery_path)) < 0)
-        return FLIP_STATE_RECOVERY_ERROR;
+            suffix,
+            path,
+            sizeof(path)) < 0)
+        return FLIP_STATE_HEALTH_ERROR;
 
     struct stat st;
-    if (stat(recovery_path, &st) < 0) {
+    if (stat(path, &st) < 0) {
         if (errno == ENOENT)
-            return FLIP_STATE_RECOVERY_MISSING;
-        return FLIP_STATE_RECOVERY_ERROR;
+            return FLIP_STATE_HEALTH_MISSING;
+        return FLIP_STATE_HEALTH_ERROR;
     }
 
     if (!S_ISREG(st.st_mode) ||
         st.st_size < 0 ||
         (size_t)st.st_size != expected_size)
-        return FLIP_STATE_RECOVERY_INVALID;
+        return FLIP_STATE_HEALTH_INVALID;
 
-    FILE *file = fopen(recovery_path, "rb");
+    FILE *file = fopen(path, "rb");
     if (!file)
-        return FLIP_STATE_RECOVERY_ERROR;
+        return FLIP_STATE_HEALTH_ERROR;
 
     unsigned char buffer[4096];
     size_t remaining = expected_size;
@@ -531,8 +532,47 @@ flip_state_recovery_health_t flip_state_recovery_health(
         ok = 0;
 
     return ok
-        ? FLIP_STATE_RECOVERY_AVAILABLE
-        : FLIP_STATE_RECOVERY_ERROR;
+        ? FLIP_STATE_HEALTH_AVAILABLE
+        : FLIP_STATE_HEALTH_ERROR;
+}
+
+int flip_state_query_status(
+    flip_core_adapter_t *core,
+    const flip_state_context_t *context,
+    flip_state_status_t *status)
+{
+    if (!core || !context || !status)
+        return -1;
+
+    status->current =
+        state_file_health(
+            core,
+            context,
+            ".state");
+
+    status->previous =
+        state_file_health(
+            core,
+            context,
+            ".state.prev");
+
+    status->recovery =
+        state_file_health(
+            core,
+            context,
+            ".state.recovery");
+
+    return 0;
+}
+
+flip_state_recovery_health_t flip_state_recovery_health(
+    flip_core_adapter_t *core,
+    const flip_state_context_t *context)
+{
+    return state_file_health(
+        core,
+        context,
+        ".state.recovery");
 }
 
 int flip_state_preserve_recovery(
