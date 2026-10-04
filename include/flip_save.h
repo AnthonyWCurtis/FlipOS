@@ -31,6 +31,12 @@ typedef enum {
     FLIP_SAVE_HEALTH_ERROR = 3
 } flip_save_health_t;
 
+typedef struct {
+    flip_save_health_t current;
+    flip_save_health_t previous;
+    flip_save_health_t recovery;
+} flip_save_status_t;
+
 void flip_save_context_init(
     flip_save_context_t *context,
     const char *system_id,
@@ -48,6 +54,11 @@ flip_save_health_t flip_save_health(
     flip_core_adapter_t *core,
     const flip_save_context_t *context,
     const char *suffix);
+
+int flip_save_query_status(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context,
+    flip_save_status_t *status);
 
 int flip_save_restore_previous(
     flip_core_adapter_t *core,

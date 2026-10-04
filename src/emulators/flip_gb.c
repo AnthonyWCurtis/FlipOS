@@ -172,12 +172,16 @@ static int run_save_safety_management(
             result = 1;
     }
 
-    flip_save_health_t current =
-        flip_save_health(core, &save_context, FLIP_SAVE_CURRENT_SUFFIX);
-    flip_save_health_t previous =
-        flip_save_health(core, &save_context, FLIP_SAVE_PREVIOUS_SUFFIX);
-    flip_save_health_t recovery =
-        flip_save_health(core, &save_context, FLIP_SAVE_RECOVERY_SUFFIX);
+    flip_save_status_t save_status;
+
+    if (flip_save_query_status(
+            core,
+            &save_context,
+            &save_status) < 0) {
+        result = 1;
+        goto cleanup;
+    }
+
     flip_state_recovery_health_t undo_state =
         flip_state_recovery_health(core, &state_context);
     int resume_blocked =
@@ -186,15 +190,15 @@ static int run_save_safety_management(
     fprintf(
         stdout,
         "FLIP_SAVE_SAFETY: current=%s previous=%s recovery=%s resume=%s undo_state=%s\n",
-        save_health_name(current),
-        save_health_name(previous),
-        save_health_name(recovery),
+        save_health_name(save_status.current),
+        save_health_name(save_status.previous),
+        save_health_name(save_status.recovery),
         resume_blocked ? "BLOCKED" : "AVAILABLE",
         state_recovery_health_name(undo_state));
 
-    if (current == FLIP_SAVE_HEALTH_ERROR ||
-        previous == FLIP_SAVE_HEALTH_ERROR ||
-        recovery == FLIP_SAVE_HEALTH_ERROR ||
+    if (save_status.current == FLIP_SAVE_HEALTH_ERROR ||
+        save_status.previous == FLIP_SAVE_HEALTH_ERROR ||
+        save_status.recovery == FLIP_SAVE_HEALTH_ERROR ||
         undo_state == FLIP_STATE_RECOVERY_ERROR) {
         result = 1;
     }

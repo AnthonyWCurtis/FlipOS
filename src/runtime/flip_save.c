@@ -295,6 +295,35 @@ flip_save_health_t flip_save_health(
     }
 }
 
+int flip_save_query_status(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context,
+    flip_save_status_t *status)
+{
+    if (!core || !context || !status)
+        return -1;
+
+    status->current =
+        flip_save_health(
+            core,
+            context,
+            FLIP_SAVE_CURRENT_SUFFIX);
+
+    status->previous =
+        flip_save_health(
+            core,
+            context,
+            FLIP_SAVE_PREVIOUS_SUFFIX);
+
+    status->recovery =
+        flip_save_health(
+            core,
+            context,
+            FLIP_SAVE_RECOVERY_SUFFIX);
+
+    return 0;
+}
+
 flip_save_load_result_t flip_save_load(
     flip_core_adapter_t *core,
     const flip_save_context_t *context)
