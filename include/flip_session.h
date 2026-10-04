@@ -2,6 +2,7 @@
 #define FLIP_SESSION_H
 
 #include "flip_drm.h"
+#include "flip_session_persistence.h"
 
 typedef struct flip_system flip_system_t;
 
@@ -33,23 +34,6 @@ typedef struct {
 
     flip_session_action_t action;
 } flip_session_result_t;
-
-typedef struct {
-    int valid;
-
-    char state[32];
-    char system[32];
-    char rom[512];
-    char program[512];
-
-    int pid;
-
-    long long started;
-    long long ended;
-
-    int exit_code;
-    int signal_number;
-} flip_session_state_t;
 
 int flip_session_launch(
     flip_drm_t *drm,

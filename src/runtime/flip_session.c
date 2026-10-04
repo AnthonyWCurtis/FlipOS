@@ -62,83 +62,6 @@ static int copy_string(
     return 0;
 }
 
-static int ensure_session_dir(void)
-{
-    if (mkdir(
-            FLIP_STATE_DATA_ROOT,
-            0777) < 0 &&
-        errno != EEXIST)
-        return -1;
-
-    if (mkdir(
-            FLIP_SESSION_ROOT,
-            0777) < 0 &&
-        errno != EEXIST)
-        return -1;
-
-    return 0;
-}
-
-static int parse_int_value(
-    const char *text,
-    int *value)
-{
-    if (!text ||
-        !text[0] ||
-        !value)
-        return -1;
-
-    errno = 0;
-
-    char *end = NULL;
-
-    long parsed =
-        strtol(
-            text,
-            &end,
-            10);
-
-    if (errno != 0 ||
-        !end ||
-        *end != '\0' ||
-        parsed < INT_MIN ||
-        parsed > INT_MAX)
-        return -1;
-
-    *value = (int)parsed;
-
-    return 0;
-}
-
-static int parse_ll_value(
-    const char *text,
-    long long *value)
-{
-    if (!text ||
-        !text[0] ||
-        !value)
-        return -1;
-
-    errno = 0;
-
-    char *end = NULL;
-
-    long long parsed =
-        strtoll(
-            text,
-            &end,
-            10);
-
-    if (errno != 0 ||
-        !end ||
-        *end != '\0')
-        return -1;
-
-    *value = parsed;
-
-    return 0;
-}
-
 static int write_session_state(
     const char *state,
     const char *program,
@@ -149,107 +72,56 @@ static int write_session_state(
     long long started,
     long long ended)
 {
-    if (ensure_session_dir() < 0) {
+    flip_session_state_t persisted;
+    memset(
+        &persisted,
+        0,
+        sizeof(persisted));
+
+    persisted.valid = 1;
+
+    if (copy_string(
+            persisted.state,
+            sizeof(persisted.state),
+            state ? state : "unknown") != 0 ||
+        !metadata ||
+        !metadata->system ||
+        !metadata->system->id ||
+        copy_string(
+            persisted.system,
+            sizeof(persisted.system),
+            metadata->system->id) != 0 ||
+        !metadata->rom_path ||
+        copy_string(
+            persisted.rom,
+            sizeof(persisted.rom),
+            metadata->rom_path) != 0 ||
+        !program ||
+        copy_string(
+            persisted.program,
+            sizeof(persisted.program),
+            program) != 0) {
+
         fprintf(
             stderr,
-            "SESSION_STATE: mkdir failed: %s\n",
-            strerror(errno));
+            "SESSION_STATE: invalid metadata\n");
 
         return -1;
     }
 
-    char tmp_path[512];
+    persisted.pid = (int)pid;
+    persisted.started = started;
+    persisted.ended = ended;
+    persisted.exit_code = exit_code;
+    persisted.signal_number = signal_number;
 
-    snprintf(
-        tmp_path,
-        sizeof(tmp_path),
-        "%s.tmp",
-        FLIP_SESSION_FILE);
-
-    FILE *f =
-        fopen(
-            tmp_path,
-            "w");
-
-    if (!f) {
-        fprintf(
-            stderr,
-            "SESSION_STATE: fopen failed: %s\n",
-            strerror(errno));
-
-        return -1;
-    }
-
-    fprintf(
-        f,
-        "version=1\n");
-
-    fprintf(
-        f,
-        "state=%s\n",
-        state ? state : "unknown");
-
-    fprintf(
-        f,
-        "system=%s\n",
-        metadata &&
-        metadata->system &&
-        metadata->system->id
-            ? metadata->system->id
-            : "");
-
-    fprintf(
-        f,
-        "rom=%s\n",
-        metadata &&
-        metadata->rom_path
-            ? metadata->rom_path
-            : "");
-
-    fprintf(
-        f,
-        "program=%s\n",
-        program ? program : "");
-
-    fprintf(
-        f,
-        "pid=%d\n",
-        (int)pid);
-
-    fprintf(
-        f,
-        "started=%lld\n",
-        started);
-
-    fprintf(
-        f,
-        "ended=%lld\n",
-        ended);
-
-    fprintf(
-        f,
-        "exit_code=%d\n",
-        exit_code);
-
-    fprintf(
-        f,
-        "signal=%d\n",
-        signal_number);
-
-    fflush(f);
-    fsync(fileno(f));
-    fclose(f);
-
-    if (rename(
-            tmp_path,
-            FLIP_SESSION_FILE) < 0) {
+    if (flip_session_persistence_write_current(
+            &persisted) < 0) {
 
         fprintf(
             stderr,
-            "SESSION_STATE: rename failed: %s\n",
+            "SESSION_STATE: persist failed: %s\n",
             strerror(errno));
-
-        unlink(tmp_path);
 
         return -1;
     }
@@ -257,11 +129,8 @@ static int write_session_state(
     fprintf(
         stderr,
         "SESSION_STATE: state=%s rom=%s\n",
-        state ? state : "unknown",
-        metadata &&
-        metadata->rom_path
-            ? metadata->rom_path
-            : "");
+        persisted.state,
+        persisted.rom);
 
     /*
      * Phase 6A mirrors lifecycle state into the multi-session
@@ -1149,279 +1018,20 @@ static int session_process_matches(
 int flip_session_read_current(
     flip_session_state_t *session)
 {
-    if (!session)
-        return -1;
-
-    memset(
-        session,
-        0,
-        sizeof(*session));
-
-    FILE *f =
-        fopen(
-            FLIP_SESSION_FILE,
-            "r");
-
-    if (!f) {
-
-        if (errno == ENOENT)
-            return 0;
-
-        fprintf(
-            stderr,
-            "SESSION_READ: fopen failed: %s\n",
-            strerror(errno));
-
-        return -1;
-    }
-
-    int version = 0;
-
-    int have_version = 0;
-    int have_state = 0;
-    int have_system = 0;
-    int have_rom = 0;
-    int have_program = 0;
-    int have_pid = 0;
-    int have_started = 0;
-    int have_ended = 0;
-    int have_exit_code = 0;
-    int have_signal = 0;
-
-    int malformed = 0;
-
-    char line[1024];
-
-    while (fgets(
-               line,
-               sizeof(line),
-               f)) {
-
-        char *newline =
-            strchr(
-                line,
-                '\n');
-
-        if (newline) {
-
-            *newline = '\0';
-
-        } else if (!feof(f)) {
-
-            /*
-             * The physical line exceeded our parser buffer.
-             */
-            malformed = 1;
-
-            int c;
-
-            while ((c = fgetc(f)) != '\n' &&
-                   c != EOF) {
-            }
-
-            continue;
-        }
-
-        if (strncmp(
-                line,
-                "version=",
-                8) == 0) {
-
-            if (have_version ||
-                parse_int_value(
-                    line + 8,
-                    &version) < 0) {
-
-                malformed = 1;
-            }
-
-            have_version = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "state=",
-                6) == 0) {
-
-            if (have_state)
-                malformed = 1;
-
-            copy_string(
-                session->state,
-                sizeof(session->state),
-                line + 6);
-
-            have_state = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "system=",
-                7) == 0) {
-
-            if (have_system)
-                malformed = 1;
-
-            copy_string(
-                session->system,
-                sizeof(session->system),
-                line + 7);
-
-            have_system = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "rom=",
-                4) == 0) {
-
-            if (have_rom)
-                malformed = 1;
-
-            copy_string(
-                session->rom,
-                sizeof(session->rom),
-                line + 4);
-
-            have_rom = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "program=",
-                8) == 0) {
-
-            if (have_program)
-                malformed = 1;
-
-            copy_string(
-                session->program,
-                sizeof(session->program),
-                line + 8);
-
-            have_program = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "pid=",
-                4) == 0) {
-
-            if (have_pid ||
-                parse_int_value(
-                    line + 4,
-                    &session->pid) < 0) {
-
-                malformed = 1;
-            }
-
-            have_pid = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "started=",
-                8) == 0) {
-
-            if (have_started ||
-                parse_ll_value(
-                    line + 8,
-                    &session->started) < 0) {
-
-                malformed = 1;
-            }
-
-            have_started = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "ended=",
-                6) == 0) {
-
-            if (have_ended ||
-                parse_ll_value(
-                    line + 6,
-                    &session->ended) < 0) {
-
-                malformed = 1;
-            }
-
-            have_ended = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "exit_code=",
-                10) == 0) {
-
-            if (have_exit_code ||
-                parse_int_value(
-                    line + 10,
-                    &session->exit_code) < 0) {
-
-                malformed = 1;
-            }
-
-            have_exit_code = 1;
-
-        } else if (
-            strncmp(
-                line,
-                "signal=",
-                7) == 0) {
-
-            if (have_signal ||
-                parse_int_value(
-                    line + 7,
-                    &session->signal_number) < 0) {
-
-                malformed = 1;
-            }
-
-            have_signal = 1;
-        }
-    }
-
-    fclose(f);
-
-    if (!have_version ||
-        version != 1 ||
-        !have_state ||
-        !session->state[0] ||
-        !have_system ||
-        !session->system[0] ||
-        !have_rom ||
-        !session->rom[0] ||
-        !have_program ||
-        !session->program[0] ||
-        !have_pid ||
-        session->pid < 0 ||
-        !have_started ||
-        session->started < 0 ||
-        !have_ended ||
-        session->ended < 0 ||
-        !have_exit_code ||
-        !have_signal) {
-
-        malformed = 1;
-    }
-
-    if (malformed) {
-
+    int result =
+        flip_session_persistence_read_current(
+            session);
+
+    if (result < 0) {
         fprintf(
             stderr,
             "SESSION_READ: malformed current session\n");
 
-        memset(
-            session,
-            0,
-            sizeof(*session));
-
         return -1;
     }
 
-    session->valid = 1;
+    if (result == 0)
+        return 0;
 
     fprintf(
         stderr,
@@ -1436,30 +1046,14 @@ int flip_session_read_current(
 
 static int quarantine_invalid_session(void)
 {
-    char invalid_path[512];
+    char invalid_path[1024];
 
-    int written =
-        snprintf(
+    int result =
+        flip_session_persistence_quarantine_current(
             invalid_path,
-            sizeof(invalid_path),
-            "%s.invalid.%lld",
-            FLIP_SESSION_FILE,
-            now_epoch());
+            sizeof(invalid_path));
 
-    if (written < 0 ||
-        (size_t)written >= sizeof(invalid_path)) {
-
-        fprintf(
-            stderr,
-            "SESSION_RECOVER: invalid quarantine path\n");
-
-        return -1;
-    }
-
-    if (rename(
-            FLIP_SESSION_FILE,
-            invalid_path) < 0) {
-
+    if (result < 0) {
         fprintf(
             stderr,
             "SESSION_RECOVER: quarantine failed: %s\n",
@@ -1467,6 +1061,9 @@ static int quarantine_invalid_session(void)
 
         return -1;
     }
+
+    if (result == 0)
+        return 0;
 
     fprintf(
         stderr,
