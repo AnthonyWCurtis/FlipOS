@@ -2,6 +2,8 @@
 
 #include "flip_telemetry.h"
 
+#include "flip_battery.h"
+
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -459,65 +461,6 @@ static void discover_temperature_path(
     }
 }
 
-static void discover_battery_path(
-    flip_telemetry_t *telemetry)
-{
-    telemetry->battery_path[0] = '\0';
-
-    DIR *dir = opendir("/sys/class/power_supply");
-
-    if (!dir)
-        return;
-
-    struct dirent *entry;
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_name[0] == '.')
-            continue;
-
-        char type_path[512];
-        char capacity_path[512];
-        char type[128];
-
-        snprintf(
-            type_path,
-            sizeof(type_path),
-            "/sys/class/power_supply/%s/type",
-            entry->d_name);
-
-        snprintf(
-            capacity_path,
-            sizeof(capacity_path),
-            "/sys/class/power_supply/%s/capacity",
-            entry->d_name);
-
-        type[0] = '\0';
-
-        if (file_read_line(
-                type_path,
-                type,
-                sizeof(type)) < 0) {
-
-            continue;
-        }
-
-        if (strcasecmp(type, "Battery") != 0 ||
-            !path_exists(capacity_path)) {
-
-            continue;
-        }
-
-        snprintf(
-            telemetry->battery_path,
-            sizeof(telemetry->battery_path),
-            "%s",
-            capacity_path);
-        break;
-    }
-
-    closedir(dir);
-}
-
 int flip_telemetry_init(
     flip_telemetry_t *telemetry)
 {
@@ -544,7 +487,6 @@ int flip_telemetry_init(
     discover_cpu_freq_paths(telemetry);
     discover_gpu_paths(telemetry);
     discover_temperature_path(telemetry);
-    discover_battery_path(telemetry);
 
     fprintf(
         stderr,
@@ -559,9 +501,7 @@ int flip_telemetry_init(
         telemetry->temp_path[0]
             ? telemetry->temp_path
             : "unavailable",
-        telemetry->battery_path[0]
-            ? telemetry->battery_path
-            : "unavailable");
+        FLIP_BATTERY_ROOT);
 
     return 0;
 }
@@ -704,22 +644,16 @@ static void sample_battery(
 {
     telemetry->snapshot.battery_valid = 0;
 
-    if (!telemetry->battery_path[0])
-        return;
+    flip_battery_snapshot_t battery;
 
-    long value = 0;
-
-    if (file_read_long(
-            telemetry->battery_path,
-            &value) < 0 ||
-        value < 0 ||
-        value > 100) {
-
+    if (flip_battery_read(
+            &battery) < 0 ||
+        !battery.percent_valid) {
         return;
     }
 
     telemetry->snapshot.battery_percent =
-        (int)value;
+        battery.percent;
 
     telemetry->snapshot.battery_valid = 1;
 }

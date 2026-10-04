@@ -38,7 +38,6 @@ typedef struct {
     char gpu_freq_path[512];
     char gpu_load_path[512];
     char temp_path[512];
-    char battery_path[512];
 
     flip_telemetry_snapshot_t snapshot;
 } flip_telemetry_t;
