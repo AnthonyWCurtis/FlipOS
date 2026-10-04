@@ -27,6 +27,10 @@ int main(void)
         FLIP_CACHE_ROOT) == 0);
 
     assert(strcmp(
+        flip_paths_system_root(),
+        FLIP_SYSTEM_ROOT) == 0);
+
+    assert(strcmp(
         flip_paths_save_root(),
         FLIP_SAVE_ROOT) == 0);
 

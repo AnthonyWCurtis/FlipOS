@@ -57,6 +57,8 @@ GB_LIBRETRO_OBJS := \
 GB_OBJS := \
 	$(BUILD)/flip_gb.o \
 	$(BUILD)/flip_gambatte_core.o \
+	$(BUILD)/flip_bios.o \
+	$(BUILD)/flip_paths.o \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_state.o \
@@ -82,7 +84,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -98,6 +100,7 @@ verify:
 		$(MAKE) test-audio && \
 		$(MAKE) test-audio-resampler && \
 		$(MAKE) test-paths && \
+		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
 		$(MAKE) test-power && \
@@ -141,6 +144,9 @@ test-audio-resampler: $(BUILD)/test-flip-audio-resampler
 
 test-paths: $(BUILD)/test-flip-paths
 	$(BUILD)/test-flip-paths
+
+test-bios: $(BUILD)/test-flip-bios
+	$(BUILD)/test-flip-bios
 
 test-settings: $(BUILD)/test-flip-settings
 	$(BUILD)/test-flip-settings
@@ -201,6 +207,7 @@ test-architecture:
 	python3 tests/test_flip_gb_architecture.py
 	python3 tests/test_session_adapter_architecture.py
 	python3 tests/test_paths_architecture.py
+	python3 tests/test_bios_architecture.py
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
@@ -224,6 +231,13 @@ $(BUILD):
 $(BUILD)/test-flip-paths: tests/test_flip_paths.c src/runtime/flip_paths.c include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_paths.c src/runtime/flip_paths.c \
+		-o $@
+
+$(BUILD)/test-flip-bios: tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c include/flip_bios.h include/flip_paths.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_SYSTEM_ROOT='"/tmp/flipos-bios-manager-test"' -Iinclude \
+		tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c \
 		-o $@
 
 $(BUILD)/test-flip-settings: tests/test_flip_settings.c src/runtime/flip_settings.c include/flip_settings.h include/flip_paths.h | $(BUILD)
@@ -387,6 +401,9 @@ $(BUILD)/flip_library.o: src/runtime/flip_library.c | $(BUILD)
 $(BUILD)/flip_paths.o: src/runtime/flip_paths.c include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_bios.o: src/runtime/flip_bios.c include/flip_bios.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_exit_protocol.o: src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -497,6 +514,7 @@ clean:
 		$(BUILD)/test-flip-audio \
 		$(BUILD)/test-flip-audio-resampler \
 		$(BUILD)/test-flip-paths \
+		$(BUILD)/test-flip-bios \
 		$(BUILD)/test-flip-library-cache \
 		$(BUILD)/test-flip-exit-protocol \
 		$(BUILD)/test-flip-lifecycle \
