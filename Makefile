@@ -82,7 +82,7 @@ GB_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb verify test-controls test-timing test-audio test-audio-resampler test-paths test-settings test-osd test-power test-exit-protocol test-lifecycle test-core test-core-host test-state test-state-recovery-health test-save test-recovery test-session-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb
 
@@ -142,6 +142,9 @@ test-settings: $(BUILD)/test-flip-settings
 test-osd: $(BUILD)/test-flip-osd
 	$(BUILD)/test-flip-osd
 
+test-power: $(BUILD)/test-flip-power
+	$(BUILD)/test-flip-power
+
 test-exit-protocol: $(BUILD)/test-flip-exit-protocol
 	$(BUILD)/test-flip-exit-protocol
 
@@ -185,6 +188,7 @@ test-architecture:
 	python3 tests/test_paths_architecture.py
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
+	python3 tests/test_power_architecture.py
 	python3 tests/test_exit_protocol_architecture.py
 	python3 tests/test_session_registry_architecture.py
 	python3 tests/test_core_host_diagnostics_architecture.py
@@ -210,6 +214,9 @@ $(BUILD)/test-flip-settings: tests/test_flip_settings.c src/runtime/flip_setting
 
 $(BUILD)/test-flip-osd: tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c src/runtime/flip_osd.c include/flip_osd.h include/flip_draw.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L -Iinclude 		tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c src/runtime/flip_osd.c 		-o $@
+
+$(BUILD)/test-flip-power: tests/test_flip_power.c src/runtime/flip_power.c include/flip_power.h include/flip_input.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L 		-DFLIP_BACKLIGHT_BRIGHTNESS='"/tmp/flipos-power-service-test/brightness"' 		-Iinclude tests/test_flip_power.c src/runtime/flip_power.c 		-o $@
 
 $(BUILD)/test-flip-exit-protocol: tests/test_flip_exit_protocol.c src/runtime/flip_exit_protocol.c include/flip_exit_protocol.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \

@@ -3,14 +3,20 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#ifndef FLIP_BACKLIGHT_BRIGHTNESS
 #define FLIP_BACKLIGHT_BRIGHTNESS \
     "/sys/class/backlight/backlight/brightness"
+#endif
 
+#ifndef FLIP_POWER_MEM_SLEEP
 #define FLIP_POWER_MEM_SLEEP \
     "/sys/power/mem_sleep"
+#endif
 
+#ifndef FLIP_POWER_STATE
 #define FLIP_POWER_STATE \
     "/sys/power/state"
+#endif
 
 static int read_backlight_brightness(void)
 {
@@ -79,6 +85,25 @@ static int write_backlight_brightness(
     return write_value(
         FLIP_BACKLIGHT_BRIGHTNESS,
         value);
+}
+
+flip_power_lid_state_t flip_power_refresh_lid_state(
+    flip_input_state_t *state)
+{
+    if (!state)
+        return FLIP_POWER_LID_ERROR;
+
+    if (flip_input_poll(
+            state,
+            0) < 0)
+        return FLIP_POWER_LID_ERROR;
+
+    if (!state->lid_ready)
+        return FLIP_POWER_LID_UNKNOWN;
+
+    return state->lid_closed
+        ? FLIP_POWER_LID_CLOSED
+        : FLIP_POWER_LID_OPEN;
 }
 
 int flip_power_sleep_until_lid_open(
@@ -240,7 +265,7 @@ int flip_power_get_brightness(void)
 {
     FILE *f =
         fopen(
-            "/sys/class/backlight/backlight/brightness",
+            FLIP_BACKLIGHT_BRIGHTNESS,
             "r");
 
     if (!f)
@@ -272,7 +297,7 @@ int flip_power_set_brightness(
 
     FILE *f =
         fopen(
-            "/sys/class/backlight/backlight/brightness",
+            FLIP_BACKLIGHT_BRIGHTNESS,
             "w");
 
     if (!f)
