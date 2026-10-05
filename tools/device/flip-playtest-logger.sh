@@ -13,7 +13,7 @@ if [ -f "$PIDFILE" ]; then
 fi
 stamp=$(date +%Y%m%d-%H%M%S)
 out="$LOGDIR/playtest-$stamp.csv"
-"$BIN" playtest 172800 60 "$out" >/dev/null 2>&1 &
+nohup "$BIN" playtest 172800 60 "$out" </dev/null >/dev/null 2>&1 &
 pid=$!
 echo "$pid" > "$PIDFILE"
 echo "PLAYTEST_LOGGER_START pid=$pid csv=$out interval=60s $(date)" >> "$ROOT/logs/frontend.log"
