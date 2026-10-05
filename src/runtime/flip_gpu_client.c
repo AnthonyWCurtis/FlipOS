@@ -134,8 +134,14 @@ int flip_gpu_client_launch(
         .tv_nsec = 10000000L
     };
 
+    /*
+     * A real frontend -> emulator DRM handoff can make
+     * GBM/EGL/KMS initialisation take a little over one
+     * second. Allow up to five seconds, while still bailing
+     * out immediately if the helper process itself exits.
+     */
     for (unsigned attempt = 0;
-         attempt < 100;
+         attempt < 500;
          ++attempt) {
 
         if (client_connect_socket(client) == 0)

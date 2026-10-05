@@ -225,16 +225,6 @@ static int configure_speaker(void)
 
         int rc = 0;
 
-        if (speaker_volume == 0) {
-            rc |= system(
-                "/usr/bin/amixer sset 'Playback Path' OFF "
-                ">/dev/null 2>&1");
-        } else {
-            rc |= system(
-                "/usr/bin/amixer sset 'Playback Path' SPK "
-                ">/dev/null 2>&1");
-        }
-
         char command[128];
 
         snprintf(
@@ -244,16 +234,34 @@ static int configure_speaker(void)
             ">/dev/null 2>&1",
             speaker_volume);
 
-        rc |= system(command);
-
         if (speaker_volume == 0) {
+            /*
+             * Mute gain first, then disconnect the route.
+             */
+            rc |= system(command);
+
+            rc |= system(
+                "/usr/bin/amixer sset 'Playback Path' OFF "
+                ">/dev/null 2>&1");
+
             rc |= system(
                 "/usr/bin/amixer sset 'Speaker' off "
                 ">/dev/null 2>&1");
         } else {
+            /*
+             * RK817 may reset speaker gain when the route or
+             * switch is re-enabled. Set the requested gain
+             * last so resume/unmute cannot jump to full scale.
+             */
+            rc |= system(
+                "/usr/bin/amixer sset 'Playback Path' SPK "
+                ">/dev/null 2>&1");
+
             rc |= system(
                 "/usr/bin/amixer sset 'Speaker' on "
                 ">/dev/null 2>&1");
+
+            rc |= system(command);
         }
 
         if (rc == 0) {
@@ -1003,7 +1011,7 @@ int flip_audio_set_volume(int percent)
         ">/dev/null 2>&1",
         percent);
 
-    int rc = system(command);
+    int rc = 0;
 
     if (percent == 0) {
         pthread_mutex_lock(
@@ -1018,6 +1026,13 @@ int flip_audio_set_volume(int percent)
         flip_audio_buffer_reset(
             &audio_buffer);
 
+        /*
+         * speaker_volume remains nonzero until the end of this
+         * function, so explicitly set gain to zero before
+         * disconnecting the hardware path.
+         */
+        rc |= system(command);
+
         rc |= system(
             "/usr/bin/amixer sset 'Playback Path' OFF "
             ">/dev/null 2>&1");
@@ -1026,6 +1041,13 @@ int flip_audio_set_volume(int percent)
             "/usr/bin/amixer sset 'Speaker' off "
             ">/dev/null 2>&1");
     } else {
+        /*
+         * When unmuting from zero, audio_queue_sink continues
+         * feeding digital silence because speaker_volume is
+         * still zero here. Re-enable the route first, then set
+         * the requested gain last; only afterwards expose the
+         * new nonzero software volume.
+         */
         rc |= system(
             "/usr/bin/amixer sset 'Playback Path' SPK "
             ">/dev/null 2>&1");
@@ -1033,6 +1055,8 @@ int flip_audio_set_volume(int percent)
         rc |= system(
             "/usr/bin/amixer sset 'Speaker' on "
             ">/dev/null 2>&1");
+
+        rc |= system(command);
     }
 
     if (rc != 0) {
