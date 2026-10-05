@@ -259,15 +259,15 @@ Detailed evidence: `docs/superpowers/specs/2026-08-27-phase5c-hardware-acceptanc
 
 Preferred system: Game Boy Advance with mGBA.
 
-- [ ] Flip_GBA executable
-- [ ] Reuse same Video Host
-- [ ] Reuse same Audio Host
-- [ ] Reuse same Input Host
-- [ ] Reuse same Timing Host
-- [ ] Reuse same Lifecycle Host
-- [ ] Reuse same State/Save Managers
-- [ ] Reuse same GameSwitcher
-- [ ] Thin mGBA adapter only
+- [x] Flip_GBA executable
+- [x] Reuse same Video Host
+- [x] Reuse same Audio Host
+- [x] Reuse same Input Host
+- [x] Reuse same Timing Host
+- [x] Reuse same Lifecycle Host
+- [x] Reuse same State/Save Managers
+- [x] Reuse same GameSwitcher
+- [x] Thin mGBA adapter only
 
 Architecture rule: if adding GBA requires copying Miyoo-specific video/audio/input/lifecycle code from Flip_GB, fix the abstraction before continuing.
 
