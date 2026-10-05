@@ -13,15 +13,13 @@ typedef struct {
     uint64_t sequence;
     uint64_t submitted;
     uint64_t dropped;
+    uint64_t overlay_submitted;
+    uint64_t overlay_dropped;
 } flip_gpu_client_t;
 
 int flip_gpu_client_open(
     flip_gpu_client_t *client);
 
-/*
- * Start a renderer service, wait for its socket, then connect the client.
- * When scanout is non-zero the helper receives --scanout.
- */
 int flip_gpu_client_launch(
     flip_gpu_client_t *client,
     const char *service_path,
@@ -30,12 +28,6 @@ int flip_gpu_client_launch(
 void flip_gpu_client_close(
     flip_gpu_client_t *client);
 
-/*
- * Returns:
- *   0 frame submitted
- *   1 frame intentionally dropped because the renderer queue is full
- *  -1 protocol/socket failure
- */
 int flip_gpu_client_submit(
     flip_gpu_client_t *client,
     const void *data,
@@ -43,5 +35,19 @@ int flip_gpu_client_submit(
     unsigned height,
     size_t pitch,
     flip_gpu_format_t format);
+
+int flip_gpu_client_submit_overlay(
+    flip_gpu_client_t *client,
+    flip_gpu_overlay_slot_t slot,
+    int x,
+    int y,
+    const void *data,
+    unsigned width,
+    unsigned height,
+    size_t pitch);
+
+int flip_gpu_client_clear_overlay(
+    flip_gpu_client_t *client,
+    flip_gpu_overlay_slot_t slot);
 
 #endif

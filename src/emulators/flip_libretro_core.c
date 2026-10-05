@@ -21,6 +21,7 @@ typedef struct {
     struct retro_game_info game;
     char system_directory[FLIP_BIOS_PATH_MAX];
     char save_directory[FLIP_BIOS_PATH_MAX];
+    unsigned runtime_audio_sample_rate;
     int initialized;
     int loaded;
 } flip_libretro_state_t;
@@ -122,13 +123,58 @@ static bool env_cb(
             return true;
         }
 
+        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+        {
+            const struct retro_system_av_info *av = data;
+
+            if (!av ||
+                av->timing.sample_rate <= 0.0) {
+
+                return false;
+            }
+
+            unsigned sample_rate =
+                (unsigned)(
+                    av->timing.sample_rate +
+                    0.5);
+
+            if (sample_rate == 0)
+                return false;
+
+            if (sample_rate !=
+                libretro_state.runtime_audio_sample_rate) {
+
+                unsigned previous_rate =
+                    libretro_state.runtime_audio_sample_rate;
+
+                libretro_state.runtime_audio_sample_rate =
+                    sample_rate;
+
+                fprintf(
+                    stderr,
+                    "FLIP_LIBRETRO: runtime audio rate %u->%u\n",
+                    previous_rate,
+                    sample_rate);
+
+                if (flip_audio_set_source_rate(
+                        sample_rate) < 0) {
+
+                    fprintf(
+                        stderr,
+                        "FLIP_LIBRETRO: audio rate update failed rate=%u\n",
+                        sample_rate);
+                }
+            }
+
+            return true;
+        }
+
         case RETRO_ENVIRONMENT_SET_VARIABLES:
         case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
         case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
         case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
         case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
         case RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS:
-        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
             return true;
 
         default:
@@ -433,7 +479,9 @@ static int libretro_get_info(
         av.timing.fps;
 
     info->audio_sample_rate =
-        (unsigned)(
+        state->runtime_audio_sample_rate
+        ? state->runtime_audio_sample_rate
+        : (unsigned)(
             av.timing.sample_rate + 0.5);
 
     info->base_width =

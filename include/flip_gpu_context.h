@@ -33,6 +33,20 @@ const flip_gpu_context_info_t *flip_gpu_context_info(
  * Upload a core frame, integer-scale/center it on the shared output surface,
  * and wait for GPU completion. Presentation to KMS is deliberately separate.
  */
+int flip_gpu_context_set_overlay(
+    flip_gpu_context_t *context,
+    flip_gpu_overlay_slot_t slot,
+    int x,
+    int y,
+    const void *data,
+    unsigned width,
+    unsigned height,
+    size_t pitch);
+
+int flip_gpu_context_clear_overlay(
+    flip_gpu_context_t *context,
+    flip_gpu_overlay_slot_t slot);
+
 int flip_gpu_context_render(
     flip_gpu_context_t *context,
     const void *data,

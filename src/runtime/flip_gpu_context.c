@@ -261,6 +261,7 @@ struct flip_gpu_context {
     PFN_glFinish glFinish;
 
     GLuint texture;
+    GLuint overlay_textures[FLIP_GPU_OVERLAY_SLOTS];
     GLuint program;
     GLint sampler_location;
     GLint swap_rb_location;
@@ -268,6 +269,14 @@ struct flip_gpu_context {
     unsigned texture_width;
     unsigned texture_height;
     flip_gpu_format_t texture_format;
+
+    struct {
+        int active;
+        int x;
+        int y;
+        unsigned width;
+        unsigned height;
+    } overlays[FLIP_GPU_OVERLAY_SLOTS];
 
     unsigned char *packed;
     size_t packed_capacity;
@@ -930,25 +939,54 @@ flip_gpu_context_t *flip_gpu_context_create(
         (const char *)glGetString(GL_VERSION);
 
     glGenTextures(1, &context->texture);
-    context->glBindTexture(
-        GL_TEXTURE_2D,
-        context->texture);
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MIN_FILTER,
-        GL_NEAREST);
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_MAG_FILTER,
-        GL_NEAREST);
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_S,
-        GL_CLAMP_TO_EDGE);
-    glTexParameteri(
-        GL_TEXTURE_2D,
-        GL_TEXTURE_WRAP_T,
-        GL_CLAMP_TO_EDGE);
+
+    GLuint all_textures[
+        1 + FLIP_GPU_OVERLAY_SLOTS];
+
+    all_textures[0] =
+        context->texture;
+
+    glGenTextures(
+        FLIP_GPU_OVERLAY_SLOTS,
+        context->overlay_textures);
+
+    for (unsigned index = 0;
+         index < FLIP_GPU_OVERLAY_SLOTS;
+         ++index) {
+
+        all_textures[1 + index] =
+            context->overlay_textures[index];
+    }
+
+    for (unsigned index = 0;
+         index < 1 + FLIP_GPU_OVERLAY_SLOTS;
+         ++index) {
+
+        context->glBindTexture(
+            GL_TEXTURE_2D,
+            all_textures[index]);
+
+        glTexParameteri(
+            GL_TEXTURE_2D,
+            GL_TEXTURE_MIN_FILTER,
+            GL_NEAREST);
+
+        glTexParameteri(
+            GL_TEXTURE_2D,
+            GL_TEXTURE_MAG_FILTER,
+            GL_NEAREST);
+
+        glTexParameteri(
+            GL_TEXTURE_2D,
+            GL_TEXTURE_WRAP_S,
+            GL_CLAMP_TO_EDGE);
+
+        glTexParameteri(
+            GL_TEXTURE_2D,
+            GL_TEXTURE_WRAP_T,
+            GL_CLAMP_TO_EDGE);
+    }
+
     context->glPixelStorei(
         GL_UNPACK_ALIGNMENT,
         1);
@@ -991,6 +1029,12 @@ void flip_gpu_context_destroy(
         context->glDeleteTextures(
             1,
             &context->texture);
+    }
+
+    if (context->glDeleteTextures) {
+        context->glDeleteTextures(
+            FLIP_GPU_OVERLAY_SLOTS,
+            context->overlay_textures);
     }
 
     if (context->program &&
@@ -1054,6 +1098,120 @@ const flip_gpu_context_info_t *flip_gpu_context_info(
     return context
         ? &context->info
         : NULL;
+}
+
+int flip_gpu_context_set_overlay(
+    flip_gpu_context_t *context,
+    flip_gpu_overlay_slot_t slot,
+    int x,
+    int y,
+    const void *data,
+    unsigned width,
+    unsigned height,
+    size_t pitch)
+{
+    if (!context ||
+        (unsigned)slot >=
+            FLIP_GPU_OVERLAY_SLOTS ||
+        !data ||
+        x < 0 ||
+        y < 0 ||
+        width == 0 ||
+        height == 0 ||
+        (unsigned)x + width >
+            context->display_width ||
+        (unsigned)y + height >
+            context->display_height ||
+        pitch < (size_t)width * 4u) {
+
+        return -1;
+    }
+
+    size_t packed_pitch =
+        (size_t)width * 4u;
+
+    const void *pixels = data;
+
+    if (pitch != packed_pitch) {
+        size_t bytes =
+            packed_pitch * height;
+
+        if (ensure_packed(
+                context,
+                bytes) < 0) {
+
+            return -1;
+        }
+
+        const unsigned char *source =
+            data;
+
+        for (unsigned row = 0;
+             row < height;
+             ++row) {
+
+            memcpy(
+                context->packed +
+                    row * packed_pitch,
+                source +
+                    row * pitch,
+                packed_pitch);
+        }
+
+        pixels =
+            context->packed;
+    }
+
+    context->glActiveTexture(
+        GL_TEXTURE0);
+
+    context->glBindTexture(
+        GL_TEXTURE_2D,
+        context->overlay_textures[slot]);
+
+    context->glPixelStorei(
+        GL_UNPACK_ALIGNMENT,
+        1);
+
+    context->glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA,
+        (GLsizei)width,
+        (GLsizei)height,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        pixels);
+
+    context->overlays[slot].active = 1;
+    context->overlays[slot].x = x;
+    context->overlays[slot].y = y;
+    context->overlays[slot].width =
+        width;
+    context->overlays[slot].height =
+        height;
+
+    return 0;
+}
+
+int flip_gpu_context_clear_overlay(
+    flip_gpu_context_t *context,
+    flip_gpu_overlay_slot_t slot)
+{
+    if (!context ||
+        (unsigned)slot >=
+            FLIP_GPU_OVERLAY_SLOTS) {
+
+        return -1;
+    }
+
+    memset(
+        &context->overlays[slot],
+        0,
+        sizeof(context->overlays[slot]));
+
+    return 0;
 }
 
 int flip_gpu_context_render(
@@ -1255,6 +1413,46 @@ int flip_gpu_context_render(
         GL_TRIANGLE_STRIP,
         0,
         4);
+
+    /*
+     * Overlay slots are independent of the game-frame transport.
+     * They remain resident until explicitly updated or cleared.
+     */
+    for (unsigned index = 0;
+         index < FLIP_GPU_OVERLAY_SLOTS;
+         ++index) {
+
+        if (!context->overlays[index].active)
+            continue;
+
+        int overlay_y =
+            (int)context->display_height -
+            context->overlays[index].y -
+            (int)context->overlays[index].height;
+
+        context->glViewport(
+            context->overlays[index].x,
+            overlay_y,
+            (GLsizei)context->overlays[index].width,
+            (GLsizei)context->overlays[index].height);
+
+        context->glBindTexture(
+            GL_TEXTURE_2D,
+            context->overlay_textures[index]);
+
+        context->glUniform1i(
+            context->sampler_location,
+            0);
+
+        context->glUniform1i(
+            context->swap_rb_location,
+            1);
+
+        context->glDrawArrays(
+            GL_TRIANGLE_STRIP,
+            0,
+            4);
+    }
 
     if (context->scanout) {
         if (!context->eglSwapBuffers(

@@ -3,6 +3,7 @@
 #include "flip_video.h"
 
 #include "flip_drm.h"
+#include "flip_gpu_client.h"
 #include "flip_osd.h"
 #include "flip_video_layout.h"
 
@@ -12,8 +13,18 @@
 #include <time.h>
 
 static flip_drm_t video_drm;
+static flip_drm_t video_overlay_drm;
+static uint32_t video_overlay_pixels[640u * 480u];
+static uint32_t video_osd_pixels[420u * 36u];
+static uint32_t video_perf_pixels[190u * 100u];
+static flip_gpu_client_t video_gpu;
 
 static int video_open = 0;
+static int video_gpu_active = 0;
+static int video_gpu_osd_active = 0;
+static int video_gpu_perf_active = 0;
+
+#define FLIP_GPU_SERVICE_PATH "/mnt/SDCARD/flipos-dev/bin/flip-gpu-service"
 
 static int perf_overlay_enabled = 0;
 static flip_telemetry_snapshot_t perf_overlay_snapshot;
@@ -356,23 +367,61 @@ int flip_video_open(void)
     if (video_open)
         return 0;
 
-    if (flip_drm_open(
-            &video_drm) < 0) {
-
-        return -1;
-    }
-
     memset(
         &video_perf_diag,
         0,
         sizeof(video_perf_diag));
     video_perf_interval_start_us = 0;
 
+    if (flip_gpu_client_launch(
+            &video_gpu,
+            FLIP_GPU_SERVICE_PATH,
+            1) == 0) {
+
+        memset(
+            &video_overlay_drm,
+            0,
+            sizeof(video_overlay_drm));
+
+        video_overlay_drm.width = 640;
+        video_overlay_drm.height = 480;
+        video_overlay_drm.pitch =
+            640u * sizeof(uint32_t);
+        video_overlay_drm.size =
+            sizeof(video_overlay_pixels);
+        video_overlay_drm.pixels =
+            video_overlay_pixels;
+
+        video_gpu_osd_active = 0;
+        video_gpu_perf_active = 0;
+        video_gpu_active = 1;
+        video_open = 1;
+
+        fprintf(
+            stderr,
+            "VIDEO: opened shared GPU host service=%s\n",
+            FLIP_GPU_SERVICE_PATH);
+
+        return 0;
+    }
+
+    fprintf(
+        stderr,
+        "VIDEO: GPU host unavailable; falling back to CPU/DRM\n");
+
+    video_gpu_active = 0;
+
+    if (flip_drm_open(
+            &video_drm) < 0) {
+
+        return -1;
+    }
+
     video_open = 1;
 
     fprintf(
         stderr,
-        "VIDEO: opened %ux%u\n",
+        "VIDEO: opened CPU/DRM fallback %ux%u\n",
         video_drm.width,
         video_drm.height);
 
@@ -384,14 +433,25 @@ void flip_video_close(void)
     if (!video_open)
         return;
 
-    flip_drm_close(
-        &video_drm);
+    if (video_gpu_active) {
+        flip_gpu_client_close(
+            &video_gpu);
+
+        video_gpu_active = 0;
+
+        fprintf(
+            stderr,
+            "VIDEO: closed shared GPU host\n");
+    } else {
+        flip_drm_close(
+            &video_drm);
+
+        fprintf(
+            stderr,
+            "VIDEO: closed CPU/DRM fallback\n");
+    }
 
     video_open = 0;
-
-    fprintf(
-        stderr,
-        "VIDEO: closed\n");
 }
 
 void flip_video_set_fps_overlay(
@@ -423,6 +483,196 @@ void flip_video_set_perf_overlay(
     }
 }
 
+static void copy_overlay_rect(
+    uint32_t *destination,
+    unsigned destination_width,
+    const flip_drm_t *source,
+    int x,
+    int y,
+    unsigned width,
+    unsigned height)
+{
+    if (!destination ||
+        !source ||
+        !source->pixels)
+        return;
+
+    unsigned source_stride =
+        source->pitch /
+        sizeof(uint32_t);
+
+    for (unsigned row = 0;
+         row < height;
+         ++row) {
+
+        memcpy(
+            destination +
+                row * destination_width,
+            source->pixels +
+                (y + (int)row) *
+                    source_stride +
+                x,
+            width *
+                sizeof(uint32_t));
+    }
+}
+
+static void update_gpu_osd_overlay(void)
+{
+    memset(
+        video_overlay_pixels,
+        0,
+        sizeof(video_overlay_pixels));
+
+    int active =
+        flip_osd_draw(
+            &video_overlay_drm);
+
+    if (active > 0) {
+        copy_overlay_rect(
+            video_osd_pixels,
+            420,
+            &video_overlay_drm,
+            110,
+            406,
+            420,
+            36);
+
+        int result =
+            flip_gpu_client_submit_overlay(
+                &video_gpu,
+                FLIP_GPU_OVERLAY_OSD,
+                110,
+                406,
+                video_osd_pixels,
+                420,
+                36,
+                420u *
+                    sizeof(uint32_t));
+
+        if (result >= 0)
+            video_gpu_osd_active = 1;
+
+        return;
+    }
+
+    if (video_gpu_osd_active) {
+        int result =
+            flip_gpu_client_clear_overlay(
+                &video_gpu,
+                FLIP_GPU_OVERLAY_OSD);
+
+        if (result == 0)
+            video_gpu_osd_active = 0;
+    }
+}
+
+static void update_gpu_perf_overlay(void)
+{
+    if (!perf_overlay_enabled) {
+        if (video_gpu_perf_active) {
+            int result =
+                flip_gpu_client_clear_overlay(
+                    &video_gpu,
+                    FLIP_GPU_OVERLAY_PERF);
+
+            if (result == 0)
+                video_gpu_perf_active = 0;
+        }
+
+        return;
+    }
+
+    memset(
+        video_overlay_pixels,
+        0,
+        sizeof(video_overlay_pixels));
+
+    char lines[
+        FLIP_TELEMETRY_OVERLAY_LINES]
+        [FLIP_TELEMETRY_OVERLAY_LINE_LENGTH];
+
+    flip_telemetry_format_overlay(
+        &perf_overlay_snapshot,
+        lines);
+
+    const int box_x = 8;
+    const int box_y = 8;
+    const int box_w = 190;
+    const int box_h = 100;
+    const int text_x = box_x + 8;
+    const int text_y = box_y + 6;
+    const int line_step = 18;
+
+    uint32_t stride =
+        video_overlay_drm.pitch /
+        sizeof(uint32_t);
+
+    for (int yy = 0;
+         yy < box_h;
+         ++yy) {
+
+        uint32_t *row =
+            video_overlay_drm.pixels +
+            (box_y + yy) *
+                stride +
+            box_x;
+
+        for (int xx = 0;
+             xx < box_w;
+             ++xx) {
+
+            row[xx] =
+                0x00000000;
+        }
+    }
+
+    for (int line = 0;
+         line <
+            FLIP_TELEMETRY_OVERLAY_LINES;
+         ++line) {
+
+        fps_draw_text(
+            &video_overlay_drm,
+            text_x,
+            text_y +
+                line * line_step,
+            lines[line],
+            2,
+            0x00ffffff);
+    }
+
+    copy_overlay_rect(
+        video_perf_pixels,
+        190,
+        &video_overlay_drm,
+        box_x,
+        box_y,
+        box_w,
+        box_h);
+
+    int result =
+        flip_gpu_client_submit_overlay(
+            &video_gpu,
+            FLIP_GPU_OVERLAY_PERF,
+            box_x,
+            box_y,
+            video_perf_pixels,
+            box_w,
+            box_h,
+            box_w *
+                sizeof(uint32_t));
+
+    if (result >= 0)
+        video_gpu_perf_active = 1;
+}
+
+static void update_gpu_overlays(void)
+{
+    update_gpu_osd_overlay();
+    update_gpu_perf_overlay();
+}
+
 int flip_video_submit(
     const void *data,
     unsigned width,
@@ -436,6 +686,56 @@ int flip_video_submit(
         height == 0) {
 
         return -1;
+    }
+
+    if (video_gpu_active) {
+        update_gpu_overlays();
+
+        flip_gpu_format_t gpu_format;
+
+        switch (format) {
+            case FLIP_VIDEO_FORMAT_RGB565:
+                gpu_format = FLIP_GPU_FORMAT_RGB565;
+                break;
+
+            case FLIP_VIDEO_FORMAT_XRGB8888:
+                gpu_format = FLIP_GPU_FORMAT_XRGB8888;
+                break;
+
+            default:
+                return -1;
+        }
+
+        uint64_t video_start_us =
+            monotonic_us();
+
+        int submit_result =
+            flip_gpu_client_submit(
+                &video_gpu,
+                data,
+                width,
+                height,
+                pitch,
+                gpu_format);
+
+        uint64_t video_us =
+            elapsed_us(video_start_us);
+
+        video_perf_record_frame(
+            video_us,
+            0);
+
+        if (submit_result == 1)
+            return 0;
+
+        if (submit_result < 0) {
+            fprintf(
+                stderr,
+                "VIDEO: GPU frame submission failed\n");
+            return -1;
+        }
+
+        return 0;
     }
 
     uint64_t video_start_us =

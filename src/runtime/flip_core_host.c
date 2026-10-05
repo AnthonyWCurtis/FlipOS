@@ -117,14 +117,18 @@ static void log_audio_diag(void)
         ? audio_diag.transport_write_total_us / audio_diag.transport_write_count : 0;
 
     fprintf(stderr,
-        "FLIP_AUDIO_PERF: submits=%llu submit_avg_us=%llu submit_max_us=%llu writes=%llu write_avg_us=%llu write_max_us=%llu write_total_us=%llu\n",
+        "FLIP_AUDIO_PERF: submits=%llu submit_avg_us=%llu submit_max_us=%llu "
+        "writes=%llu write_avg_us=%llu write_max_us=%llu write_total_us=%llu "
+        "queue_peak_frames=%llu queue_dropped_frames=%llu\n",
         (unsigned long long)audio_diag.submit_count,
         (unsigned long long)submit_avg_us,
         (unsigned long long)audio_diag.submit_max_us,
         (unsigned long long)audio_diag.transport_write_count,
         (unsigned long long)write_avg_us,
         (unsigned long long)audio_diag.transport_write_max_us,
-        (unsigned long long)audio_diag.transport_write_total_us);
+        (unsigned long long)audio_diag.transport_write_total_us,
+        (unsigned long long)audio_diag.queue_peak_frames,
+        (unsigned long long)audio_diag.queue_dropped_frames);
 
     flip_audio_diag_reset();
 }

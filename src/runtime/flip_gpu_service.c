@@ -108,70 +108,259 @@ int main(int argc, char **argv)
     fprintf(stderr, "FLIP_GPU_SERVICE: LISTENING socket=%s\n", FLIP_GPU_SOCKET_PATH);
 
     uint64_t frames = 0;
+    uint64_t overlays = 0;
     uint64_t invalid = 0;
     uint64_t upload_total_us = 0;
     uint64_t upload_max_us = 0;
     uint64_t interval_start_us = monotonic_us();
 
     while (!stop_requested) {
-        flip_gpu_frame_header_t header;
-        struct iovec vectors[2] = {
-            { .iov_base = &header, .iov_len = sizeof(header) },
-            { .iov_base = payload, .iov_len = FLIP_GPU_MAX_PAYLOAD }
-        };
-        struct msghdr message;
-        memset(&message, 0, sizeof(message));
-        message.msg_iov = vectors;
-        message.msg_iovlen = 2;
+        uint32_t magic = 0;
 
-        ssize_t received = recvmsg(socket_fd, &message, 0);
-        if (received < 0) {
+        ssize_t peeked = recv(
+            socket_fd,
+            &magic,
+            sizeof(magic),
+            MSG_PEEK);
+
+        if (peeked < 0) {
             if (errno == EINTR)
                 continue;
-            perror("FLIP_GPU_SERVICE: recvmsg");
+
+            perror("FLIP_GPU_SERVICE: peek");
             goto out;
         }
 
-        if ((size_t)received < sizeof(header) ||
-            flip_gpu_frame_header_validate(&header) < 0 ||
-            (size_t)received != sizeof(header) + header.payload_bytes ||
-            (message.msg_flags & MSG_TRUNC)) {
+        if (peeked != (ssize_t)sizeof(magic)) {
+            (void)recv(
+                socket_fd,
+                payload,
+                FLIP_GPU_MAX_PAYLOAD,
+                0);
             invalid++;
             continue;
         }
 
-        uint64_t upload_start_us = monotonic_us();
+        if (magic == FLIP_GPU_OVERLAY_MAGIC) {
+            flip_gpu_overlay_header_t header;
+
+            struct iovec vectors[2] = {
+                {
+                    .iov_base = &header,
+                    .iov_len = sizeof(header)
+                },
+                {
+                    .iov_base = payload,
+                    .iov_len =
+                        FLIP_GPU_OVERLAY_MAX_PAYLOAD
+                }
+            };
+
+            struct msghdr message;
+            memset(
+                &message,
+                0,
+                sizeof(message));
+
+            message.msg_iov = vectors;
+            message.msg_iovlen = 2;
+
+            ssize_t received = recvmsg(
+                socket_fd,
+                &message,
+                0);
+
+            if (received < 0) {
+                if (errno == EINTR)
+                    continue;
+
+                perror(
+                    "FLIP_GPU_SERVICE: overlay recvmsg");
+                goto out;
+            }
+
+            if ((size_t)received <
+                    sizeof(header) ||
+                flip_gpu_overlay_header_validate(
+                    &header) < 0 ||
+                (size_t)received !=
+                    sizeof(header) +
+                    header.payload_bytes ||
+                (message.msg_flags &
+                    MSG_TRUNC)) {
+
+                invalid++;
+                continue;
+            }
+
+            int overlay_result;
+
+            if (header.flags &
+                FLIP_GPU_OVERLAY_ACTIVE) {
+
+                overlay_result =
+                    flip_gpu_context_set_overlay(
+                        gpu,
+                        (flip_gpu_overlay_slot_t)
+                            header.slot,
+                        header.x,
+                        header.y,
+                        payload,
+                        header.width,
+                        header.height,
+                        header.pitch);
+
+            } else {
+
+                overlay_result =
+                    flip_gpu_context_clear_overlay(
+                        gpu,
+                        (flip_gpu_overlay_slot_t)
+                            header.slot);
+            }
+
+            if (overlay_result < 0) {
+                fprintf(
+                    stderr,
+                    "FLIP_GPU_SERVICE: overlay update failed slot=%u\n",
+                    header.slot);
+                invalid++;
+                continue;
+            }
+
+            overlays++;
+            continue;
+        }
+
+        if (magic != FLIP_GPU_FRAME_MAGIC) {
+            (void)recv(
+                socket_fd,
+                payload,
+                FLIP_GPU_MAX_PAYLOAD,
+                0);
+
+            invalid++;
+            continue;
+        }
+
+        flip_gpu_frame_header_t header;
+
+        struct iovec vectors[2] = {
+            {
+                .iov_base = &header,
+                .iov_len = sizeof(header)
+            },
+            {
+                .iov_base = payload,
+                .iov_len = FLIP_GPU_MAX_PAYLOAD
+            }
+        };
+
+        struct msghdr message;
+        memset(
+            &message,
+            0,
+            sizeof(message));
+
+        message.msg_iov = vectors;
+        message.msg_iovlen = 2;
+
+        ssize_t received = recvmsg(
+            socket_fd,
+            &message,
+            0);
+
+        if (received < 0) {
+            if (errno == EINTR)
+                continue;
+
+            perror(
+                "FLIP_GPU_SERVICE: frame recvmsg");
+            goto out;
+        }
+
+        if ((size_t)received <
+                sizeof(header) ||
+            flip_gpu_frame_header_validate(
+                &header) < 0 ||
+            (size_t)received !=
+                sizeof(header) +
+                header.payload_bytes ||
+            (message.msg_flags &
+                MSG_TRUNC)) {
+
+            invalid++;
+            continue;
+        }
+
+        uint64_t upload_start_us =
+            monotonic_us();
+
         if (flip_gpu_context_render(
                 gpu,
                 payload,
                 header.width,
                 header.height,
                 header.pitch,
-                (flip_gpu_format_t)header.format) < 0) {
-            fprintf(stderr, "FLIP_GPU_SERVICE: upload failed sequence=%llu\n",
-                (unsigned long long)header.sequence);
+                (flip_gpu_format_t)
+                    header.format) < 0) {
+
+            fprintf(
+                stderr,
+                "FLIP_GPU_SERVICE: render failed sequence=%llu\n",
+                (unsigned long long)
+                    header.sequence);
+
             goto out;
         }
 
-        uint64_t upload_us = monotonic_us() - upload_start_us;
-        upload_total_us += upload_us;
-        if (upload_us > upload_max_us)
-            upload_max_us = upload_us;
+        uint64_t upload_us =
+            monotonic_us() -
+            upload_start_us;
+
+        upload_total_us +=
+            upload_us;
+
+        if (upload_us >
+            upload_max_us) {
+
+            upload_max_us =
+                upload_us;
+        }
+
         frames++;
 
-        uint64_t now_us = monotonic_us();
-        if (now_us - interval_start_us >= 1000000ULL) {
-            fprintf(stderr,
-                "FLIP_GPU_SERVICE_PERF: frames=%llu render_avg_us=%llu render_max_us=%llu invalid=%llu\n",
-                (unsigned long long)frames,
-                (unsigned long long)(frames ? upload_total_us / frames : 0),
-                (unsigned long long)upload_max_us,
-                (unsigned long long)invalid);
+        uint64_t now_us =
+            monotonic_us();
+
+        if (now_us -
+                interval_start_us >=
+            1000000ULL) {
+
+            fprintf(
+                stderr,
+                "FLIP_GPU_SERVICE_PERF: frames=%llu overlays=%llu render_avg_us=%llu render_max_us=%llu invalid=%llu\n",
+                (unsigned long long)
+                    frames,
+                (unsigned long long)
+                    overlays,
+                (unsigned long long)
+                    (frames
+                        ? upload_total_us /
+                            frames
+                        : 0),
+                (unsigned long long)
+                    upload_max_us,
+                (unsigned long long)
+                    invalid);
+
             frames = 0;
+            overlays = 0;
             invalid = 0;
             upload_total_us = 0;
             upload_max_us = 0;
-            interval_start_us = now_us;
+            interval_start_us =
+                now_us;
         }
     }
 

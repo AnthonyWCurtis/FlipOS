@@ -14,6 +14,7 @@ BUILD := build
 COMMON_OBJS := \
 	$(BUILD)/flip_audio.o \
 	$(BUILD)/flip_audio_buffer.o \
+	$(BUILD)/flip_audio_queue.o \
 	$(BUILD)/flip_audio_resampler.o \
 	$(BUILD)/flip_settings.o \
 	$(BUILD)/flip_hotkeys.o \
@@ -75,12 +76,15 @@ EMULATOR_OBJS := \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_audio.o \
 	$(BUILD)/flip_audio_buffer.o \
+	$(BUILD)/flip_audio_queue.o \
 	$(BUILD)/flip_audio_resampler.o \
 	$(BUILD)/flip_settings.o \
 	$(BUILD)/flip_hotkeys.o \
 	$(BUILD)/flip_osd.o \
 	$(BUILD)/flip_video.o \
 	$(BUILD)/flip_video_layout.o \
+	$(BUILD)/flip_gpu_client.o \
+	$(BUILD)/flip_gpu_protocol.o \
 	$(BUILD)/flip_power.o \
 	$(BUILD)/flip_input.o \
 	$(BUILD)/flip_controls.o \
@@ -102,7 +106,7 @@ GBA_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -122,6 +126,7 @@ verify:
 		$(MAKE) test-controls && \
 		$(MAKE) test-timing && \
 		$(MAKE) test-audio && \
+		$(MAKE) test-audio-queue && \
 		$(MAKE) test-audio-resampler && \
 		$(MAKE) test-paths && \
 		$(MAKE) test-log && \
@@ -172,6 +177,9 @@ test-timing: $(BUILD)/test-flip-timing
 
 test-audio: $(BUILD)/test-flip-audio
 	$(BUILD)/test-flip-audio
+
+test-audio-queue: $(BUILD)/test-flip-audio-queue
+	$(BUILD)/test-flip-audio-queue
 
 test-audio-resampler: $(BUILD)/test-flip-audio-resampler
 	$(BUILD)/test-flip-audio-resampler
@@ -360,6 +368,11 @@ $(BUILD)/test-flip-audio: tests/test_flip_audio_buffer.c src/audio/flip_audio_bu
 		tests/test_flip_audio_buffer.c src/audio/flip_audio_buffer.c \
 		-o $@
 
+$(BUILD)/test-flip-audio-queue: tests/test_flip_audio_queue.c src/audio/flip_audio_queue.c src/audio/flip_audio_queue.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Isrc/audio \
+		tests/test_flip_audio_queue.c src/audio/flip_audio_queue.c \
+		-o $@
+
 $(BUILD)/test-flip-audio-resampler: tests/test_flip_audio_resampler.c src/audio/flip_audio_resampler.c include/flip_audio_resampler.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_audio_resampler.c src/audio/flip_audio_resampler.c \
@@ -504,6 +517,9 @@ $(BUILD)/flip_audio.o: src/audio/flip_audio.c | $(BUILD)
 $(BUILD)/flip_audio_buffer.o: src/audio/flip_audio_buffer.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_audio_queue.o: src/audio/flip_audio_queue.c src/audio/flip_audio_queue.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_audio_resampler.o: src/audio/flip_audio_resampler.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -606,6 +622,12 @@ $(BUILD)/flip_video.o: src/runtime/flip_video.c include/flip_video_layout.h | $(
 $(BUILD)/flip_video_layout.o: src/runtime/flip_video_layout.c include/flip_video_layout.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_gpu_client.o: src/runtime/flip_gpu_client.c include/flip_gpu_client.h include/flip_gpu_protocol.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_gpu_protocol.o: src/runtime/flip_gpu_protocol.c include/flip_gpu_protocol.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_timing.o: src/runtime/flip_timing.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -676,7 +698,7 @@ $(BUILD)/flip-gpu-sender: \
 		-o $@
 
 $(BUILD)/flip-frontend: $(FRONTEND_OBJS)
-	$(CC) -static -o $@ $(FRONTEND_OBJS) -lm
+	$(CC) -static -o $@ $(FRONTEND_OBJS) -pthread -lm
 
 $(BUILD)/libgambatte_libretro.a: external/gambatte-libretro/Makefile.libretro | $(BUILD)
 	$(MAKE) -C external/gambatte-libretro -f Makefile.libretro clean >/dev/null
@@ -734,6 +756,7 @@ clean:
 		$(BUILD)/test-flip-controls \
 		$(BUILD)/test-flip-timing \
 		$(BUILD)/test-flip-audio \
+		$(BUILD)/test-flip-audio-queue \
 		$(BUILD)/test-flip-audio-resampler \
 		$(BUILD)/test-flip-paths \
 		$(BUILD)/test-flip-log \
