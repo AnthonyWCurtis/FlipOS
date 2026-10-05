@@ -1,0 +1,38 @@
+#!/bin/sh
+
+ROOT=/mnt/SDCARD/flipos-dev
+LOG="$ROOT/logs/frontend.log"
+PREV="$ROOT/logs/frontend.previous.log"
+
+mkdir -p "$ROOT/logs" "$ROOT/logs/playtest" "$ROOT/state"
+
+# Keep one previous frontend log. Rotate at boot once it exceeds 5 MiB.
+if [ -f "$LOG" ]; then
+    bytes=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    if [ "${bytes:-0}" -ge 5242880 ]; then
+        rm -f "$PREV"
+        mv "$LOG" "$PREV"
+    fi
+fi
+
+echo "========================================" >> "$LOG"
+echo "FlipOS launcher starting: $(date)" >> "$LOG"
+echo "========================================" >> "$LOG"
+
+chmod 755 "$ROOT/bin/flip-frontend"
+chmod 755 "$ROOT/bin/flip-gb"
+[ ! -f "$ROOT/bin/flip-gba" ] || chmod 755 "$ROOT/bin/flip-gba"
+[ ! -f "$ROOT/bin/flip-perf-capture" ] || chmod 755 "$ROOT/bin/flip-perf-capture"
+[ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
+
+if [ -x "$ROOT/bin/flip-playtest-logger.sh" ] && [ -x "$ROOT/bin/flip-perf-capture" ]; then
+    "$ROOT/bin/flip-playtest-logger.sh"
+fi
+
+"$ROOT/bin/flip-frontend" >> "$LOG" 2>&1
+rc=$?
+
+echo "FlipOS exited rc=$rc: $(date)" >> "$LOG"
+sync
+
+exec /usr/miyoo/bin/runmiyoo-original.sh
