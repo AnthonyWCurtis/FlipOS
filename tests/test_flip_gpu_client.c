@@ -82,6 +82,80 @@ int main(void)
     assert(client.submitted == 1);
     assert(client.dropped == 0);
 
+    uint32_t overlay_pixels[4] = {
+        0x00000000,
+        0x00ffffff,
+        0x00112233,
+        0x00445566
+    };
+
+    assert(flip_gpu_client_submit_overlay(
+        &client,
+        FLIP_GPU_OVERLAY_OSD,
+        10,
+        20,
+        overlay_pixels,
+        2,
+        2,
+        2 * sizeof(uint32_t)) == 0);
+
+    unsigned char overlay_packet[
+        sizeof(flip_gpu_overlay_header_t) +
+        sizeof(overlay_pixels)];
+
+    received = recv(
+        server,
+        overlay_packet,
+        sizeof(overlay_packet),
+        0);
+
+    assert(received == (ssize_t)sizeof(overlay_packet));
+
+    const flip_gpu_overlay_header_t *overlay_header =
+        (const flip_gpu_overlay_header_t *)overlay_packet;
+
+    assert(flip_gpu_overlay_header_validate(
+        overlay_header) == 0);
+
+    assert(overlay_header->slot ==
+        FLIP_GPU_OVERLAY_OSD);
+    assert(overlay_header->x == 10);
+    assert(overlay_header->y == 20);
+    assert(overlay_header->width == 2);
+    assert(overlay_header->height == 2);
+
+    assert(memcmp(
+        overlay_packet + sizeof(*overlay_header),
+        overlay_pixels,
+        sizeof(overlay_pixels)) == 0);
+
+    assert(flip_gpu_client_clear_overlay(
+        &client,
+        FLIP_GPU_OVERLAY_OSD) == 0);
+
+    unsigned char clear_packet[
+        sizeof(flip_gpu_overlay_header_t)];
+
+    received = recv(
+        server,
+        clear_packet,
+        sizeof(clear_packet),
+        0);
+
+    assert(received == (ssize_t)sizeof(clear_packet));
+
+    overlay_header =
+        (const flip_gpu_overlay_header_t *)clear_packet;
+
+    assert(flip_gpu_overlay_header_validate(
+        overlay_header) == 0);
+
+    assert(!(overlay_header->flags &
+        FLIP_GPU_OVERLAY_ACTIVE));
+
+    assert(client.overlay_submitted == 2);
+    assert(client.overlay_dropped == 0);
+
     flip_gpu_client_close(&client);
     close(server);
     unlink(FLIP_GPU_SOCKET_PATH);
