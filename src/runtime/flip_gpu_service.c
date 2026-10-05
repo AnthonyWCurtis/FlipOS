@@ -32,9 +32,11 @@ static uint64_t monotonic_us(void)
     return (uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_nsec / 1000ULL;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     int rc = 1;
+    int scanout_enabled =
+        argc > 1 && strcmp(argv[1], "--scanout") == 0;
     int socket_fd = -1;
     int kms_fd = -1;
     unsigned char *payload = NULL;
@@ -58,14 +60,18 @@ int main(void)
     close(kms_fd);
     kms_fd = -1;
 
-    gpu = flip_gpu_context_create(kms_info.width, kms_info.height);
+    gpu = flip_gpu_context_create(
+        kms_info.width,
+        kms_info.height,
+        scanout_enabled ? &kms_info : NULL);
     if (!gpu)
         goto out;
 
     const flip_gpu_context_info_t *info = flip_gpu_context_info(gpu);
     fprintf(stderr,
-        "FLIP_GPU_SERVICE: GPU_READY renderer=%s\n",
-        info && info->gl_renderer ? info->gl_renderer : "?");
+        "FLIP_GPU_SERVICE: GPU_READY renderer=%s mode=%s\n",
+        info && info->gl_renderer ? info->gl_renderer : "?",
+        scanout_enabled ? "scanout" : "offscreen");
 
     socket_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
     if (socket_fd < 0) {

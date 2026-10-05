@@ -1,6 +1,7 @@
 #ifndef FLIP_GPU_CONTEXT_H
 #define FLIP_GPU_CONTEXT_H
 
+#include "flip_gpu_kms.h"
 #include "flip_gpu_protocol.h"
 
 #include <stddef.h>
@@ -19,7 +20,8 @@ typedef struct {
 
 flip_gpu_context_t *flip_gpu_context_create(
     unsigned display_width,
-    unsigned display_height);
+    unsigned display_height,
+    const flip_gpu_kms_info_t *scanout_kms);
 
 void flip_gpu_context_destroy(
     flip_gpu_context_t *context);

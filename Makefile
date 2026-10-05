@@ -641,16 +641,19 @@ $(BUILD)/flip-gpu-service: \
 		src/runtime/flip_gpu_service.c \
 		src/runtime/flip_gpu_context.c \
 		src/runtime/flip_gpu_kms.c \
+		src/runtime/flip_gpu_scanout.c \
 		src/runtime/flip_gpu_protocol.c \
 		src/runtime/flip_video_layout.c \
 		include/flip_gpu_context.h \
 		include/flip_gpu_kms.h \
+		include/flip_gpu_scanout.h \
 		include/flip_gpu_protocol.h \
 		include/flip_video_layout.h | $(BUILD)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		src/runtime/flip_gpu_service.c \
 		src/runtime/flip_gpu_context.c \
 		src/runtime/flip_gpu_kms.c \
+		src/runtime/flip_gpu_scanout.c \
 		src/runtime/flip_gpu_protocol.c \
 		src/runtime/flip_video_layout.c \
 		-ldl -o $@

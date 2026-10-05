@@ -27,6 +27,10 @@ typedef struct {
     char name[DRM_DISPLAY_MODE_LEN];
 } drmModeModeInfo;
 
+_Static_assert(
+    sizeof(flip_gpu_kms_mode_t) == sizeof(drmModeModeInfo),
+    "FlipOS KMS mode ABI must match libdrm");
+
 typedef struct {
     int count_fbs;
     uint32_t *fbs;
@@ -298,6 +302,11 @@ int flip_gpu_kms_discover(
                     sizeof(info->mode_name),
                     "%s",
                     mode->name);
+
+                memcpy(
+                    &info->mode,
+                    mode,
+                    sizeof(info->mode));
 
                 result = 0;
                 free_connector(connector);

@@ -3,6 +3,7 @@
 #include "flip_gpu_context.h"
 
 #include "flip_video_layout.h"
+#include "flip_gpu_scanout.h"
 
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -38,10 +39,17 @@ struct gbm_device;
 #define EGL_RENDERABLE_TYPE 0x3040
 #define EGL_OPENGL_ES2_BIT 0x0004
 #define EGL_SURFACE_TYPE 0x3033
+#define EGL_RED_SIZE 0x3024
+#define EGL_GREEN_SIZE 0x3023
+#define EGL_BLUE_SIZE 0x3022
+#define EGL_ALPHA_SIZE 0x3021
+#define EGL_NATIVE_VISUAL_ID 0x302E
 #define EGL_PBUFFER_BIT 0x0001
+#define EGL_WINDOW_BIT 0x0004
 #define EGL_WIDTH 0x3057
 #define EGL_HEIGHT 0x3056
 #define EGL_PLATFORM_GBM_KHR 0x31D7
+#define FLIP_GPU_GBM_FORMAT_XRGB8888 0x34325258u
 
 #define GL_FALSE 0
 #define GL_VENDOR 0x1F00
@@ -90,6 +98,11 @@ typedef EGLBoolean (*PFN_eglChooseConfig)(
     EGLConfig *configs,
     EGLint config_size,
     EGLint *config_count);
+typedef EGLBoolean (*PFN_eglGetConfigAttrib)(
+    EGLDisplay display,
+    EGLConfig config,
+    EGLint attribute,
+    EGLint *value);
 typedef EGLContext (*PFN_eglCreateContext)(
     EGLDisplay display,
     EGLConfig config,
@@ -98,6 +111,11 @@ typedef EGLContext (*PFN_eglCreateContext)(
 typedef EGLSurface (*PFN_eglCreatePbufferSurface)(
     EGLDisplay display,
     EGLConfig config,
+    const EGLint *attributes);
+typedef EGLSurface (*PFN_eglCreateWindowSurface)(
+    EGLDisplay display,
+    EGLConfig config,
+    void *native_window,
     const EGLint *attributes);
 typedef EGLBoolean (*PFN_eglMakeCurrent)(
     EGLDisplay display,
@@ -111,6 +129,9 @@ typedef EGLBoolean (*PFN_eglDestroyContext)(
     EGLDisplay display,
     EGLContext context);
 typedef EGLBoolean (*PFN_eglTerminate)(EGLDisplay display);
+typedef EGLBoolean (*PFN_eglSwapBuffers)(
+    EGLDisplay display,
+    EGLSurface surface);
 typedef EGLint (*PFN_eglGetError)(void);
 
 typedef const GLubyte *(*PFN_glGetString)(GLenum name);
@@ -208,6 +229,7 @@ struct flip_gpu_context {
     void *mali;
     int drm_fd;
     struct gbm_device *gbm;
+    flip_gpu_scanout_t *scanout;
     EGLDisplay display;
     EGLContext context;
     EGLSurface surface;
@@ -219,6 +241,7 @@ struct flip_gpu_context {
     PFN_eglDestroySurface eglDestroySurface;
     PFN_eglDestroyContext eglDestroyContext;
     PFN_eglTerminate eglTerminate;
+    PFN_eglSwapBuffers eglSwapBuffers;
 
     PFN_glDeleteTextures glDeleteTextures;
     PFN_glBindTexture glBindTexture;
@@ -413,7 +436,8 @@ static GLuint create_program(
 
 flip_gpu_context_t *flip_gpu_context_create(
     unsigned display_width,
-    unsigned display_height)
+    unsigned display_height,
+    const flip_gpu_kms_info_t *scanout_kms)
 {
     if (display_width == 0 || display_height == 0)
         return NULL;
@@ -463,6 +487,10 @@ flip_gpu_context_t *flip_gpu_context_create(
         (PFN_eglChooseConfig)load_symbol(
             context->mali,
             "eglChooseConfig");
+    PFN_eglGetConfigAttrib eglGetConfigAttrib =
+        (PFN_eglGetConfigAttrib)load_symbol(
+            context->mali,
+            "eglGetConfigAttrib");
     PFN_eglCreateContext eglCreateContext =
         (PFN_eglCreateContext)load_symbol(
             context->mali,
@@ -471,6 +499,10 @@ flip_gpu_context_t *flip_gpu_context_create(
         (PFN_eglCreatePbufferSurface)load_symbol(
             context->mali,
             "eglCreatePbufferSurface");
+    PFN_eglCreateWindowSurface eglCreateWindowSurface =
+        (PFN_eglCreateWindowSurface)load_symbol(
+            context->mali,
+            "eglCreateWindowSurface");
     PFN_eglMakeCurrent eglMakeCurrent =
         (PFN_eglMakeCurrent)load_symbol(
             context->mali,
@@ -488,6 +520,10 @@ flip_gpu_context_t *flip_gpu_context_create(
         (PFN_eglTerminate)load_symbol(
             context->mali,
             "eglTerminate");
+    context->eglSwapBuffers =
+        (PFN_eglSwapBuffers)load_symbol(
+            context->mali,
+            "eglSwapBuffers");
 
     PFN_eglGetError eglGetError =
         (PFN_eglGetError)load_symbol(
@@ -501,12 +537,15 @@ flip_gpu_context_t *flip_gpu_context_create(
         !eglQueryString ||
         !eglBindAPI ||
         !eglChooseConfig ||
+        !eglGetConfigAttrib ||
         !eglCreateContext ||
         !eglCreatePbufferSurface ||
+        !eglCreateWindowSurface ||
         !eglMakeCurrent ||
         !context->eglDestroySurface ||
         !context->eglDestroyContext ||
         !context->eglTerminate ||
+        !context->eglSwapBuffers ||
         !eglGetError) {
         goto fail;
     }
@@ -532,6 +571,18 @@ flip_gpu_context_t *flip_gpu_context_create(
     if (!context->gbm) {
         fprintf(stderr, "FLIP_GPU: GBM device creation failed\n");
         goto fail;
+    }
+
+    if (scanout_kms) {
+        context->scanout = flip_gpu_scanout_create(
+            context->mali,
+            context->drm_fd,
+            context->gbm,
+            scanout_kms);
+        if (!context->scanout) {
+            fprintf(stderr, "FLIP_GPU: scanout preparation failed\n");
+            goto fail;
+        }
     }
 
     context->display =
@@ -568,20 +619,31 @@ flip_gpu_context_t *flip_gpu_context_create(
         goto fail;
     }
 
+    EGLint surface_type =
+        scanout_kms
+        ? EGL_WINDOW_BIT
+        : EGL_PBUFFER_BIT;
+
     const EGLint config_attributes[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+        EGL_SURFACE_TYPE, surface_type,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 0,
         EGL_NONE
     };
 
-    EGLConfig config = NULL;
+    EGLConfig configs[32];
+    memset(configs, 0, sizeof(configs));
+
     EGLint config_count = 0;
 
     if (!eglChooseConfig(
             context->display,
             config_attributes,
-            &config,
-            1,
+            configs,
+            (EGLint)(sizeof(configs) / sizeof(configs[0])),
             &config_count) ||
         config_count < 1) {
 
@@ -590,6 +652,41 @@ flip_gpu_context_t *flip_gpu_context_create(
             "FLIP_GPU: EGL config failed err=0x%x\n",
             eglGetError());
         goto fail;
+    }
+
+    EGLConfig config = configs[0];
+
+    if (scanout_kms) {
+        config = NULL;
+
+        for (EGLint index = 0;
+             index < config_count;
+             ++index) {
+
+            EGLint native_visual = 0;
+
+            if (!eglGetConfigAttrib(
+                    context->display,
+                    configs[index],
+                    EGL_NATIVE_VISUAL_ID,
+                    &native_visual)) {
+                continue;
+            }
+
+            if ((uint32_t)native_visual ==
+                FLIP_GPU_GBM_FORMAT_XRGB8888) {
+
+                config = configs[index];
+                break;
+            }
+        }
+
+        if (!config) {
+            fprintf(
+                stderr,
+                "FLIP_GPU: no XRGB8888 EGL window config\n");
+            goto fail;
+        }
     }
 
     const EGLint context_attributes[] = {
@@ -610,22 +707,40 @@ flip_gpu_context_t *flip_gpu_context_create(
         goto fail;
     }
 
-    const EGLint surface_attributes[] = {
-        EGL_WIDTH, (EGLint)display_width,
-        EGL_HEIGHT, (EGLint)display_height,
-        EGL_NONE
-    };
+    if (scanout_kms) {
+        context->surface = eglCreateWindowSurface(
+            context->display,
+            config,
+            flip_gpu_scanout_native_window(context->scanout),
+            NULL);
 
-    context->surface = eglCreatePbufferSurface(
-        context->display,
-        config,
-        surface_attributes);
-    if (!context->surface) {
-        fprintf(
-            stderr,
-            "FLIP_GPU: EGL pbuffer failed err=0x%x\n",
-            eglGetError());
-        goto fail;
+        if (!context->surface) {
+            fprintf(
+                stderr,
+                "FLIP_GPU: EGL window surface failed err=0x%x\n",
+                eglGetError());
+            goto fail;
+        }
+
+    } else {
+        const EGLint surface_attributes[] = {
+            EGL_WIDTH, (EGLint)display_width,
+            EGL_HEIGHT, (EGLint)display_height,
+            EGL_NONE
+        };
+
+        context->surface = eglCreatePbufferSurface(
+            context->display,
+            config,
+            surface_attributes);
+
+        if (!context->surface) {
+            fprintf(
+                stderr,
+                "FLIP_GPU: EGL pbuffer failed err=0x%x\n",
+                eglGetError());
+            goto fail;
+        }
     }
 
     if (!eglMakeCurrent(
@@ -910,6 +1025,12 @@ void flip_gpu_context_destroy(
             context->display);
     }
 
+    if (context->scanout) {
+        flip_gpu_scanout_destroy(
+            context->scanout);
+        context->scanout = NULL;
+    }
+
     if (context->gbm &&
         context->gbm_device_destroy) {
 
@@ -1135,7 +1256,21 @@ int flip_gpu_context_render(
         0,
         4);
 
-    context->glFinish();
+    if (context->scanout) {
+        if (!context->eglSwapBuffers(
+                context->display,
+                context->surface)) {
+            fprintf(stderr, "FLIP_GPU: eglSwapBuffers failed\n");
+            return -1;
+        }
+
+        if (flip_gpu_scanout_present(
+                context->scanout) < 0) {
+            return -1;
+        }
+    } else {
+        context->glFinish();
+    }
 
     return 0;
 }
