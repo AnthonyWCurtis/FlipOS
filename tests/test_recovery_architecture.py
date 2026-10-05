@@ -2,12 +2,12 @@
 
 from pathlib import Path
 
-GB = Path("src/emulators/flip_gb.c").read_text()
+RUNNER = Path("src/runtime/flip_emulator_runner.c").read_text()
 ADAPTER = Path("src/runtime/flip_session_adapter.c").read_text()
 
 errors = []
 
-required_gb = [
+required_runner = [
     '#include "flip_recovery.h"',
     "flip_recovery_context_init(",
     "flip_recovery_resume_blocked(",
@@ -15,11 +15,11 @@ required_gb = [
     ".persistence_complete =",
 ]
 
-for token in required_gb:
-    if token not in GB:
-        errors.append(f"flip_gb recovery integration missing: {token}")
+for token in required_runner:
+    if token not in RUNNER:
+        errors.append(f"shared runner recovery integration missing: {token}")
 
-forbidden_gb = [
+forbidden_runner = [
     ".restore-pending",
     "FLIP_SESSION_RECOVERY_ROOT",
     "fopen(",
@@ -27,9 +27,9 @@ forbidden_gb = [
     "unlink(",
 ]
 
-for token in forbidden_gb:
-    if token in GB:
-        errors.append(f"flip_gb must not own recovery storage detail: {token}")
+for token in forbidden_runner:
+    if token in RUNNER:
+        errors.append(f"shared runner must not own recovery storage detail: {token}")
 
 required_adapter = [
     '#include "flip_recovery.h"',

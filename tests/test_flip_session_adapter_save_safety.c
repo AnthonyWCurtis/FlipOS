@@ -69,9 +69,32 @@ static void test_gbc_uses_same_generic_capability(void)
     assert(adapter->supports_save_safety() == 1);
 }
 
+static void test_gba_uses_same_generic_capability(void)
+{
+    const flip_session_adapter_t *adapter =
+        flip_session_adapter_for_system("GBA");
+
+    assert(adapter != NULL);
+    assert(adapter->supports_save_safety != NULL);
+    assert(adapter->supports_save_safety() == 1);
+    assert(adapter->build_start_normal_argv != NULL);
+    assert(adapter->build_save_safety_argv != NULL);
+
+    char *argv[5] = {0};
+    assert(adapter->build_start_normal_argv(
+        "/mnt/SDCARD/flipos-dev/bin/flip-gba",
+        "/mnt/SDCARD/Roms/GBA/Pokemon - Emerald.gba",
+        argv,
+        5) == 0);
+    assert(strcmp(argv[0], "/mnt/SDCARD/flipos-dev/bin/flip-gba") == 0);
+    assert(strcmp(argv[1], "/mnt/SDCARD/Roms/GBA/Pokemon - Emerald.gba") == 0);
+    assert(strcmp(argv[2], "--no-resume") == 0);
+}
+
 int main(void)
 {
     test_gb_save_safety_command_builders();
     test_gbc_uses_same_generic_capability();
+    test_gba_uses_same_generic_capability();
     return 0;
 }

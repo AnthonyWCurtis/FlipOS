@@ -18,6 +18,9 @@ typedef struct {
     uint64_t transport_write_total_us;
     uint64_t transport_write_max_us;
     uint64_t transport_write_count;
+
+    uint64_t queue_dropped_frames;
+    uint64_t queue_peak_frames;
 } flip_audio_diag_snapshot_t;
 
 int flip_audio_open(
@@ -26,6 +29,9 @@ int flip_audio_open(
 size_t flip_audio_submit(
     const int16_t *samples,
     size_t frames);
+
+int flip_audio_set_source_rate(
+    unsigned source_sample_rate);
 
 int flip_audio_end_frame(void);
 

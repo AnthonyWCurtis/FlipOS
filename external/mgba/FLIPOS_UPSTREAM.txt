@@ -1,0 +1,20 @@
+FlipOS vendored dependency
+
+Project:
+mGBA
+
+Upstream:
+https://github.com/mgba-emu/mgba.git
+
+Vendored upstream commit:
+c3c8e5e813f245028de118a56734e1dc0f35ce2a
+
+Upstream branch at time of vendoring:
+master
+
+FlipOS carries a minimal source snapshot needed for the GBA Libretro build.
+The only source patch is in CMakeLists.txt: the mgba_libretro target is built
+STATIC instead of SHARED so FlipOS can link a self-contained ARM64 runner.
+
+Do not update this dependency without testing the new revision on real
+Miyoo Flip hardware.

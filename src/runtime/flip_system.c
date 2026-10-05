@@ -12,6 +12,10 @@ static const char *const gbc_extensions[] = {
     ".gbc"
 };
 
+static const char *const gba_extensions[] = {
+    ".gba"
+};
+
 static flip_system_t systems[] = {
     {
         .id = "GB",
@@ -50,6 +54,26 @@ static flip_system_t systems[] = {
             (int)(
                 sizeof(gbc_extensions) /
                 sizeof(gbc_extensions[0])),
+
+        .session_adapter = NULL
+    },
+    {
+        .id = "GBA",
+        .display_name = "Game Boy Advance",
+
+        .runner =
+            "/mnt/SDCARD/flipos-dev/bin/flip-gba",
+
+        .rom_directory =
+            "/mnt/SDCARD/Roms/GBA",
+
+        .rom_extensions =
+            gba_extensions,
+
+        .rom_extension_count =
+            (int)(
+                sizeof(gba_extensions) /
+                sizeof(gba_extensions[0])),
 
         .session_adapter = NULL
     }

@@ -26,6 +26,12 @@ static const flip_bios_definition_t BIOS_DEFINITIONS[] = {
         .filename = "gbc_bios.bin",
         .expected_size = 2304,
     },
+    {
+        .kind = FLIP_BIOS_GBA,
+        .system_id = "GBA",
+        .filename = "gba_bios.bin",
+        .expected_size = 16384,
+    },
 };
 
 static const flip_bios_definition_t *find_definition(
@@ -66,6 +72,8 @@ static const char *kind_name(
         return "GB_DMG";
     case FLIP_BIOS_GB_CGB:
         return "GB_CGB";
+    case FLIP_BIOS_GBA:
+        return "GBA";
     }
 
     return "UNKNOWN";
@@ -79,14 +87,21 @@ int flip_bios_system_directory(
     if (!system_id || !path || path_size == 0)
         return -1;
 
-    if (strcmp(system_id, "GB") != 0)
+    const char *directory_name = NULL;
+
+    if (strcmp(system_id, "GB") == 0)
+        directory_name = "gb";
+    else if (strcmp(system_id, "GBA") == 0)
+        directory_name = "gba";
+    else
         return -1;
 
     int written = snprintf(
         path,
         path_size,
-        "%s/gb",
-        flip_paths_system_root());
+        "%s/%s",
+        flip_paths_system_root(),
+        directory_name);
 
     if (written < 0 || (size_t)written >= path_size)
         return -1;

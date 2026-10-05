@@ -4,32 +4,26 @@
 #include <stdio.h>
 #include <string.h>
 
-int main(void)
+static void check_adapter(const char *system, const char *missing_rom)
 {
     const flip_session_adapter_t *adapter =
-        flip_session_adapter_for_system("GB");
+        flip_session_adapter_for_system(system);
 
     assert(adapter != NULL);
-    assert(strcmp(adapter->system, "GB") == 0);
+    assert(strcmp(adapter->system, system) == 0);
     assert(adapter->resume_available != NULL);
+    assert(adapter->resume_available(missing_rom) == 0);
+    assert(adapter->supports_save_safety != NULL);
+    assert(adapter->supports_save_safety() == 1);
+}
 
-    assert(
-        adapter->resume_available(
-            "/definitely/not/a/real/flipos-rom.gb") == 0);
+int main(void)
+{
+    check_adapter("GB", "/definitely/not/a/real/flipos-rom.gb");
+    check_adapter("GBC", "/definitely/not/a/real/flipos-rom.gbc");
+    check_adapter("GBA", "/definitely/not/a/real/flipos-rom.gba");
 
-    const flip_session_adapter_t *gbc_adapter =
-        flip_session_adapter_for_system("GBC");
-
-    assert(gbc_adapter != NULL);
-    assert(strcmp(gbc_adapter->system, "GBC") == 0);
-    assert(gbc_adapter->resume_available != NULL);
-
-    assert(
-        gbc_adapter->resume_available(
-            "/definitely/not/a/real/flipos-rom.gbc") == 0);
-
-    assert(
-        flip_session_adapter_for_system("UNKNOWN") == NULL);
+    assert(flip_session_adapter_for_system("UNKNOWN") == NULL);
 
     puts("flip_session_adapter tests passed");
     return 0;

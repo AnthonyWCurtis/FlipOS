@@ -2,6 +2,7 @@
 
 #include "flip_audio.h"
 #include "flip_audio_buffer.h"
+#include "flip_audio_queue.h"
 #include "flip_audio_resampler.h"
 #include "flip_settings.h"
 
@@ -16,6 +17,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
+#include <pthread.h>
 #include <time.h>
 
 static int audio_fd = -1;
@@ -24,13 +26,20 @@ static int speaker_volume = 30;
 
 static flip_audio_config_t audio_config;
 static flip_audio_buffer_t audio_buffer;
+static flip_audio_queue_t audio_queue;
 static flip_audio_resampler_t audio_resampler;
+
+static pthread_t audio_writer_thread;
+static pthread_mutex_t audio_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t audio_queue_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t audio_diag_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int audio_writer_started = 0;
+static int audio_writer_stop = 0;
 static int16_t audio_resample_buffer[
     FLIP_AUDIO_BUFFER_FRAMES *
     FLIP_AUDIO_BUFFER_CHANNELS];
 
 static flip_audio_diag_snapshot_t audio_diag;
-static int audio_diag_submit_active = 0;
 
 static uint64_t audio_diag_monotonic_us(void)
 {
@@ -57,17 +66,20 @@ static uint64_t audio_diag_elapsed_us(uint64_t start_us)
 static void audio_diag_record_transport_write(
     uint64_t start_us)
 {
-    if (!audio_diag_submit_active)
-        return;
-
     uint64_t elapsed =
         audio_diag_elapsed_us(start_us);
+
+    pthread_mutex_lock(
+        &audio_diag_mutex);
 
     audio_diag.transport_write_total_us += elapsed;
     audio_diag.transport_write_count++;
 
     if (elapsed > audio_diag.transport_write_max_us)
         audio_diag.transport_write_max_us = elapsed;
+
+    pthread_mutex_unlock(
+        &audio_diag_mutex);
 }
 
 /*
@@ -213,14 +225,6 @@ static int configure_speaker(void)
 
         int rc = 0;
 
-        rc |= system(
-            "/usr/bin/amixer sset 'Speaker' on "
-            ">/dev/null 2>&1");
-
-        rc |= system(
-            "/usr/bin/amixer sset 'Playback Path' SPK "
-            ">/dev/null 2>&1");
-
         char command[128];
 
         snprintf(
@@ -230,7 +234,35 @@ static int configure_speaker(void)
             ">/dev/null 2>&1",
             speaker_volume);
 
-        rc |= system(command);
+        if (speaker_volume == 0) {
+            /*
+             * Mute gain first, then disconnect the route.
+             */
+            rc |= system(command);
+
+            rc |= system(
+                "/usr/bin/amixer sset 'Playback Path' OFF "
+                ">/dev/null 2>&1");
+
+            rc |= system(
+                "/usr/bin/amixer sset 'Speaker' off "
+                ">/dev/null 2>&1");
+        } else {
+            /*
+             * RK817 may reset speaker gain when the route or
+             * switch is re-enabled. Set the requested gain
+             * last so resume/unmute cannot jump to full scale.
+             */
+            rc |= system(
+                "/usr/bin/amixer sset 'Playback Path' SPK "
+                ">/dev/null 2>&1");
+
+            rc |= system(
+                "/usr/bin/amixer sset 'Speaker' on "
+                ">/dev/null 2>&1");
+
+            rc |= system(command);
+        }
 
         if (rc == 0) {
 
@@ -255,7 +287,7 @@ static int configure_speaker(void)
     return -1;
 }
 
-static int audio_transport_write(
+static int audio_pipe_write(
     const int16_t *samples,
     size_t frames,
     void *userdata)
@@ -334,6 +366,215 @@ static int audio_transport_write(
         transport_start_us);
 
     return 0;
+}
+
+static int audio_queue_sink(
+    const int16_t *samples,
+    size_t frames,
+    void *userdata)
+{
+    (void)userdata;
+
+    if (!samples ||
+        frames == 0)
+        return -1;
+
+    int16_t silent[
+        FLIP_AUDIO_BUFFER_FRAMES *
+        FLIP_AUDIO_BUFFER_CHANNELS];
+
+    const int16_t *queued_samples =
+        samples;
+
+    if (speaker_volume == 0) {
+        size_t sample_count =
+            frames *
+            FLIP_AUDIO_BUFFER_CHANNELS;
+
+        if (sample_count >
+            FLIP_AUDIO_BUFFER_FRAMES *
+            FLIP_AUDIO_BUFFER_CHANNELS) {
+
+            return -1;
+        }
+
+        memset(
+            silent,
+            0,
+            sample_count *
+                sizeof(int16_t));
+
+        queued_samples =
+            silent;
+    }
+
+    pthread_mutex_lock(
+        &audio_queue_mutex);
+
+    size_t accepted =
+        flip_audio_queue_write(
+            &audio_queue,
+            queued_samples,
+            frames);
+
+    size_t peak_frames =
+        audio_queue.peak_frames;
+
+    pthread_cond_signal(
+        &audio_queue_cond);
+
+    pthread_mutex_unlock(
+        &audio_queue_mutex);
+
+    pthread_mutex_lock(
+        &audio_diag_mutex);
+
+    if (accepted < frames) {
+        audio_diag.queue_dropped_frames +=
+            frames - accepted;
+    }
+
+    if (peak_frames >
+        audio_diag.queue_peak_frames) {
+
+        audio_diag.queue_peak_frames =
+            peak_frames;
+    }
+
+    pthread_mutex_unlock(
+        &audio_diag_mutex);
+
+    /*
+     * A full queue intentionally drops the newest samples.
+     * Output transport must never stall the emulation clock.
+     */
+    return 0;
+}
+
+static void *audio_writer_main(
+    void *userdata)
+{
+    (void)userdata;
+
+    int16_t chunk[
+        FLIP_AUDIO_BUFFER_FRAMES *
+        FLIP_AUDIO_BUFFER_CHANNELS];
+
+    for (;;) {
+        pthread_mutex_lock(
+            &audio_queue_mutex);
+
+        while (flip_audio_queue_frames(
+                   &audio_queue) == 0 &&
+               !audio_writer_stop) {
+
+            pthread_cond_wait(
+                &audio_queue_cond,
+                &audio_queue_mutex);
+        }
+
+        if (flip_audio_queue_frames(
+                &audio_queue) == 0 &&
+            audio_writer_stop) {
+
+            pthread_mutex_unlock(
+                &audio_queue_mutex);
+            break;
+        }
+
+        size_t frames =
+            flip_audio_queue_read(
+                &audio_queue,
+                chunk,
+                FLIP_AUDIO_BUFFER_FRAMES);
+
+        pthread_mutex_unlock(
+            &audio_queue_mutex);
+
+        if (frames == 0)
+            continue;
+
+        if (audio_pipe_write(
+                chunk,
+                frames,
+                NULL) < 0) {
+
+            break;
+        }
+    }
+
+    return NULL;
+}
+
+static int audio_writer_start(void)
+{
+    pthread_mutex_lock(
+        &audio_queue_mutex);
+
+    flip_audio_queue_init(
+        &audio_queue);
+
+    audio_writer_stop = 0;
+
+    pthread_mutex_unlock(
+        &audio_queue_mutex);
+
+    int rc = pthread_create(
+        &audio_writer_thread,
+        NULL,
+        audio_writer_main,
+        NULL);
+
+    if (rc != 0) {
+        fprintf(
+            stderr,
+            "flip_audio: writer thread create failed: %s\n",
+            strerror(rc));
+
+        return -1;
+    }
+
+    audio_writer_started = 1;
+
+    fprintf(
+        stderr,
+        "flip_audio: async writer started queue_frames=%d\n",
+        FLIP_AUDIO_QUEUE_FRAMES);
+
+    return 0;
+}
+
+static void audio_writer_stop_and_join(void)
+{
+    if (!audio_writer_started)
+        return;
+
+    pthread_mutex_lock(
+        &audio_queue_mutex);
+
+    audio_writer_stop = 1;
+
+    pthread_cond_signal(
+        &audio_queue_cond);
+
+    pthread_mutex_unlock(
+        &audio_queue_mutex);
+
+    (void)pthread_join(
+        audio_writer_thread,
+        NULL);
+
+    audio_writer_started = 0;
+    audio_writer_stop = 0;
+
+    pthread_mutex_lock(
+        &audio_queue_mutex);
+
+    flip_audio_queue_reset(
+        &audio_queue);
+
+    pthread_mutex_unlock(
+        &audio_queue_mutex);
 }
 
 int flip_audio_open(
@@ -505,6 +746,29 @@ int flip_audio_open(
 
     flip_audio_diag_reset();
 
+    if (audio_writer_start() < 0) {
+        close(audio_fd);
+        audio_fd = -1;
+
+        (void)kill(
+            audio_pid,
+            SIGTERM);
+
+        while (waitpid(
+                   audio_pid,
+                   NULL,
+                   0) < 0 &&
+               errno == EINTR) {
+        }
+
+        audio_pid = -1;
+
+        flip_audio_resampler_reset(
+            &audio_resampler);
+
+        return -1;
+    }
+
     /*
      * Give RK817/ASoC time to establish the playback path,
      * then repair the confirmed deep-resume codec state if
@@ -556,8 +820,6 @@ size_t flip_audio_submit(
     uint64_t submit_start_us =
         audio_diag_monotonic_us();
 
-    audio_diag_submit_active = 1;
-
     while (source_accepted < frames &&
            !sink_failed) {
 
@@ -580,7 +842,7 @@ size_t flip_audio_submit(
                     &audio_buffer,
                     audio_resample_buffer,
                     produced,
-                    audio_transport_write,
+                    audio_queue_sink,
                     NULL,
                     &sink_failed);
 
@@ -600,16 +862,20 @@ size_t flip_audio_submit(
         }
     }
 
-    audio_diag_submit_active = 0;
-
     uint64_t submit_us =
         audio_diag_elapsed_us(submit_start_us);
+
+    pthread_mutex_lock(
+        &audio_diag_mutex);
 
     audio_diag.submit_total_us += submit_us;
     audio_diag.submit_count++;
 
     if (submit_us > audio_diag.submit_max_us)
         audio_diag.submit_max_us = submit_us;
+
+    pthread_mutex_unlock(
+        &audio_diag_mutex);
 
     if (sink_failed) {
 
@@ -627,6 +893,53 @@ size_t flip_audio_submit(
     return source_accepted;
 }
 
+int flip_audio_set_source_rate(
+    unsigned source_sample_rate)
+{
+    if (source_sample_rate == 0)
+        return -1;
+
+    /*
+     * Libretro cores can report timing changes while a game is running.
+     * If audio is not open yet, Core Host will use the latest rate from
+     * the bridge when it creates the Audio Host.
+     */
+    if (audio_fd < 0)
+        return 0;
+
+    if (audio_config.source_sample_rate ==
+        source_sample_rate) {
+
+        return 0;
+    }
+
+    unsigned previous_rate =
+        audio_config.source_sample_rate;
+
+    if (flip_audio_resampler_init(
+            &audio_resampler,
+            source_sample_rate,
+            audio_config.output_sample_rate,
+            audio_config.channels) < 0) {
+
+        return -1;
+    }
+
+    flip_audio_buffer_reset(
+        &audio_buffer);
+
+    audio_config.source_sample_rate =
+        source_sample_rate;
+
+    fprintf(
+        stderr,
+        "flip_audio: source_rate changed %u->%u\n",
+        previous_rate,
+        source_sample_rate);
+
+    return 0;
+}
+
 int flip_audio_end_frame(void)
 {
     if (audio_fd < 0) {
@@ -639,7 +952,7 @@ int flip_audio_end_frame(void)
 
     if (flip_audio_buffer_flush(
             &audio_buffer,
-            audio_transport_write,
+            audio_queue_sink,
             NULL) < 0) {
 
         flip_audio_buffer_reset(
@@ -658,17 +971,27 @@ void flip_audio_diag_snapshot(
     if (!snapshot)
         return;
 
+    pthread_mutex_lock(
+        &audio_diag_mutex);
+
     *snapshot = audio_diag;
+
+    pthread_mutex_unlock(
+        &audio_diag_mutex);
 }
 
 void flip_audio_diag_reset(void)
 {
+    pthread_mutex_lock(
+        &audio_diag_mutex);
+
     memset(
         &audio_diag,
         0,
         sizeof(audio_diag));
 
-    audio_diag_submit_active = 0;
+    pthread_mutex_unlock(
+        &audio_diag_mutex);
 }
 
 int flip_audio_set_volume(int percent)
@@ -688,7 +1011,55 @@ int flip_audio_set_volume(int percent)
         ">/dev/null 2>&1",
         percent);
 
-    if (system(command) != 0) {
+    int rc = 0;
+
+    if (percent == 0) {
+        pthread_mutex_lock(
+            &audio_queue_mutex);
+
+        flip_audio_queue_reset(
+            &audio_queue);
+
+        pthread_mutex_unlock(
+            &audio_queue_mutex);
+
+        flip_audio_buffer_reset(
+            &audio_buffer);
+
+        /*
+         * speaker_volume remains nonzero until the end of this
+         * function, so explicitly set gain to zero before
+         * disconnecting the hardware path.
+         */
+        rc |= system(command);
+
+        rc |= system(
+            "/usr/bin/amixer sset 'Playback Path' OFF "
+            ">/dev/null 2>&1");
+
+        rc |= system(
+            "/usr/bin/amixer sset 'Speaker' off "
+            ">/dev/null 2>&1");
+    } else {
+        /*
+         * When unmuting from zero, audio_queue_sink continues
+         * feeding digital silence because speaker_volume is
+         * still zero here. Re-enable the route first, then set
+         * the requested gain last; only afterwards expose the
+         * new nonzero software volume.
+         */
+        rc |= system(
+            "/usr/bin/amixer sset 'Playback Path' SPK "
+            ">/dev/null 2>&1");
+
+        rc |= system(
+            "/usr/bin/amixer sset 'Speaker' on "
+            ">/dev/null 2>&1");
+
+        rc |= system(command);
+    }
+
+    if (rc != 0) {
         fprintf(
             stderr,
             "flip_audio: volume set failed\n");
@@ -725,18 +1096,25 @@ void flip_audio_close(void)
 
         if (flip_audio_buffer_flush(
                 &audio_buffer,
-                audio_transport_write,
+                audio_queue_sink,
                 NULL) < 0) {
 
             fprintf(
                 stderr,
-                "flip_audio: final flush failed\n");
+                "flip_audio: final queue flush failed\n");
         }
+    }
 
-        if (audio_fd >= 0) {
-            close(audio_fd);
-            audio_fd = -1;
-        }
+    /*
+     * Drain queued PCM on the writer thread before closing the pipe.
+     * This keeps shutdown deterministic without ever blocking normal
+     * frame execution on ALSA.
+     */
+    audio_writer_stop_and_join();
+
+    if (audio_fd >= 0) {
+        close(audio_fd);
+        audio_fd = -1;
     }
 
     flip_audio_buffer_reset(

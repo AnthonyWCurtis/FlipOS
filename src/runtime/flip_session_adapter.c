@@ -7,14 +7,14 @@
 #include <unistd.h>
 
 /*
- * FlipGB currently identifies automatic resume states using
+ * FlipOS emulator runners identify automatic resume states using
  * an FNV-1a hash of the original ROM path.
  *
- * GB and GBC deliberately share this Gambatte persistence
- * mechanism for now. The ROM path keeps their states distinct.
+ * Each system adapter supplies a storage namespace. The ROM path hash
+ * keeps individual game states distinct inside that namespace.
  */
 static uint64_t
-gb_resume_path_hash(
+resume_path_hash(
     const char *text)
 {
     uint64_t hash =
@@ -34,7 +34,8 @@ gb_resume_path_hash(
 }
 
 static int
-gb_resume_available(
+resume_available_for(
+    const char *storage_id,
     const char *rom_path)
 {
     if (!rom_path ||
@@ -44,7 +45,7 @@ gb_resume_available(
     flip_recovery_context_t recovery_context;
     flip_recovery_context_init(
         &recovery_context,
-        "gb",
+        storage_id,
         rom_path);
 
     if (flip_recovery_resume_blocked(
@@ -58,9 +59,10 @@ gb_resume_available(
         snprintf(
             path,
             sizeof(path),
-            "/mnt/SDCARD/flipos-dev/states/gb/%016llx.state",
+            "/mnt/SDCARD/flipos-dev/states/%s/%016llx.state",
+            storage_id,
             (unsigned long long)
-                gb_resume_path_hash(
+                resume_path_hash(
                     rom_path));
 
     if (written < 0 ||
@@ -70,6 +72,20 @@ gb_resume_available(
     return access(
         path,
         R_OK) == 0;
+}
+
+static int
+gb_resume_available(
+    const char *rom_path)
+{
+    return resume_available_for("gb", rom_path);
+}
+
+static int
+gba_resume_available(
+    const char *rom_path)
+{
+    return resume_available_for("gba", rom_path);
 }
 
 static int
@@ -155,6 +171,15 @@ gbc_session_adapter = {
     .build_save_safety_argv = gb_build_save_safety_argv
 };
 
+static const flip_session_adapter_t
+gba_session_adapter = {
+    .system = "GBA",
+    .resume_available = gba_resume_available,
+    .supports_save_safety = gb_supports_save_safety,
+    .build_start_normal_argv = gb_build_start_normal_argv,
+    .build_save_safety_argv = gb_build_save_safety_argv
+};
+
 const flip_session_adapter_t *
 flip_session_adapter_for_system(
     const char *system)
@@ -174,6 +199,13 @@ flip_session_adapter_for_system(
             gbc_session_adapter.system) == 0) {
 
         return &gbc_session_adapter;
+    }
+
+    if (strcmp(
+            system,
+            gba_session_adapter.system) == 0) {
+
+        return &gba_session_adapter;
     }
 
     return NULL;
