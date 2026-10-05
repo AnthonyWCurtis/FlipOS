@@ -104,9 +104,14 @@ GBA_OBJS := \
 	$(BUILD)/flip_mgba_core.o \
 	$(EMULATOR_OBJS)
 
+PERF_CAPTURE_OBJS := \
+	$(BUILD)/flip_perf_capture.o \
+	$(BUILD)/flip_telemetry.o \
+	$(BUILD)/flip_battery.o
+
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -119,6 +124,8 @@ gba: $(BUILD)/flip-gba
 gpu-service: $(BUILD)/flip-gpu-service
 
 gpu-sender: $(BUILD)/flip-gpu-sender
+
+perf-capture: $(BUILD)/flip-perf-capture
 
 verify:
 	@log=/tmp/flipos-verify.log; \
@@ -157,6 +164,7 @@ verify:
 		$(MAKE) test-session-save-safety && \
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
+		$(MAKE) test-perf-capture-tools && \
 		$(MAKE) test-architecture && \
 		$(MAKE) gpu-service && \
 		$(MAKE) all && \
@@ -271,6 +279,9 @@ test-perf-diag: $(BUILD)/test-flip-perf-diag
 
 test-telemetry: $(BUILD)/test-flip-telemetry
 	$(BUILD)/test-flip-telemetry
+
+test-perf-capture-tools:
+	python3 tests/test_perf_capture_tools.py
 
 test-architecture:
 	python3 tests/test_flip_gb_architecture.py
@@ -640,6 +651,9 @@ $(BUILD)/flip_drm.o: src/hwtest/flip_drm.c | $(BUILD)
 $(BUILD)/flip_draw.o: src/hwtest/flip_draw.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_perf_capture.o: src/hwtest/flip_perf_capture.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -c $< -o $@
+
 $(BUILD)/libretro_file_stream.o: external/gambatte-libretro/libgambatte/libretro-common/streams/file_stream.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
 
@@ -684,6 +698,9 @@ $(BUILD)/flip-gpu-service: \
 		src/runtime/flip_gpu_protocol.c \
 		src/runtime/flip_video_layout.c \
 		-ldl -o $@
+
+$(BUILD)/flip-perf-capture: $(PERF_CAPTURE_OBJS)
+	$(CC) -static -o $@ $(PERF_CAPTURE_OBJS)
 
 $(BUILD)/flip-gpu-sender: \
 		src/runtime/flip_gpu_sender.c \
@@ -751,6 +768,7 @@ clean:
 		$(BUILD)/flip-gba \
 		$(BUILD)/flip-gpu-service \
 		$(BUILD)/flip-gpu-sender \
+		$(BUILD)/flip-perf-capture \
 		$(BUILD)/libgambatte_libretro.a \
 		$(BUILD)/mgba_libretro.a \
 		$(BUILD)/test-flip-controls \
