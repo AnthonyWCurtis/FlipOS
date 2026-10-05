@@ -354,26 +354,6 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
         if (flip_hotkeys_apply_actions(&control_state.system, &hotkey_result) < 0)
             fprintf(stderr, "FLIP_CORE_HOST: global hotkey handling failed\n");
 
-        double measured_fps = 0.0;
-        int fps_result = flip_timing_record_frame(&timing, &measured_fps);
-        if (fps_result < 0) {
-            fprintf(stderr, "FLIP_CORE_HOST: timing FPS measurement failed\n");
-            host_result = -1;
-            break;
-        }
-
-        if (fps_result > 0) {
-            last_measured_fps = measured_fps;
-            last_measured_fps_valid = 1;
-            if (telemetry_ready && perf_overlay_enabled &&
-                flip_telemetry_sample(&telemetry, measured_fps, 1) == 0) {
-                const flip_telemetry_snapshot_t *snapshot = flip_telemetry_snapshot(&telemetry);
-                flip_video_set_perf_overlay(1, snapshot);
-                log_telemetry(snapshot);
-            }
-            fprintf(stderr, "FLIP_CORE_HOST_FPS %.3f target=%.3f\n", measured_fps, fps);
-        }
-
         flip_lifecycle_result_t lifecycle_after_frame;
         lifecycle_result = flip_lifecycle_handle(
             &control_state.system,
@@ -397,6 +377,26 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
             fprintf(stderr, "FLIP_CORE_HOST: timing wait failed\n");
             host_result = -1;
             break;
+        }
+
+        double measured_fps = 0.0;
+        int fps_result = flip_timing_record_frame(&timing, &measured_fps);
+        if (fps_result < 0) {
+            fprintf(stderr, "FLIP_CORE_HOST: timing FPS measurement failed\n");
+            host_result = -1;
+            break;
+        }
+
+        if (fps_result > 0) {
+            last_measured_fps = measured_fps;
+            last_measured_fps_valid = 1;
+            if (telemetry_ready && perf_overlay_enabled &&
+                flip_telemetry_sample(&telemetry, measured_fps, 1) == 0) {
+                const flip_telemetry_snapshot_t *snapshot = flip_telemetry_snapshot(&telemetry);
+                flip_video_set_perf_overlay(1, snapshot);
+                log_telemetry(snapshot);
+            }
+            fprintf(stderr, "FLIP_CORE_HOST_FPS %.3f target=%.3f\n", measured_fps, fps);
         }
 
         uint64_t late_us = timing.last_late_ns > 0

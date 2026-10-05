@@ -472,8 +472,9 @@ static void test_host_owns_frame_order_and_exit_code(void)
     assert_before("core_frame", "audio_end");
     assert_before("audio_end", "life_immediate");
     assert_before("life_immediate", "hotkeys");
-    assert_before("hotkeys", "timing_record");
-    assert_before("timing_record", "life_after");
+    assert_before("hotkeys", "life_after");
+    assert(find_event("timing_wait") < 0);
+    assert(find_event("timing_record") < 0);
     assert_before("life_after", "commit_save");
     assert_before("commit_save", "save_state");
     assert_before("save_state", "persistence_complete");
