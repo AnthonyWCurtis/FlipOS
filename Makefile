@@ -102,7 +102,7 @@ GBA_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender verify test-controls test-timing test-audio test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -111,6 +111,10 @@ frontend: $(BUILD)/flip-frontend
 gb: $(BUILD)/flip-gb
 
 gba: $(BUILD)/flip-gba
+
+gpu-service: $(BUILD)/flip-gpu-service
+
+gpu-sender: $(BUILD)/flip-gpu-sender
 
 verify:
 	@log=/tmp/flipos-verify.log; \
@@ -133,6 +137,8 @@ verify:
 		$(MAKE) test-core && \
 		$(MAKE) test-core-host && \
 		$(MAKE) test-video-layout && \
+		$(MAKE) test-gpu-protocol && \
+		$(MAKE) test-gpu-client && \
 		$(MAKE) test-state && \
 		$(MAKE) test-state-manager && \
 		$(MAKE) test-state-recovery-health && \
@@ -147,6 +153,7 @@ verify:
 		$(MAKE) test-perf-diag && \
 		$(MAKE) test-telemetry && \
 		$(MAKE) test-architecture && \
+		$(MAKE) gpu-service && \
 		$(MAKE) all && \
 		git diff --check \
 	) >$$log 2>&1; then \
@@ -210,6 +217,12 @@ test-core-host: $(BUILD)/test-flip-core-host
 
 test-video-layout: $(BUILD)/test-flip-video-layout
 	$(BUILD)/test-flip-video-layout
+
+test-gpu-protocol: $(BUILD)/test-flip-gpu-protocol
+	$(BUILD)/test-flip-gpu-protocol
+
+test-gpu-client: $(BUILD)/test-flip-gpu-client
+	$(BUILD)/test-flip-gpu-client
 
 test-state: $(BUILD)/test-flip-state
 	$(BUILD)/test-flip-state
@@ -371,6 +384,16 @@ $(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_h
 $(BUILD)/test-flip-video-layout: tests/test_flip_video_layout.c src/runtime/flip_video_layout.c include/flip_video_layout.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_video_layout.c src/runtime/flip_video_layout.c \
+		-o $@
+
+$(BUILD)/test-flip-gpu-protocol: tests/test_flip_gpu_protocol.c src/runtime/flip_gpu_protocol.c include/flip_gpu_protocol.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_gpu_protocol.c src/runtime/flip_gpu_protocol.c \
+		-o $@
+
+$(BUILD)/test-flip-gpu-client: tests/test_flip_gpu_client.c src/runtime/flip_gpu_client.c src/runtime/flip_gpu_protocol.c include/flip_gpu_client.h include/flip_gpu_protocol.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_gpu_client.c src/runtime/flip_gpu_client.c src/runtime/flip_gpu_protocol.c \
 		-o $@
 
 $(BUILD)/test-flip-state: tests/test_flip_state.c src/runtime/flip_state.c src/runtime/flip_core.c include/flip_state.h include/flip_core.h | $(BUILD)
@@ -614,6 +637,36 @@ $(BUILD)/libretro_rtime.o: external/gambatte-libretro/libgambatte/libretro-commo
 $(BUILD)/libretro_vfs.o: external/gambatte-libretro/libgambatte/libretro-common/vfs/vfs_implementation.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Iexternal/gambatte-libretro/libgambatte/libretro-common/include -c $< -o $@
 
+$(BUILD)/flip-gpu-service: \
+		src/runtime/flip_gpu_service.c \
+		src/runtime/flip_gpu_context.c \
+		src/runtime/flip_gpu_kms.c \
+		src/runtime/flip_gpu_protocol.c \
+		src/runtime/flip_video_layout.c \
+		include/flip_gpu_context.h \
+		include/flip_gpu_kms.h \
+		include/flip_gpu_protocol.h \
+		include/flip_video_layout.h | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		src/runtime/flip_gpu_service.c \
+		src/runtime/flip_gpu_context.c \
+		src/runtime/flip_gpu_kms.c \
+		src/runtime/flip_gpu_protocol.c \
+		src/runtime/flip_video_layout.c \
+		-ldl -o $@
+
+$(BUILD)/flip-gpu-sender: \
+		src/runtime/flip_gpu_sender.c \
+		src/runtime/flip_gpu_client.c \
+		src/runtime/flip_gpu_protocol.c \
+		include/flip_gpu_client.h \
+		include/flip_gpu_protocol.h | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		src/runtime/flip_gpu_sender.c \
+		src/runtime/flip_gpu_client.c \
+		src/runtime/flip_gpu_protocol.c \
+		-o $@
+
 $(BUILD)/flip-frontend: $(FRONTEND_OBJS)
 	$(CC) -static -o $@ $(FRONTEND_OBJS) -lm
 
@@ -666,6 +719,8 @@ clean:
 		$(BUILD)/flip-frontend \
 		$(BUILD)/flip-gb \
 		$(BUILD)/flip-gba \
+		$(BUILD)/flip-gpu-service \
+		$(BUILD)/flip-gpu-sender \
 		$(BUILD)/libgambatte_libretro.a \
 		$(BUILD)/mgba_libretro.a \
 		$(BUILD)/test-flip-controls \
@@ -683,6 +738,8 @@ clean:
 		$(BUILD)/test-flip-core \
 		$(BUILD)/test-flip-core-host \
 		$(BUILD)/test-flip-video-layout \
+		$(BUILD)/test-flip-gpu-protocol \
+		$(BUILD)/test-flip-gpu-client \
 		$(BUILD)/test-flip-state \
 		$(BUILD)/test-flip-state-manager \
 		$(BUILD)/test-flip-state-recovery-health \
