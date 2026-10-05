@@ -10,6 +10,10 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#ifndef TEST_GPU_SERVICE_PATH
+#define TEST_GPU_SERVICE_PATH "build/test-flip-gpu-fake-service"
+#endif
+
 int main(void)
 {
     unlink(FLIP_GPU_SOCKET_PATH);
@@ -81,6 +85,25 @@ int main(void)
     flip_gpu_client_close(&client);
     close(server);
     unlink(FLIP_GPU_SOCKET_PATH);
+
+    flip_gpu_client_t launched;
+    assert(flip_gpu_client_launch(
+        &launched,
+        TEST_GPU_SERVICE_PATH,
+        1) == 0);
+    assert(launched.service_pid > 0);
+
+    assert(flip_gpu_client_submit(
+        &launched,
+        pixels,
+        2,
+        2,
+        4,
+        FLIP_GPU_FORMAT_RGB565) == 0);
+
+    flip_gpu_client_close(&launched);
+    assert(launched.fd < 0);
+    assert(launched.service_pid < 0);
 
     puts("flip_gpu_client tests passed");
     return 0;

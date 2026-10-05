@@ -391,7 +391,12 @@ $(BUILD)/test-flip-gpu-protocol: tests/test_flip_gpu_protocol.c src/runtime/flip
 		tests/test_flip_gpu_protocol.c src/runtime/flip_gpu_protocol.c \
 		-o $@
 
-$(BUILD)/test-flip-gpu-client: tests/test_flip_gpu_client.c src/runtime/flip_gpu_client.c src/runtime/flip_gpu_protocol.c include/flip_gpu_client.h include/flip_gpu_protocol.h | $(BUILD)
+$(BUILD)/test-flip-gpu-fake-service: tests/test_flip_gpu_fake_service.c include/flip_gpu_protocol.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_gpu_fake_service.c \
+		-o $@
+
+$(BUILD)/test-flip-gpu-client: tests/test_flip_gpu_client.c src/runtime/flip_gpu_client.c src/runtime/flip_gpu_protocol.c include/flip_gpu_client.h include/flip_gpu_protocol.h $(BUILD)/test-flip-gpu-fake-service | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_gpu_client.c src/runtime/flip_gpu_client.c src/runtime/flip_gpu_protocol.c \
 		-o $@
@@ -743,6 +748,7 @@ clean:
 		$(BUILD)/test-flip-video-layout \
 		$(BUILD)/test-flip-gpu-protocol \
 		$(BUILD)/test-flip-gpu-client \
+		$(BUILD)/test-flip-gpu-fake-service \
 		$(BUILD)/test-flip-state \
 		$(BUILD)/test-flip-state-manager \
 		$(BUILD)/test-flip-state-recovery-health \
