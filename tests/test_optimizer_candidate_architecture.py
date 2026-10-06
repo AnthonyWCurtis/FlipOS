@@ -7,6 +7,7 @@ source = Path("src/hwtest/flip_optimizer_candidate_tool.c").read_text()
 errors = []
 
 required = [
+    'strcmp(argv[1], "integrity-only") == 0',
     'strcmp(argv[1], "table-only") == 0',
     'strcmp(argv[1], "live-once") == 0',
     "flip_optimizer_calibration_session_ready_for_apply",
@@ -15,6 +16,9 @@ required = [
     "flip_optimizer_calibration_session_cancel_unapplied",
     "flip_optimizer_calibration_session_confirm_stable",
     "enter_candidate_frequency(",
+    "run_integrity_check(",
+    "LIVE_INTEGRITY_OK phase=pre",
+    "LIVE_INTEGRITY_OK phase=post",
     "run_stress_window(",
     "return_to_parking_frequency(",
     "read_cpu_rail_uv(",
@@ -58,7 +62,12 @@ live_ready = live.find(
 )
 live_apply = live.find("module_apply_table(")
 live_enter = live.find("enter_candidate_frequency(")
+live_integrity_first = live.find("run_integrity_check(")
 live_stress = live.find("run_stress_window(")
+live_integrity_second = live.find(
+    "run_integrity_check(",
+    live_stress + 1,
+)
 live_park = live.find("return_to_parking_frequency(")
 live_restore = live.find("module_restore_table()")
 live_policy_restore = live.find("flip_cpu_policy_restore(&original)")
@@ -70,7 +79,9 @@ positions = [
     live_ready,
     live_apply,
     live_enter,
+    live_integrity_first,
     live_stress,
+    live_integrity_second,
     live_park,
     live_restore,
     live_policy_restore,
@@ -81,8 +92,8 @@ if min(positions) < 0:
     pass
 elif positions != sorted(positions):
     errors.append(
-        "live runner safety order must be guard, apply, enter, stress, "
-        "park, restore table, restore policy, confirm"
+        "live runner safety order must be guard, apply, enter, integrity, "
+        "stress, integrity, park, restore table, restore policy, confirm"
     )
 
 if "candidate_uv < FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC" in source:

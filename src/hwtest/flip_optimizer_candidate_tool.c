@@ -44,6 +44,8 @@
 #define FLIP_OPTIMIZER_STRESS_MAX_SECONDS 120U
 #define FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC 75000U
 #define FLIP_OPTIMIZER_STRESS_BUFFER_WORDS 32768U
+#define FLIP_OPTIMIZER_INTEGRITY_WORDS 4096U
+#define FLIP_OPTIMIZER_INTEGRITY_ROUNDS 48U
 
 typedef struct {
     unsigned target_uv;
@@ -363,6 +365,192 @@ typedef struct {
     atomic_int *failed;
     uint64_t checksum;
 } flip_stress_worker_t;
+
+typedef struct {
+    unsigned worker_index;
+    uint64_t checksum;
+    int rc;
+} flip_integrity_worker_t;
+
+static uint64_t rotate_left_64(
+    uint64_t value,
+    unsigned shift)
+{
+    return
+        (value << shift) |
+        (value >> (64U - shift));
+}
+
+static void *integrity_worker_main(void *opaque)
+{
+    static const uint64_t expected[
+        FLIP_OPTIMIZER_STRESS_WORKERS] = {
+        0x5265b85ac09d6289ULL,
+        0x1ac7c67083926e93ULL,
+        0x8bf9170181793689ULL,
+        0xd32cf2f5bb3f25bbULL,
+    };
+
+    flip_integrity_worker_t *worker = opaque;
+
+    if (!worker ||
+        worker->worker_index >=
+            FLIP_OPTIMIZER_STRESS_WORKERS)
+        return NULL;
+
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(worker->worker_index, &set);
+
+    if (pthread_setaffinity_np(
+            pthread_self(),
+            sizeof(set),
+            &set) != 0) {
+        worker->rc = -1;
+        return NULL;
+    }
+
+    uint64_t *buffer = malloc(
+        FLIP_OPTIMIZER_INTEGRITY_WORDS *
+        sizeof(*buffer));
+
+    if (!buffer) {
+        worker->rc = -1;
+        return NULL;
+    }
+
+    const uint64_t c1 =
+        0x5851f42d4c957f2dULL;
+    const uint64_t c2 =
+        0x94d049bb133111ebULL;
+    const uint64_t base =
+        0xd1b54a32d192ed03ULL;
+    const uint64_t worker_constant =
+        0x9e3779b97f4a7c15ULL;
+
+    uint64_t seed =
+        base ^
+        ((uint64_t)worker->worker_index *
+         worker_constant);
+
+    for (size_t i = 0;
+         i < FLIP_OPTIMIZER_INTEGRITY_WORDS;
+         ++i) {
+        buffer[i] =
+            seed ^
+            ((uint64_t)i * c1);
+    }
+
+    uint64_t state = seed;
+
+    for (unsigned round = 0;
+         round < FLIP_OPTIMIZER_INTEGRITY_ROUNDS;
+         ++round) {
+        for (size_t i = 0;
+             i < FLIP_OPTIMIZER_INTEGRITY_WORDS;
+             ++i) {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+
+            uint64_t value =
+                buffer[i] +
+                state +
+                ((uint64_t)i * c1) +
+                round;
+
+            value = rotate_left_64(
+                value,
+                23);
+
+            buffer[i] =
+                value ^
+                (state * c2);
+        }
+
+        state ^=
+            buffer[
+                (state >> 16) %
+                FLIP_OPTIMIZER_INTEGRITY_WORDS];
+    }
+
+    uint64_t checksum = state;
+
+    for (size_t i = 0;
+         i < FLIP_OPTIMIZER_INTEGRITY_WORDS;
+         i += 17) {
+        checksum ^=
+            rotate_left_64(
+                buffer[i],
+                29);
+    }
+
+    worker->checksum = checksum;
+    worker->rc =
+        checksum ==
+            expected[worker->worker_index]
+        ? 0
+        : -1;
+
+    free(buffer);
+    return NULL;
+}
+
+static int run_integrity_check(void)
+{
+    pthread_t threads[FLIP_OPTIMIZER_STRESS_WORKERS];
+    flip_integrity_worker_t
+        workers[FLIP_OPTIMIZER_STRESS_WORKERS];
+
+    memset(threads, 0, sizeof(threads));
+    memset(workers, 0, sizeof(workers));
+
+    unsigned created = 0;
+    int failed = 0;
+
+    for (unsigned i = 0;
+         i < FLIP_OPTIMIZER_STRESS_WORKERS;
+         ++i) {
+        workers[i].worker_index = i;
+        workers[i].rc = -1;
+
+        if (pthread_create(
+                &threads[i],
+                NULL,
+                integrity_worker_main,
+                &workers[i]) != 0) {
+            failed = 1;
+            break;
+        }
+
+        created++;
+    }
+
+    for (unsigned i = 0; i < created; ++i) {
+        if (pthread_join(
+                threads[i],
+                NULL) != 0)
+            failed = 1;
+    }
+
+    if (created != FLIP_OPTIMIZER_STRESS_WORKERS)
+        failed = 1;
+
+    for (unsigned i = 0; i < created; ++i) {
+        if (workers[i].rc != 0) {
+            fprintf(
+                stderr,
+                "OPTIMIZER_CANDIDATE: integrity mismatch "
+                "worker=%u checksum=%016llx\n",
+                i,
+                (unsigned long long)
+                    workers[i].checksum);
+            failed = 1;
+        }
+    }
+
+    return failed ? -1 : 0;
+}
 
 static int read_soc_temp_mc(unsigned *temp_mc)
 {
@@ -1193,6 +1381,17 @@ static int run_live_once(unsigned duration_seconds)
 
     voltage_entered = 1;
 
+    if (run_integrity_check() < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: pre-stress integrity failed\n");
+        goto fail;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: LIVE_INTEGRITY_OK phase=pre\n");
+    fflush(stdout);
+
     unsigned max_temp_mc = 0;
     unsigned samples = 0;
 
@@ -1217,6 +1416,17 @@ static int run_live_once(unsigned duration_seconds)
             "OPTIMIZER_CANDIDATE: live stress failed\n");
         goto fail;
     }
+
+    if (run_integrity_check() < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: post-stress integrity failed\n");
+        goto fail;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: LIVE_INTEGRITY_OK phase=post\n");
+    fflush(stdout);
 
     stress_ok = 1;
 
@@ -1348,6 +1558,15 @@ static void usage(const char *program)
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 &&
+        strcmp(argv[1], "integrity-only") == 0) {
+        if (run_integrity_check() < 0)
+            return EXIT_FAILURE;
+
+        printf("OPTIMIZER_CANDIDATE: INTEGRITY_ONLY_OK\n");
+        return EXIT_SUCCESS;
+    }
+
     if (argc == 2 &&
         strcmp(argv[1], "table-only") == 0)
         return run_table_only() == 0
