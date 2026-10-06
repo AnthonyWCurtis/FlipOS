@@ -125,6 +125,15 @@ static void reset_test_root(void)
 
     assert(written > 0 && (size_t)written < sizeof(system_dir));
     assert(mkdir(system_dir, 0700) == 0);
+
+    written = snprintf(
+        system_dir,
+        sizeof(system_dir),
+        "%s/gba",
+        FLIP_STATE_ROOT);
+
+    assert(written > 0 && (size_t)written < sizeof(system_dir));
+    assert(mkdir(system_dir, 0700) == 0);
 }
 
 static void write_bytes(
@@ -292,6 +301,56 @@ static void test_restore_wrong_size_current_is_unusable(void)
     static const unsigned char short_state[] = { 0x10, 0x20, 0x30 };
     init_restore_fixture(&context, &state, &core);
     write_bytes(&context, ".state", short_state, sizeof(short_state));
+    assert(flip_state_restore(&core, &context) == FLIP_STATE_RESTORE_UNUSABLE);
+    assert(context.current_was_restored == 0);
+}
+
+static void test_gba_restore_allows_core_validated_smaller_state(void)
+{
+    flip_state_context_t context;
+    fake_core_state_t state;
+    flip_core_adapter_t core;
+
+    reset_test_root();
+    flip_state_context_init(&context, "gba", "/roms/dynamic-state.gba");
+
+    memset(&state, 0, sizeof(state));
+    state.serialize_size = 4;
+    state.accepted_size = 3;
+    state.accepted[0] = 0x10;
+    state.accepted[1] = 0x20;
+    state.accepted[2] = 0x30;
+    state.serialized_size = 4;
+    core = make_fake_core(&state);
+
+    write_bytes(&context, ".state", state.accepted, state.accepted_size);
+
+    assert(flip_state_restore(&core, &context) == FLIP_STATE_RESTORE_CURRENT);
+    assert(context.current_was_restored == 1);
+}
+
+static void test_gba_restore_rejects_smaller_state_when_core_rejects_it(void)
+{
+    flip_state_context_t context;
+    fake_core_state_t state;
+    flip_core_adapter_t core;
+    static const unsigned char truncated[] = { 0x10, 0x20, 0x30 };
+
+    reset_test_root();
+    flip_state_context_init(&context, "gba", "/roms/rejected-dynamic-state.gba");
+
+    memset(&state, 0, sizeof(state));
+    state.serialize_size = 4;
+    state.accepted_size = 4;
+    state.accepted[0] = 0x10;
+    state.accepted[1] = 0x20;
+    state.accepted[2] = 0x30;
+    state.accepted[3] = 0x40;
+    state.serialized_size = 4;
+    core = make_fake_core(&state);
+
+    write_bytes(&context, ".state", truncated, sizeof(truncated));
+
     assert(flip_state_restore(&core, &context) == FLIP_STATE_RESTORE_UNUSABLE);
     assert(context.current_was_restored == 0);
 }
@@ -526,6 +585,8 @@ int main(void)
     test_restore_none_when_no_state_exists();
     test_restore_valid_current_marks_current_known_good();
     test_restore_wrong_size_current_is_unusable();
+    test_gba_restore_allows_core_validated_smaller_state();
+    test_gba_restore_rejects_smaller_state_when_core_rejects_it();
     test_restore_rejected_current_is_unusable();
     test_restore_falls_back_to_valid_previous();
     test_restore_both_invalid_is_unusable();

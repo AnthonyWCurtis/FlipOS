@@ -71,6 +71,59 @@ typedef enum {
     FLIP_STATE_CANDIDATE_ERROR = 3
 } flip_state_candidate_result_t;
 
+static int candidate_size_can_be_tried(
+    const flip_state_context_t *context,
+    size_t actual_size,
+    size_t expected_size)
+{
+    if (actual_size == expected_size)
+        return 1;
+
+    /*
+     * mGBA reports a larger serialize size while GBA save hardware is still
+     * AUTODETECT. Once EEPROM/SRAM/FLASH is identified, serialized states can
+     * shrink by the corresponding save-RAM delta. Let mGBA itself validate
+     * such a smaller state via unserialize instead of rejecting it solely on
+     * the pre-frame size.
+     */
+    return context &&
+        context->system_id &&
+        strcmp(context->system_id, "gba") == 0 &&
+        actual_size > 0 &&
+        actual_size < expected_size;
+}
+
+static int gba_structural_state_size_known(
+    size_t actual_size,
+    size_t expected_size)
+{
+    static const size_t gba_save_sizes[] = {
+        0x00000200,
+        0x00002000,
+        0x00008000,
+        0x00010000,
+        0x00020000,
+    };
+    const size_t autodetect_save_size = 0x00020000;
+
+    if (actual_size == expected_size)
+        return 1;
+
+    if (expected_size < autodetect_save_size)
+        return 0;
+
+    for (size_t i = 0;
+         i < sizeof(gba_save_sizes) / sizeof(gba_save_sizes[0]);
+         ++i) {
+        size_t reduction = autodetect_save_size - gba_save_sizes[i];
+        if (expected_size >= reduction &&
+            actual_size == expected_size - reduction)
+            return 1;
+    }
+
+    return 0;
+}
+
 static int ensure_directory(const char *path)
 {
     if (mkdir(path, 0777) < 0 && errno != EEXIST)
@@ -217,10 +270,15 @@ static int copy_atomic_file(
 
 static flip_state_candidate_result_t restore_candidate(
     flip_core_adapter_t *core,
+    const flip_state_context_t *context,
     const char *path,
-    size_t expected_size)
+    size_t expected_size,
+    size_t *restored_size)
 {
     struct stat st;
+
+    if (restored_size)
+        *restored_size = 0;
 
     if (stat(path, &st) < 0) {
         if (errno == ENOENT)
@@ -242,7 +300,7 @@ static flip_state_candidate_result_t restore_candidate(
         return FLIP_STATE_CANDIDATE_ERROR;
     }
 
-    if (st.st_size < 0 || (size_t)st.st_size != expected_size) {
+    if (st.st_size <= 0) {
         fprintf(
             stderr,
             "FLIP_STATE: CURRENT_INVALID path=%s reason=size actual=%lld expected=%zu\n",
@@ -250,6 +308,26 @@ static flip_state_candidate_result_t restore_candidate(
             (long long)st.st_size,
             expected_size);
         return FLIP_STATE_CANDIDATE_INVALID;
+    }
+
+    size_t actual_size = (size_t)st.st_size;
+    if (!candidate_size_can_be_tried(context, actual_size, expected_size)) {
+        fprintf(
+            stderr,
+            "FLIP_STATE: CURRENT_INVALID path=%s reason=size actual=%zu expected=%zu\n",
+            path,
+            actual_size,
+            expected_size);
+        return FLIP_STATE_CANDIDATE_INVALID;
+    }
+
+    if (actual_size != expected_size) {
+        fprintf(
+            stderr,
+            "FLIP_STATE: SIZE_COMPAT path=%s actual=%zu preframe=%zu\n",
+            path,
+            actual_size,
+            expected_size);
     }
 
     FILE *file = fopen(path, "rb");
@@ -262,7 +340,7 @@ static flip_state_candidate_result_t restore_candidate(
         return FLIP_STATE_CANDIDATE_ERROR;
     }
 
-    void *data = malloc(expected_size);
+    void *data = malloc(actual_size);
     if (!data) {
         fclose(file);
         fprintf(
@@ -272,31 +350,39 @@ static flip_state_candidate_result_t restore_candidate(
         return FLIP_STATE_CANDIDATE_ERROR;
     }
 
-    size_t got = fread(data, 1, expected_size, file);
+    size_t got = fread(data, 1, actual_size, file);
+    int extra = fgetc(file);
     int read_error = ferror(file);
     int close_error = fclose(file);
 
-    if (got != expected_size || read_error || close_error != 0) {
+    if (got != actual_size ||
+        extra != EOF ||
+        read_error ||
+        close_error != 0) {
         fprintf(
             stderr,
             "FLIP_STATE: READ_ERROR path=%s got=%zu expected=%zu\n",
             path,
             got,
-            expected_size);
+            actual_size);
         free(data);
         return FLIP_STATE_CANDIDATE_ERROR;
     }
 
-    int restored = flip_core_unserialize(core, data, expected_size);
+    int restored = flip_core_unserialize(core, data, actual_size);
     free(data);
 
     if (restored < 0) {
         fprintf(
             stderr,
-            "FLIP_STATE: CURRENT_INVALID path=%s reason=unserialize\n",
-            path);
+            "FLIP_STATE: CURRENT_INVALID path=%s reason=unserialize size=%zu\n",
+            path,
+            actual_size);
         return FLIP_STATE_CANDIDATE_INVALID;
     }
+
+    if (restored_size)
+        *restored_size = actual_size;
 
     return FLIP_STATE_CANDIDATE_RESTORED;
 }
@@ -429,10 +515,13 @@ flip_state_restore_result_t flip_state_restore(
         return FLIP_STATE_RESTORE_ERROR;
     }
 
+    size_t current_size = 0;
     flip_state_candidate_result_t current = restore_candidate(
         core,
+        context,
         current_path,
-        expected_size);
+        expected_size,
+        &current_size);
 
     if (current == FLIP_STATE_CANDIDATE_ERROR)
         return FLIP_STATE_RESTORE_ERROR;
@@ -441,16 +530,20 @@ flip_state_restore_result_t flip_state_restore(
         context->current_was_restored = 1;
         fprintf(
             stderr,
-            "FLIP_STATE: RESTORE_CURRENT_OK path=%s size=%zu\n",
+            "FLIP_STATE: RESTORE_CURRENT_OK path=%s size=%zu preframe=%zu\n",
             current_path,
+            current_size,
             expected_size);
         return FLIP_STATE_RESTORE_CURRENT;
     }
 
+    size_t previous_size = 0;
     flip_state_candidate_result_t previous = restore_candidate(
         core,
+        context,
         previous_path,
-        expected_size);
+        expected_size,
+        &previous_size);
 
     if (previous == FLIP_STATE_CANDIDATE_ERROR)
         return FLIP_STATE_RESTORE_ERROR;
@@ -458,8 +551,9 @@ flip_state_restore_result_t flip_state_restore(
     if (previous == FLIP_STATE_CANDIDATE_RESTORED) {
         fprintf(
             stderr,
-            "FLIP_STATE: RESTORE_PREVIOUS_OK path=%s size=%zu\n",
+            "FLIP_STATE: RESTORE_PREVIOUS_OK path=%s size=%zu preframe=%zu\n",
             previous_path,
+            previous_size,
             expected_size);
         return FLIP_STATE_RESTORE_PREVIOUS;
     }
@@ -501,9 +595,21 @@ static flip_state_health_t state_file_health(
         return FLIP_STATE_HEALTH_ERROR;
     }
 
-    if (!S_ISREG(st.st_mode) ||
-        st.st_size < 0 ||
-        (size_t)st.st_size != expected_size)
+    if (!S_ISREG(st.st_mode) || st.st_size <= 0)
+        return FLIP_STATE_HEALTH_INVALID;
+
+    size_t actual_size = (size_t)st.st_size;
+    int size_ok = actual_size == expected_size;
+
+    if (!size_ok &&
+        context->system_id &&
+        strcmp(context->system_id, "gba") == 0) {
+        size_ok = gba_structural_state_size_known(
+            actual_size,
+            expected_size);
+    }
+
+    if (!size_ok)
         return FLIP_STATE_HEALTH_INVALID;
 
     FILE *file = fopen(path, "rb");
@@ -511,7 +617,7 @@ static flip_state_health_t state_file_health(
         return FLIP_STATE_HEALTH_ERROR;
 
     unsigned char buffer[4096];
-    size_t remaining = expected_size;
+    size_t remaining = actual_size;
     int ok = 1;
 
     while (remaining > 0) {

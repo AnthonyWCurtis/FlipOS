@@ -39,6 +39,33 @@ static flip_core_adapter_t make_core(fake_save_core_t *fake)
     return core;
 }
 
+typedef struct {
+    unsigned char save_memory[0x20000];
+    size_t save_memory_size;
+} fake_large_save_core_t;
+
+static void *fake_large_save_memory_data(void *userdata)
+{
+    fake_large_save_core_t *fake = userdata;
+    return fake->save_memory_size > 0 ? fake->save_memory : NULL;
+}
+
+static size_t fake_large_save_memory_size(void *userdata)
+{
+    fake_large_save_core_t *fake = userdata;
+    return fake->save_memory_size;
+}
+
+static flip_core_adapter_t make_large_core(fake_large_save_core_t *fake)
+{
+    flip_core_adapter_t core;
+    memset(&core, 0, sizeof(core));
+    core.userdata = fake;
+    core.save_memory_data = fake_large_save_memory_data;
+    core.save_memory_size = fake_large_save_memory_size;
+    return core;
+}
+
 static void reset_root(void)
 {
     char command[768];
@@ -49,6 +76,10 @@ static void reset_root(void)
 
     char system_dir[640];
     written = snprintf(system_dir, sizeof(system_dir), "%s/gb", FLIP_SAVE_ROOT);
+    assert(written > 0 && (size_t)written < sizeof(system_dir));
+    assert(mkdir(system_dir, 0700) == 0);
+
+    written = snprintf(system_dir, sizeof(system_dir), "%s/gba", FLIP_SAVE_ROOT);
     assert(written > 0 && (size_t)written < sizeof(system_dir));
     assert(mkdir(system_dir, 0700) == 0);
 }
@@ -90,6 +121,18 @@ static int path_exists(
     struct stat st;
     assert(flip_save_test_build_path(context, suffix, path, sizeof(path)) == 0);
     return stat(path, &st) == 0;
+}
+
+static size_t path_size(
+    const flip_save_context_t *context,
+    const char *suffix)
+{
+    char path[640];
+    struct stat st;
+    assert(flip_save_test_build_path(context, suffix, path, sizeof(path)) == 0);
+    assert(stat(path, &st) == 0);
+    assert(st.st_size >= 0);
+    return (size_t)st.st_size;
 }
 
 static void test_paths_use_frozen_rom_identity(void)
@@ -178,6 +221,107 @@ static void test_invalid_current_falls_back_to_previous(void)
     flip_core_adapter_t core = make_core(&fake);
     assert(flip_save_load(&core, &context) == FLIP_SAVE_LOAD_PREVIOUS);
     assert(memcmp(fake.save_memory, previous, sizeof(previous)) == 0);
+}
+
+static void test_gba_autodetect_loads_resolved_save_sizes(void)
+{
+    static const size_t resolved_sizes[] = {
+        0x00000200,
+        0x00002000,
+        0x00008000,
+        0x00010000,
+    };
+
+    for (size_t case_index = 0;
+         case_index < sizeof(resolved_sizes) / sizeof(resolved_sizes[0]);
+         ++case_index) {
+        reset_root();
+
+        size_t saved_size = resolved_sizes[case_index];
+        unsigned char *saved = malloc(saved_size);
+        assert(saved != NULL);
+
+        for (size_t i = 0; i < saved_size; ++i)
+            saved[i] = (unsigned char)(i * 17U + case_index);
+
+        flip_save_context_t context;
+        flip_save_context_init(
+            &context,
+            "gba",
+            "/mnt/SDCARD/Roms/GBA/dynamic-save-test.gba");
+        write_bytes(&context, ".sav", saved, saved_size);
+
+        fake_large_save_core_t fake;
+        memset(&fake, 0xa5, sizeof(fake));
+        fake.save_memory_size = sizeof(fake.save_memory);
+        flip_core_adapter_t core = make_large_core(&fake);
+
+        assert(flip_save_load(&core, &context) == FLIP_SAVE_LOAD_CURRENT);
+        assert(memcmp(fake.save_memory, saved, saved_size) == 0);
+        assert(fake.save_memory[saved_size] == 0xa5);
+        assert(flip_save_health(&core, &context, ".sav") ==
+               FLIP_SAVE_HEALTH_HEALTHY);
+
+        free(saved);
+    }
+}
+
+static void test_gba_autodetect_rejects_noncanonical_truncation(void)
+{
+    reset_root();
+
+    unsigned char truncated[0x4000];
+    memset(truncated, 0x5a, sizeof(truncated));
+
+    flip_save_context_t context;
+    flip_save_context_init(
+        &context,
+        "gba",
+        "/mnt/SDCARD/Roms/GBA/truncated-save-test.gba");
+    write_bytes(&context, ".sav", truncated, sizeof(truncated));
+
+    fake_large_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    flip_core_adapter_t core = make_large_core(&fake);
+
+    assert(flip_save_load(&core, &context) == FLIP_SAVE_LOAD_UNUSABLE);
+    assert(flip_save_health(&core, &context, ".sav") ==
+           FLIP_SAVE_HEALTH_INVALID);
+}
+
+static void test_gba_autodetect_restore_preserves_resolved_file_size(void)
+{
+    reset_root();
+
+    unsigned char current[0x8000];
+    unsigned char previous[0x8000];
+    memset(current, 0x31, sizeof(current));
+    memset(previous, 0x62, sizeof(previous));
+
+    flip_save_context_t context;
+    flip_save_context_init(
+        &context,
+        "gba",
+        "/mnt/SDCARD/Roms/GBA/recovery-size-test.gba");
+    write_bytes(&context, ".sav", current, sizeof(current));
+    write_bytes(&context, ".sav.prev", previous, sizeof(previous));
+
+    fake_large_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    flip_core_adapter_t core = make_large_core(&fake);
+
+    assert(flip_save_restore_previous(&core, &context) == 0);
+    assert(path_size(&context, ".sav") == sizeof(previous));
+    assert(path_size(&context, ".sav.prev") == sizeof(previous));
+    assert(path_size(&context, ".sav.recovery") == sizeof(current));
+
+    unsigned char got[0x8000];
+    read_bytes(&context, ".sav", got, sizeof(got));
+    assert(memcmp(got, previous, sizeof(got)) == 0);
+    read_bytes(&context, ".sav.recovery", got, sizeof(got));
+    assert(memcmp(got, current, sizeof(got)) == 0);
 }
 
 static void test_initial_commit_creates_current_save(void)
@@ -424,6 +568,9 @@ int main(void)
     test_no_save_memory_is_noop();
     test_exact_size_current_is_loaded();
     test_invalid_current_falls_back_to_previous();
+    test_gba_autodetect_loads_resolved_save_sizes();
+    test_gba_autodetect_rejects_noncanonical_truncation();
+    test_gba_autodetect_restore_preserves_resolved_file_size();
     test_initial_commit_creates_current_save();
     test_commit_preserves_valid_current_as_previous();
     test_invalid_current_does_not_replace_existing_previous();

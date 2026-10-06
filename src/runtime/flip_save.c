@@ -70,6 +70,44 @@ typedef enum {
     FLIP_SAVE_CANDIDATE_ERROR = 3
 } flip_save_candidate_result_t;
 
+static int gba_resolved_save_size(size_t size)
+{
+    switch (size) {
+    case 0x00000200: /* EEPROM 512 B */
+    case 0x00002000: /* EEPROM 8 KiB */
+    case 0x00008000: /* SRAM 32 KiB */
+    case 0x00010000: /* SRAM/FLASH 64 KiB */
+    case 0x00020000: /* FLASH 128 KiB */
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int candidate_size_compatible(
+    const flip_save_context_t *context,
+    size_t file_size,
+    size_t memory_size)
+{
+    if (file_size == memory_size)
+        return 1;
+
+    /*
+     * mGBA reports the 128 KiB FLASH1M maximum while GBA save type is still
+     * AUTODETECT. After the game runs, the same core can resolve that region
+     * to EEPROM/SRAM/FLASH and report a smaller canonical save size.
+     *
+     * Accept only those known GBA sizes, and only while the live core still
+     * exposes the 128 KiB autodetect region. Arbitrary truncation remains
+     * invalid.
+     */
+    return context &&
+        context->system_id &&
+        strcmp(context->system_id, "gba") == 0 &&
+        memory_size == 0x00020000 &&
+        gba_resolved_save_size(file_size);
+}
+
 static int ensure_directory(const char *path)
 {
     if (mkdir(path, 0777) < 0 && errno != EEXIST)
@@ -186,9 +224,14 @@ static int copy_synced_file(
 
 static flip_save_candidate_result_t inspect_candidate(
     const char *path,
-    size_t expected_size)
+    const flip_save_context_t *context,
+    size_t expected_size,
+    size_t *actual_size)
 {
     struct stat st;
+
+    if (actual_size)
+        *actual_size = 0;
 
     if (stat(path, &st) < 0) {
         if (errno == ENOENT)
@@ -197,11 +240,15 @@ static flip_save_candidate_result_t inspect_candidate(
     }
 
     if (!S_ISREG(st.st_mode) ||
-        st.st_size < 0 ||
-        (size_t)st.st_size != expected_size)
+        st.st_size <= 0 ||
+        !candidate_size_compatible(
+            context,
+            (size_t)st.st_size,
+            expected_size))
         return FLIP_SAVE_CANDIDATE_INVALID;
 
-    unsigned char *buffer = malloc(expected_size);
+    size_t file_size = (size_t)st.st_size;
+    unsigned char *buffer = malloc(file_size);
     if (!buffer)
         return FLIP_SAVE_CANDIDATE_ERROR;
 
@@ -211,36 +258,42 @@ static flip_save_candidate_result_t inspect_candidate(
         return FLIP_SAVE_CANDIDATE_ERROR;
     }
 
-    int ok = fread(buffer, 1, expected_size, file) == expected_size;
+    int ok = fread(buffer, 1, file_size, file) == file_size;
     if (ok && fgetc(file) != EOF)
         ok = 0;
     if (fclose(file) != 0)
         ok = 0;
 
     free(buffer);
-    return ok ? FLIP_SAVE_CANDIDATE_VALID : FLIP_SAVE_CANDIDATE_ERROR;
+
+    if (!ok)
+        return FLIP_SAVE_CANDIDATE_ERROR;
+
+    if (actual_size)
+        *actual_size = file_size;
+
+    return FLIP_SAVE_CANDIDATE_VALID;
 }
 
 static flip_save_candidate_result_t load_candidate(
     const char *path,
+    const flip_save_context_t *context,
     void *memory,
-    size_t memory_size)
+    size_t memory_size,
+    size_t *loaded_size)
 {
-    struct stat st;
+    size_t file_size = 0;
+    flip_save_candidate_result_t inspected =
+        inspect_candidate(
+            path,
+            context,
+            memory_size,
+            &file_size);
 
-    if (stat(path, &st) < 0) {
-        if (errno == ENOENT)
-            return FLIP_SAVE_CANDIDATE_MISSING;
+    if (inspected != FLIP_SAVE_CANDIDATE_VALID)
+        return inspected;
 
-        return FLIP_SAVE_CANDIDATE_ERROR;
-    }
-
-    if (!S_ISREG(st.st_mode) ||
-        st.st_size < 0 ||
-        (size_t)st.st_size != memory_size)
-        return FLIP_SAVE_CANDIDATE_INVALID;
-
-    unsigned char *buffer = malloc(memory_size);
+    unsigned char *buffer = malloc(file_size);
     if (!buffer)
         return FLIP_SAVE_CANDIDATE_ERROR;
 
@@ -250,7 +303,7 @@ static flip_save_candidate_result_t load_candidate(
         return FLIP_SAVE_CANDIDATE_ERROR;
     }
 
-    int ok = fread(buffer, 1, memory_size, file) == memory_size;
+    int ok = fread(buffer, 1, file_size, file) == file_size;
     if (ok && fgetc(file) != EOF)
         ok = 0;
     if (fclose(file) != 0)
@@ -261,8 +314,12 @@ static flip_save_candidate_result_t load_candidate(
         return FLIP_SAVE_CANDIDATE_ERROR;
     }
 
-    memcpy(memory, buffer, memory_size);
+    memcpy(memory, buffer, file_size);
     free(buffer);
+
+    if (loaded_size)
+        *loaded_size = file_size;
+
     return FLIP_SAVE_CANDIDATE_VALID;
 }
 
@@ -282,7 +339,7 @@ flip_save_health_t flip_save_health(
     if (flip_save_test_build_path(context, suffix, path, sizeof(path)) < 0)
         return FLIP_SAVE_HEALTH_ERROR;
 
-    switch (inspect_candidate(path, memory_size)) {
+    switch (inspect_candidate(path, context, memory_size, NULL)) {
     case FLIP_SAVE_CANDIDATE_MISSING:
         return FLIP_SAVE_HEALTH_MISSING;
     case FLIP_SAVE_CANDIDATE_VALID:
@@ -355,19 +412,39 @@ flip_save_load_result_t flip_save_load(
         return FLIP_SAVE_LOAD_ERROR;
     }
 
+    size_t current_size = 0;
     flip_save_candidate_result_t current =
-        load_candidate(current_path, memory, memory_size);
+        load_candidate(
+            current_path,
+            context,
+            memory,
+            memory_size,
+            &current_size);
 
     if (current == FLIP_SAVE_CANDIDATE_VALID) {
-        fprintf(stderr, "FLIP_SAVE: LOAD_CURRENT_OK size=%zu\n", memory_size);
+        fprintf(
+            stderr,
+            "FLIP_SAVE: LOAD_CURRENT_OK size=%zu memory_size=%zu\n",
+            current_size,
+            memory_size);
         return FLIP_SAVE_LOAD_CURRENT;
     }
 
+    size_t previous_size = 0;
     flip_save_candidate_result_t previous =
-        load_candidate(previous_path, memory, memory_size);
+        load_candidate(
+            previous_path,
+            context,
+            memory,
+            memory_size,
+            &previous_size);
 
     if (previous == FLIP_SAVE_CANDIDATE_VALID) {
-        fprintf(stderr, "FLIP_SAVE: LOAD_PREVIOUS_OK size=%zu\n", memory_size);
+        fprintf(
+            stderr,
+            "FLIP_SAVE: LOAD_PREVIOUS_OK size=%zu memory_size=%zu\n",
+            previous_size,
+            memory_size);
         return FLIP_SAVE_LOAD_PREVIOUS;
     }
 
@@ -429,15 +506,20 @@ int flip_save_commit(
         return -1;
     }
 
+    size_t current_size = 0;
     int current_is_valid =
-        verify_regular_file_size(current_path, memory_size) == 0;
+        inspect_candidate(
+            current_path,
+            context,
+            memory_size,
+            &current_size) == FLIP_SAVE_CANDIDATE_VALID;
 
     if (current_is_valid) {
         if (copy_synced_file(
                 current_path,
                 previous_tmp_path,
                 previous_path,
-                memory_size) < 0) {
+                current_size) < 0) {
             fprintf(stderr, "FLIP_SAVE: SAVE_FAILED stage=previous\n");
             unlink(current_tmp_path);
             return -1;
@@ -482,10 +564,21 @@ int flip_save_restore_previous(
         flip_save_test_build_path(context, ".sav.recovery.tmp", recovery_tmp_path, sizeof(recovery_tmp_path)) < 0)
         return -1;
 
-    if (inspect_candidate(previous_path, memory_size) != FLIP_SAVE_CANDIDATE_VALID)
+    size_t previous_size = 0;
+    if (inspect_candidate(
+            previous_path,
+            context,
+            memory_size,
+            &previous_size) != FLIP_SAVE_CANDIDATE_VALID)
         return -1;
 
-    flip_save_candidate_result_t current = inspect_candidate(current_path, memory_size);
+    size_t current_size = 0;
+    flip_save_candidate_result_t current =
+        inspect_candidate(
+            current_path,
+            context,
+            memory_size,
+            &current_size);
     if (current == FLIP_SAVE_CANDIDATE_INVALID || current == FLIP_SAVE_CANDIDATE_ERROR)
         return -1;
 
@@ -494,7 +587,7 @@ int flip_save_restore_previous(
                 current_path,
                 recovery_tmp_path,
                 recovery_path,
-                memory_size) < 0)
+                current_size) < 0)
             return -1;
     } else {
         unlink(recovery_tmp_path);
@@ -505,10 +598,14 @@ int flip_save_restore_previous(
             previous_path,
             current_tmp_path,
             current_path,
-            memory_size) < 0)
+            previous_size) < 0)
         return -1;
 
-    fprintf(stderr, "FLIP_SAVE: RESTORE_PREVIOUS_OK size=%zu\n", memory_size);
+    fprintf(
+        stderr,
+        "FLIP_SAVE: RESTORE_PREVIOUS_OK size=%zu memory_size=%zu\n",
+        previous_size,
+        memory_size);
     return 0;
 }
 
@@ -536,10 +633,21 @@ int flip_save_restore_recovery(
         flip_save_test_build_path(context, ".sav.recovery", recovery_path, sizeof(recovery_path)) < 0)
         return -1;
 
-    if (inspect_candidate(recovery_path, memory_size) != FLIP_SAVE_CANDIDATE_VALID)
+    size_t recovery_size = 0;
+    if (inspect_candidate(
+            recovery_path,
+            context,
+            memory_size,
+            &recovery_size) != FLIP_SAVE_CANDIDATE_VALID)
         return -1;
 
-    flip_save_candidate_result_t current = inspect_candidate(current_path, memory_size);
+    size_t current_size = 0;
+    flip_save_candidate_result_t current =
+        inspect_candidate(
+            current_path,
+            context,
+            memory_size,
+            &current_size);
     if (current == FLIP_SAVE_CANDIDATE_INVALID || current == FLIP_SAVE_CANDIDATE_ERROR)
         return -1;
 
@@ -548,7 +656,7 @@ int flip_save_restore_recovery(
                 current_path,
                 previous_tmp_path,
                 previous_path,
-                memory_size) < 0)
+                current_size) < 0)
             return -1;
     }
 
@@ -556,9 +664,13 @@ int flip_save_restore_recovery(
             recovery_path,
             current_tmp_path,
             current_path,
-            memory_size) < 0)
+            recovery_size) < 0)
         return -1;
 
-    fprintf(stderr, "FLIP_SAVE: RESTORE_RECOVERY_OK size=%zu\n", memory_size);
+    fprintf(
+        stderr,
+        "FLIP_SAVE: RESTORE_RECOVERY_OK size=%zu memory_size=%zu\n",
+        recovery_size,
+        memory_size);
     return 0;
 }
