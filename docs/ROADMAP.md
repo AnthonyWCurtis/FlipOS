@@ -312,7 +312,7 @@ the ceiling one valid RK3566 OPP at a time when more headroom is required.
 - [x] Never exceed the pre-launch maximum ceiling
 - [ ] Restore exact pre-launch policy after normal exit, GameSwitcher, error or crash (normal GameSwitcher hardware path verified; error/crash hardware path pending)
 - [x] Verify lid sleep/wake reapplies and restores the managed policy correctly
-- [ ] Real-hardware GBA regression across the four characterization titles
+- [x] Real-hardware GBA regression across the four characterization titles
 - [ ] Characterize GB/GBC starting ceilings and enable the same dynamic controller
 - [ ] Consider persistent per-title learned ceilings only if later evidence justifies it
 
@@ -352,6 +352,14 @@ fell through 58.595 to 57.820, FlipOS raised the ceiling exactly one OPP from
 then remained at 1104 MHz across many subsequent full-speed windows with no
 false escalation to 1416 MHz. This validates both performance rescue and
 post-recovery hysteresis on real hardware.
+
+A short production-profile regression then ran the same dynamic controller at
+its normal 1104 MHz GBA starting ceiling across LeafGreen, Golden Sun: The Lost
+Age, Mother 3 and Final Fantasy VI Advance. Each title completed the controlled
+hardware window with zero clock raises and final measured FPS of 59.724,
+59.723, 59.727 and 59.726 respectively. The harness restored the stock 1992 MHz
+frontend ceiling afterward. This closes the initial four-title false-escalation
+acceptance while longer real-world soak remains part of ongoing playtesting.
 
 ### Phase 10C — CPU Optimizer / Voltage Calibration
 
