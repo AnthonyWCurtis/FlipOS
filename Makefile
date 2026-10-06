@@ -842,7 +842,7 @@ $(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c sr
 		src/runtime/flip_optimizer_calibration_session.c \
 		src/runtime/flip_optimizer_calibration.c \
 		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer.c \
-		-static -lm -o $@
+		-static -pthread -lm -o $@
 
 $(BUILD)/flip_opp_voltage.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile | $(BUILD)
 	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }

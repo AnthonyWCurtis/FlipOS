@@ -8,10 +8,18 @@ errors = []
 
 required = [
     'strcmp(argv[1], "table-only") == 0',
+    'strcmp(argv[1], "live-once") == 0',
     "flip_optimizer_calibration_session_ready_for_apply",
     "module_apply_table(",
     "module_restore_table()",
     "flip_optimizer_calibration_session_cancel_unapplied",
+    "flip_optimizer_calibration_session_confirm_stable",
+    "enter_candidate_frequency(",
+    "run_stress_window(",
+    "return_to_parking_frequency(",
+    "read_cpu_rail_uv(",
+    "read_soc_temp_mc(",
+    "FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC",
     "emergency_reboot()",
     "flip_cpu_policy_restore(&original)",
     "voltage_entered=0",
@@ -21,33 +29,16 @@ for token in required:
     if token not in source:
         errors.append(f"candidate runner missing safety token: {token}")
 
-main_pos = source.find("int main(")
-if main_pos < 0:
-    errors.append("candidate runner main missing")
-else:
-    main = source[main_pos:]
-    forbidden_cli = [
-        '"apply"',
-        '"run"',
-        '"undervolt"',
-        '"stress"',
-    ]
-    for token in forbidden_cli:
-        if token in main:
-            errors.append(
-                f"candidate runner exposes premature voltage mode: {token}"
-            )
+table_start = source.find("static int run_table_only")
+table_end = source.find("static int run_live_once", table_start)
+table_runner = source[table_start:table_end]
 
-runner_start = source.find("static int run_table_only")
-runner_end = source.find("static void usage", runner_start)
-runner = source[runner_start:runner_end]
-
-ready_pos = runner.find(
+ready_pos = table_runner.find(
     "flip_optimizer_calibration_session_ready_for_apply"
 )
-apply_pos = runner.find("module_apply_table(")
-restore_pos = runner.find("module_restore_table()")
-cancel_pos = runner.find(
+apply_pos = table_runner.find("module_apply_table(")
+restore_pos = table_runner.find("module_restore_table()")
+cancel_pos = table_runner.find(
     "flip_optimizer_calibration_session_cancel_unapplied"
 )
 
@@ -55,8 +46,47 @@ if min(ready_pos, apply_pos, restore_pos, cancel_pos) < 0:
     pass
 elif not (ready_pos < apply_pos < restore_pos < cancel_pos):
     errors.append(
-        "candidate runner must gate, adjust table, restore table, then cancel"
+        "table-only runner must gate, adjust table, restore table, then cancel"
     )
+
+live_start = source.find("static int run_live_once")
+live_end = source.find("static void usage", live_start)
+live = source[live_start:live_end]
+
+live_ready = live.find(
+    "flip_optimizer_calibration_session_ready_for_apply"
+)
+live_apply = live.find("module_apply_table(")
+live_enter = live.find("enter_candidate_frequency(")
+live_stress = live.find("run_stress_window(")
+live_park = live.find("return_to_parking_frequency(")
+live_restore = live.find("module_restore_table()")
+live_policy_restore = live.find("flip_cpu_policy_restore(&original)")
+live_confirm = live.find(
+    "flip_optimizer_calibration_session_confirm_stable"
+)
+
+positions = [
+    live_ready,
+    live_apply,
+    live_enter,
+    live_stress,
+    live_park,
+    live_restore,
+    live_policy_restore,
+    live_confirm,
+]
+
+if min(positions) < 0:
+    pass
+elif positions != sorted(positions):
+    errors.append(
+        "live runner safety order must be guard, apply, enter, stress, "
+        "park, restore table, restore policy, confirm"
+    )
+
+if "candidate_uv < FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC" in source:
+    errors.append("temperature and voltage limits are mixed up")
 
 if errors:
     for error in errors:
