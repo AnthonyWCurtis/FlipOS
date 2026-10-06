@@ -122,3 +122,48 @@ Captured on 2026-10-05 with USB connected, brightness 200 and no game running:
 
 The USB-connected battery current is intentionally not treated as a power-drain
 baseline.
+
+## 2026-10-06 — FFVI unplugged stock vs dynamic ABBA result
+
+A controlled unplugged ABBA run compared the stock 1.992 GHz maximum policy
+against the production GBA dynamic profile using the same Final Fantasy VI
+Advance saved state, brightness 200, volume 15, shared GPU path and five-minute
+capture windows. The order was stock A1 -> dynamic B1 -> dynamic B2 -> stock A2
+to reduce first-to-last battery and thermal drift.
+
+Individual five-minute capture results:
+
+| Leg | Policy | Mean CPU | Mean battery power | Mean SoC temp | Final FPS |
+| --- | --- | ---: | ---: | ---: | ---: |
+| stock A1 | ondemand, max 1.992 GHz | 1.470 GHz | 2769.58 mW | 44.71 C | 59.722 |
+| dynamic B1 | ondemand, max 1.104 GHz | 1.104 GHz | 2582.70 mW | 43.25 C | 59.735 |
+| dynamic B2 | ondemand, max 1.104 GHz | 1.104 GHz | 2586.35 mW | 43.19 C | 59.724 |
+| stock A2 | ondemand, max 1.992 GHz | 1.488 GHz | 2783.03 mW | 45.25 C | 59.728 |
+
+Paired averages:
+
+- stock battery power: 2776.31 mW
+- dynamic battery power: 2584.52 mW
+- whole-device saving: 191.78 mW / 6.91%
+- stock battery current: 694.41 mA
+- dynamic battery current: 645.85 mA / 6.99% lower
+- stock mean CPU clock: 1.479 GHz
+- dynamic mean CPU clock: 1.104 GHz / 25.37% lower
+- stock mean SoC temperature: 44.98 C
+- dynamic mean SoC temperature: 43.22 C / 1.76 C cooler
+- stock mean GPU temperature: 43.10 C
+- dynamic mean GPU temperature: 41.89 C / 1.21 C cooler
+- integrated energy per 295-second capture averaged about 227.52 mWh stock
+  versus 211.76 mWh dynamic, a 6.93% reduction
+
+Performance acceptance also passed. Across all four emulator logs, mean delivered
+FPS remained 59.727-59.728, audio queue dropped frames stayed at zero, timing
+resyncs stayed at zero, the shared GPU path remained active, and no emulator
+errors appeared. One startup underrun occurred in each leg equally and is not a
+policy-specific regression. Neither dynamic leg required an upward clock raise.
+
+For this exact FFVI workload, the measured power ratio corresponds to roughly
+7.4% more runtime if battery capacity and all other loads remain equal. That is
+a workload-specific projection, not a claim that every game or system gains
+7.4% battery life. Longer mixed-workload and suspend measurements remain useful
+for release-level battery-life estimates.

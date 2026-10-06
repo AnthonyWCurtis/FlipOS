@@ -293,7 +293,7 @@ Each system should primarily require a core, thin adapter, metadata/configuratio
 - [x] GBA frequency-ceiling characterization across LeafGreen, Golden Sun: The Lost Age, Mother 3 and Final Fantasy VI Advance
 - [x] Establish 1.104 GHz as the conservative GBA starting ceiling on the current hardware
 - [x] Establish that 816 MHz is not a safe general GBA ceiling (Final Fantasy VI slowdown)
-- [ ] Complete controlled unplugged A/B battery measurements
+- [x] Complete controlled unplugged A/B battery measurements
 
 ### Phase 10B — FlipOS Dynamic CPU Performance Controller
 
