@@ -26,18 +26,23 @@ flip-optimizer-calibration probe reads:
 - available CPU OPP frequencies and selected stock targets from
   /sys/kernel/debug/opp/cpu0.
 
+The RK860 electrical regulator floor is 712.5 mV, but FlipOS does not use that
+as the silicon floor. The RK3566 VDD_CPU specified operating minimum is 0.81 V;
+with 12.5 mV regulator steps the optimizer rounds that upward to an effective
+812.5 mV calibration floor. A candidate below 812.5 mV is never generated.
+
 Current discovered plan:
 
 | CPU OPP | Stock voltage | Regulator floor | First candidate |
 | --- | ---: | ---: | ---: |
-| 408 MHz | 850.0 mV | 712.5 mV | 837.5 mV |
-| 600 MHz | 850.0 mV | 712.5 mV | 837.5 mV |
-| 816 MHz | 850.0 mV | 712.5 mV | 837.5 mV |
-| 1104 MHz | 850.0 mV | 712.5 mV | 837.5 mV |
-| 1416 MHz | 925.0 mV | 712.5 mV | 912.5 mV |
-| 1608 MHz | 1000.0 mV | 712.5 mV | 987.5 mV |
-| 1800 MHz | 1050.0 mV | 712.5 mV | 1037.5 mV |
-| 1992 MHz | 1100.0 mV | 712.5 mV | 1087.5 mV |
+| 408 MHz | 850.0 mV | 812.5 mV | 837.5 mV |
+| 600 MHz | 850.0 mV | 812.5 mV | 837.5 mV |
+| 816 MHz | 850.0 mV | 812.5 mV | 837.5 mV |
+| 1104 MHz | 850.0 mV | 812.5 mV | 837.5 mV |
+| 1416 MHz | 925.0 mV | 812.5 mV | 912.5 mV |
+| 1608 MHz | 1000.0 mV | 812.5 mV | 987.5 mV |
+| 1800 MHz | 1050.0 mV | 812.5 mV | 1037.5 mV |
+| 1992 MHz | 1100.0 mV | 812.5 mV | 1087.5 mV |
 
 ## Search policy
 

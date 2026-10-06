@@ -283,8 +283,23 @@ static int probe(
             MODEL_PATH,
             model,
             model_size) < 0 ||
-        read_regulator_floor(floor_uv) < 0 ||
-        read_cpu_opps(
+        read_regulator_floor(floor_uv) < 0)
+        return -1;
+
+    if (!strstr(model, "RK3566"))
+        return -1;
+
+    /*
+     * The regulator's electrical minimum is lower than the RK3566 CPU's
+     * specified operating minimum. Never use the regulator floor as the
+     * silicon calibration floor.
+     */
+    if (*floor_uv <
+        FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV)
+        *floor_uv =
+            FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV;
+
+    if (read_cpu_opps(
             *floor_uv,
             opps,
             capacity,

@@ -391,7 +391,7 @@ tests highest OPP first, persists the exact pending OPP/voltage/trial ID, and
 can map a boot rollback back to that candidate as unstable.
 
 The initialized hardware plan contains all eight stock OPPs from 408 MHz /
-850 mV through 1992 MHz / 1100 mV with the regulator floor at 712.5 mV.
+850 mV through 1992 MHz / 1100 mV with the RK860 regulator floor at 712.5 mV and an effective CPU calibration floor of 812.5 mV.
 
 The stronger transaction path was also dry-run on hardware. The first 1992 MHz
 candidate (1087.5 mV) was persisted and paired with a matching boot-guard trial,
