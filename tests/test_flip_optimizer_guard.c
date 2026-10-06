@@ -1,0 +1,115 @@
+#include "flip_optimizer_guard.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+static void reset_root(void)
+{
+    assert(system("rm -rf " FLIP_OPTIMIZER_GUARD_ROOT) == 0);
+}
+
+static void test_arm_and_confirm(void)
+{
+    reset_root();
+
+    flip_optimizer_guard_status_t status;
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 0);
+
+    assert(flip_optimizer_guard_arm("trial-001", 100) == 0);
+    assert(flip_optimizer_guard_arm("trial-002", 101) < 0);
+
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 1);
+    assert(status.stock_only == 0);
+    assert(strcmp(status.trial_id, "trial-001") == 0);
+    assert(status.armed_epoch == 100);
+    assert(strcmp(status.last_action, "armed") == 0);
+
+    assert(flip_optimizer_guard_confirm("wrong", 110) < 0);
+    assert(flip_optimizer_guard_confirm("trial-001", 111) == 0);
+
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 0);
+    assert(strcmp(status.last_action, "confirmed") == 0);
+    assert(strcmp(status.last_trial_id, "trial-001") == 0);
+    assert(status.last_epoch == 111);
+}
+
+static void test_boot_rolls_back_unconfirmed_trial(void)
+{
+    reset_root();
+
+    assert(flip_optimizer_guard_arm("trial-crash", 200) == 0);
+
+    char rolled[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    assert(flip_optimizer_guard_boot_check(
+               210,
+               rolled,
+               sizeof(rolled)) == 1);
+    assert(strcmp(rolled, "trial-crash") == 0);
+
+    flip_optimizer_guard_status_t status;
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 1);
+    assert(strcmp(status.last_action, "rolled_back") == 0);
+    assert(strcmp(status.last_trial_id, "trial-crash") == 0);
+    assert(status.last_epoch == 210);
+
+    assert(flip_optimizer_guard_arm("retry", 220) < 0);
+    assert(flip_optimizer_guard_clear_stock_only() == 0);
+    assert(flip_optimizer_guard_arm("retry", 221) == 0);
+}
+
+static void test_corrupt_trial_fails_safe(void)
+{
+    reset_root();
+
+    assert(system(
+        "mkdir -p " FLIP_OPTIMIZER_GUARD_ROOT " && "
+        "printf 'garbage=1\\n' > "
+        FLIP_OPTIMIZER_GUARD_ACTIVE_FILE) == 0);
+
+    char rolled[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    assert(flip_optimizer_guard_boot_check(
+               300,
+               rolled,
+               sizeof(rolled)) == 1);
+    assert(strcmp(rolled, "unknown") == 0);
+
+    flip_optimizer_guard_status_t status;
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 1);
+    assert(strcmp(status.last_action, "rollback_corrupt") == 0);
+    assert(access(FLIP_OPTIMIZER_GUARD_ACTIVE_FILE, F_OK) != 0);
+}
+
+static void test_trial_id_validation(void)
+{
+    reset_root();
+
+    assert(flip_optimizer_guard_arm("", 1) < 0);
+    assert(flip_optimizer_guard_arm("../bad", 1) < 0);
+    assert(flip_optimizer_guard_arm("bad trial", 1) < 0);
+    assert(flip_optimizer_guard_arm("safe_trial.1", 1) == 0);
+}
+
+int main(void)
+{
+    assert(flip_optimizer_guard_status(NULL) < 0);
+
+    test_arm_and_confirm();
+    test_boot_rolls_back_unconfirmed_trial();
+    test_corrupt_trial_fails_safe();
+    test_trial_id_validation();
+
+    printf("flip_optimizer_guard tests passed\n");
+    return EXIT_SUCCESS;
+}

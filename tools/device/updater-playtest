@@ -24,6 +24,13 @@ chmod 755 "$ROOT/bin/flip-gb"
 [ ! -f "$ROOT/bin/flip-gba" ] || chmod 755 "$ROOT/bin/flip-gba"
 [ ! -f "$ROOT/bin/flip-perf-capture" ] || chmod 755 "$ROOT/bin/flip-perf-capture"
 [ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
+[ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
+
+if [ -x "$ROOT/bin/flip-optimizer-guard" ]; then
+    if ! "$ROOT/bin/flip-optimizer-guard" boot-check >> "$LOG" 2>&1; then
+        echo "OPTIMIZER_GUARD: boot check failed; remaining stock-only by default" >> "$LOG"
+    fi
+fi
 
 if [ -x "$ROOT/bin/flip-playtest-logger.sh" ] && [ -x "$ROOT/bin/flip-perf-capture" ]; then
     "$ROOT/bin/flip-playtest-logger.sh"

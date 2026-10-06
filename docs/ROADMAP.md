@@ -375,12 +375,29 @@ workload can automatically request more CPU headroom.
 
 - [x] Native optimizer result/state foundation
 - [x] RK3566 voltage/OPP reconnaissance
-- [ ] Watchdog/rollback proof before voltage writes
+- [x] Watchdog/rollback proof before voltage writes
 - [ ] Per-device silicon calibration framework
 - [ ] Validate stress, idle/light-load, real emulators, thermal variation, sleep/resume and long soak
 - [ ] Apply guardband and stock fallback
 - [ ] Optimizer results UI with measured whole-device A/B power data
 - [ ] Undervolting only when hardware support and rollback safety are verified
+
+Hardware rollback acceptance on 2026-10-06 used a fake optimizer trial with
+no voltage writes. The trial marker was durably armed and the Flip was rebooted
+without confirmation. On the following boot, flip-optimizer-guard ran before
+the playtest logger and frontend, detected the unconfirmed trial, cleared the
+active marker, recorded last_action=rolled_back, set the durable stock_only=1
+latch and allowed the device to continue on the normal stock 408-1992 MHz
+ondemand policy. A complementary confirmed-trial reboot preserved
+last_action=confirmed, kept stock_only=0 and produced a normal safe boot. Host
+tests also cover corrupt-marker recovery and block automatic retry while the
+stock-only latch is set.
+
+The safety contract intentionally assumes future experimental voltage changes
+are runtime-only and non-persistent: reboot itself returns the kernel to its
+stock device-tree OPP table, while the guard prevents the failed candidate from
+being retried automatically. Persistent boot-time OPP/DTB experiments remain
+prohibited until an earlier boot-stage fallback path is independently proven.
 
 ### Phase 10D — Thermal / Charging / Runtime Efficiency
 

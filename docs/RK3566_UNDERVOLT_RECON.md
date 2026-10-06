@@ -98,3 +98,34 @@ Do not undervolt yet. First build a read-only/stock-voltage characterization har
 - maps the boot DTB/boot chain so a persistent OPP-table experiment has a proven rollback path.
 
 Only after those checks should a one-step (12.5 mV) experimental undervolt be attempted.
+
+## Optimizer rollback proof
+
+On 2026-10-06 FlipOS completed the rollback prerequisite without modifying any
+CPU voltage.
+
+A native flip-optimizer-guard now maintains a durable trial marker and a
+stock-only safety latch under state/optimizer. The boot wrapper executes the
+guard before telemetry or the frontend.
+
+Real-hardware proof:
+
+1. A fake trial named rollback-proof-20261006 was armed and synced to SD.
+2. The Flip rebooted without confirming the trial.
+3. On the next boot the guard ran before the frontend, converted the stale
+   trial into last_action=rolled_back, removed the active marker and set
+   stock_only=1.
+4. The live CPU policy after recovery was the normal stock 408-1992 MHz
+   ondemand policy.
+5. The latch blocked automatic re-arming until it was explicitly cleared.
+6. A second fake trial was armed, explicitly confirmed, and rebooted. That boot
+   remained safe with stock_only=0 and last_action=confirmed.
+
+Corrupt trial-marker recovery is covered by host tests and also resolves to the
+stock-only path.
+
+This proves the control-plane watchdog/rollback contract before voltage writes.
+The first real undervolt experiment must remain runtime-only and non-persistent
+so a reboot restores the kernel's stock device-tree OPP voltages. Persistent
+boot-time DTB/OPP changes remain out of scope until a pre-kernel fallback path
+is mapped and tested.
