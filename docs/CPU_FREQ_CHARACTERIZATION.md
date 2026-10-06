@@ -72,3 +72,66 @@ movement, menus, transitions and gameplay.
   candidate ceiling.
 - Characterize GB/GBC separately; do not assume the GBA ceiling applies.
 - Only after frequency profiles are stable begin voltage calibration work.
+
+## 2026-10-06 - Golden Sun: The Lost Age
+
+Golden Sun: The Lost Age was added as a second, more demanding GBA workload.
+The test was performed during early-game/normal-play activity. This is useful
+evidence but does not yet cover the heaviest later-game Psynergy or battle
+scenes.
+
+### Stock baseline - 1.992 GHz ceiling
+
+- 120 telemetry samples over 119 seconds
+- CPU mean: 1298.00 MHz
+- CPU load mean: 20.55%
+- SoC mean: 45.77 C
+- FPS samples: 120
+- FPS minimum: 59.694
+- FPS mean: 59.728
+- FPS maximum: 59.753
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+### Candidate profile - 1.104 GHz ceiling
+
+- 180 telemetry samples over 179 seconds
+- CPU mean: 1011.20 MHz
+- CPU load mean: 21.80%
+- SoC mean: 45.54 C
+- FPS samples: 179
+- FPS minimum: 59.703
+- FPS mean: 59.728
+- FPS maximum: 59.756
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+The 1.104 GHz capped result is statistically indistinguishable from the stock
+run for this captured workload.
+
+### Experimental probe - 816 MHz ceiling
+
+- 60 telemetry samples over 59 seconds
+- CPU mean: 812.40 MHz
+- CPU load mean: 26.63%
+- SoC mean: 46.07 C
+- FPS samples: 60
+- FPS minimum: 59.713
+- FPS mean: 59.727
+- FPS maximum: 59.745
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+816 MHz also retained full-speed emulation during this short sample. It remains
+experimental because the reduced frequency margin has not yet been tested
+across demanding late-game scenes or a sufficiently broad GBA title set.
+
+### Current GBA decision
+
+Keep 1.104 GHz as the provisional-safe GBA ceiling. It removes access to all
+higher-voltage CPU OPPs on the current unit while retaining significantly more
+frequency margin than 816 MHz. Do not promote 816 MHz to the release profile
+without broader and longer validation.
