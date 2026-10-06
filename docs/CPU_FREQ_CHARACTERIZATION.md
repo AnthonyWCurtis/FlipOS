@@ -188,3 +188,70 @@ The 1.104 GHz result again matches stock performance for the captured workload.
 816 MHz remains promising but experimental. The provisional-safe GBA ceiling
 remains 1.104 GHz until broader title coverage and demanding later-game scenes
 are validated.
+
+## 2026-10-06 - Final Fantasy VI Advance
+
+Final Fantasy VI Advance was used as the fourth GBA workload and produced the
+highest temperatures of the title set. It also established the practical
+frequency floor more clearly than the previous games.
+
+### Stock baseline - 1.992 GHz ceiling
+
+- 90 telemetry samples over 89 seconds
+- CPU mean: 1411.73 MHz
+- CPU load mean: 21.66%
+- SoC mean: 49.88 C
+- SoC range: 48.89-50.62 C
+- FPS samples: 89
+- FPS minimum: 59.702
+- FPS mean: 59.728
+- FPS maximum: 59.754
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+### Candidate profile - 1.104 GHz ceiling
+
+- 180 telemetry samples over 179 seconds
+- CPU mean: 1086.80 MHz
+- CPU load mean: 22.90%
+- SoC mean: 49.27 C
+- SoC range: 48.33-50.00 C
+- FPS samples: 179
+- FPS minimum: 59.662
+- FPS mean: 59.728
+- FPS maximum: 59.791
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+The brief minimum/maximum FPS excursion was isolated and self-compensating;
+the mean remained exactly on target and subsequent samples returned immediately
+to normal pacing. There was no corresponding audio, GPU, crash or warning
+event.
+
+### Experimental 816 MHz probe - rejected for GBA release profile
+
+During a heavier Final Fantasy VI scene, the 816 MHz ceiling produced immediate
+and sustained slowdown. Observed host FPS fell from the 59.728 target into
+approximately the 53.6-54.3 FPS range and later around 51.5-52.2 FPS before the
+test was aborted. The CPU ceiling was immediately restored to stock and FPS
+recovered to approximately 59.72-59.73.
+
+This demonstrates that the earlier successful 816 MHz probes in LeafGreen,
+Golden Sun and Mother 3 did not provide enough workload coverage to make 816
+MHz a safe global GBA profile.
+
+### GBA frequency decision
+
+1.104 GHz is now the provisional-safe GBA ceiling across the tested title set:
+
+- Pokemon LeafGreen
+- Golden Sun: The Lost Age
+- Mother 3
+- Final Fantasy VI Advance
+
+It retains full-speed emulation in all four tested workloads while avoiding the
+higher-voltage OPPs that begin at 1.416 GHz on this Flip. 816 MHz is explicitly
+rejected as a general GBA release ceiling because Final Fantasy VI can exceed
+its available CPU headroom.
