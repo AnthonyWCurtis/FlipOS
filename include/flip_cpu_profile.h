@@ -3,6 +3,8 @@
 
 #include "flip_cpu_policy.h"
 
+#define FLIP_CPU_PROFILE_GB_MAX_KHZ 408000U
+#define FLIP_CPU_PROFILE_GBC_MAX_KHZ 408000U
 #define FLIP_CPU_PROFILE_GBA_MAX_KHZ 1104000U
 
 typedef struct {

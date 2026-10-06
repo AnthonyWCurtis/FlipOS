@@ -11,7 +11,15 @@ int flip_cpu_profile_apply(
 
     memset(profile, 0, sizeof(*profile));
 
-    if (strcmp(system_id, "GBA") != 0)
+    unsigned target_max_khz = 0;
+
+    if (strcmp(system_id, "GB") == 0)
+        target_max_khz = FLIP_CPU_PROFILE_GB_MAX_KHZ;
+    else if (strcmp(system_id, "GBC") == 0)
+        target_max_khz = FLIP_CPU_PROFILE_GBC_MAX_KHZ;
+    else if (strcmp(system_id, "GBA") == 0)
+        target_max_khz = FLIP_CPU_PROFILE_GBA_MAX_KHZ;
+    else
         return 0;
 
     if (flip_cpu_policy_snapshot(&profile->original) < 0)
@@ -21,14 +29,14 @@ int flip_cpu_profile_apply(
      * Never raise an already-lower ceiling. A thermal, battery or future
      * safety policy must always win over the performance profile.
      */
-    if (profile->original.max_khz <= FLIP_CPU_PROFILE_GBA_MAX_KHZ)
+    if (profile->original.max_khz <= target_max_khz)
         return 0;
 
-    if (flip_cpu_policy_set_max(FLIP_CPU_PROFILE_GBA_MAX_KHZ) < 0)
+    if (flip_cpu_policy_set_max(target_max_khz) < 0)
         return -1;
 
     profile->active = 1;
-    profile->applied_max_khz = FLIP_CPU_PROFILE_GBA_MAX_KHZ;
+    profile->applied_max_khz = target_max_khz;
     return 1;
 }
 

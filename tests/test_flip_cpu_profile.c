@@ -63,6 +63,26 @@ static void test_gba_profile_caps_and_restores(void)
     assert(read_unsigned_value("scaling_max_freq") == 1992000);
 }
 
+static void test_gb_and_gbc_profiles_cap_at_minimum_opp(void)
+{
+    static const char *systems[] = { "GB", "GBC" };
+
+    for (size_t i = 0; i < sizeof(systems) / sizeof(systems[0]); ++i) {
+        reset_policy(1992000);
+
+        flip_cpu_profile_t profile;
+        assert(flip_cpu_profile_apply(systems[i], &profile) == 1);
+        assert(profile.active == 1);
+        assert(profile.original.max_khz == 1992000);
+        assert(profile.applied_max_khz == 408000);
+        assert(read_unsigned_value("scaling_max_freq") == 408000);
+
+        assert(flip_cpu_profile_restore(&profile) == 0);
+        assert(profile.active == 0);
+        assert(read_unsigned_value("scaling_max_freq") == 1992000);
+    }
+}
+
 static void test_gba_profile_never_raises_lower_limit(void)
 {
     reset_policy(816000);
@@ -81,11 +101,7 @@ static void test_other_systems_are_unchanged(void)
     reset_policy(1992000);
 
     flip_cpu_profile_t profile;
-    assert(flip_cpu_profile_apply("GB", &profile) == 0);
-    assert(profile.active == 0);
-    assert(read_unsigned_value("scaling_max_freq") == 1992000);
-
-    assert(flip_cpu_profile_apply("GBC", &profile) == 0);
+    assert(flip_cpu_profile_apply("NES", &profile) == 0);
     assert(profile.active == 0);
     assert(read_unsigned_value("scaling_max_freq") == 1992000);
 }
@@ -93,6 +109,7 @@ static void test_other_systems_are_unchanged(void)
 int main(void)
 {
     test_gba_profile_caps_and_restores();
+    test_gb_and_gbc_profiles_cap_at_minimum_opp();
     test_gba_profile_never_raises_lower_limit();
     test_other_systems_are_unchanged();
 

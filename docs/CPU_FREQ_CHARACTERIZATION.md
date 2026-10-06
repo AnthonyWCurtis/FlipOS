@@ -255,3 +255,50 @@ It retains full-speed emulation in all four tested workloads while avoiding the
 higher-voltage OPPs that begin at 1.416 GHz on this Flip. 816 MHz is explicitly
 rejected as a general GBA release ceiling because Final Fantasy VI can exceed
 its available CPU headroom.
+
+## 2026-10-06 - Gambatte GB/GBC minimum-OPP characterization
+
+Available GB/GBC ROMs on the test card are currently limited to Pokemon titles,
+so this result is a provisional starting-ceiling decision rather than a
+universal Gambatte guarantee.
+
+### Pokemon Blue - 408 MHz ceiling
+
+A short hardware run at the RK3566 minimum OPP completed at target speed with
+zero audio-drop windows and zero timing resyncs. One early sample reached
+59.291 FPS, while the short-run average remained at the expected ~59.727 FPS.
+
+A longer 45-second follow-up removed concern that the low sample represented a
+sustained limit:
+
+- 44 measured FPS windows
+- minimum 59.715 FPS
+- average 59.727 FPS
+- maximum 59.741 FPS
+- audio-drop windows: 0
+- frame-schedule resyncs: 0
+- representative core-run averages remained roughly 4.5-4.7 ms
+
+### Pokemon Crystal - 408 MHz ceiling
+
+A controlled hardware run at 408 MHz also remained full speed:
+
+- 19 measured FPS windows
+- minimum 59.713 FPS
+- average 59.727 FPS
+- maximum 59.742 FPS
+- audio-drop windows: 0
+- frame-schedule resyncs: 0
+
+### GB/GBC starting-ceiling decision
+
+408 MHz is the provisional FlipOS starting ceiling for both GB and GBC on this
+hardware. It is the lowest available RK3566 CPU OPP, so no lower fixed ceiling
+exists to characterize.
+
+This does not claim every Gambatte title is proven at 408 MHz. FlipOS therefore
+uses the same upward-only Dynamic CPU Performance Controller as GBA: GB/GBC
+sessions may start at 408 MHz, while the emulator host can raise one valid OPP
+at a time if measured FPS or audio pressure shows that a future workload needs
+more headroom. The pre-launch maximum remains the absolute escalation limit and
+is restored when the session returns to the frontend.
