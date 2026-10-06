@@ -31,6 +31,8 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_battery.o \
 	$(BUILD)/flip_performance.o \
 	$(BUILD)/flip_cpu_policy.o \
+	$(BUILD)/flip_cpu_profile.o \
+	$(BUILD)/flip_cpu_dynamic.o \
 	$(BUILD)/flip_optimizer.o \
 	$(BUILD)/flip_exit_protocol.o \
 	$(BUILD)/flip_session_persistence.o \
@@ -69,6 +71,8 @@ EMULATOR_OBJS := \
 	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_battery.o \
 	$(BUILD)/flip_performance.o \
+	$(BUILD)/flip_cpu_policy.o \
+	$(BUILD)/flip_cpu_dynamic.o \
 	$(BUILD)/flip_core.o \
 	$(BUILD)/flip_core_host.o \
 	$(BUILD)/flip_state.o \
@@ -113,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-optimizer test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -144,6 +148,8 @@ verify:
 		$(MAKE) test-battery && \
 		$(MAKE) test-performance && \
 		$(MAKE) test-cpu-policy && \
+		$(MAKE) test-cpu-profile && \
+		$(MAKE) test-cpu-dynamic && \
 		$(MAKE) test-optimizer && \
 		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
@@ -212,6 +218,12 @@ test-performance: $(BUILD)/test-flip-performance
 
 test-cpu-policy: $(BUILD)/test-flip-cpu-policy
 	$(BUILD)/test-flip-cpu-policy
+
+test-cpu-profile: $(BUILD)/test-flip-cpu-profile
+	$(BUILD)/test-flip-cpu-profile
+
+test-cpu-dynamic: $(BUILD)/test-flip-cpu-dynamic
+	$(BUILD)/test-flip-cpu-dynamic
 
 test-optimizer: $(BUILD)/test-flip-optimizer
 	$(BUILD)/test-flip-optimizer
@@ -359,6 +371,20 @@ $(BUILD)/test-flip-cpu-policy: tests/test_flip_cpu_policy.c src/runtime/flip_cpu
 		tests/test_flip_cpu_policy.c src/runtime/flip_cpu_policy.c \
 		-o $@
 
+$(BUILD)/test-flip-cpu-profile: tests/test_flip_cpu_profile.c src/runtime/flip_cpu_profile.c src/runtime/flip_cpu_policy.c include/flip_cpu_profile.h include/flip_cpu_policy.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_CPU_POLICY_ROOT='"/tmp/flipos-cpu-profile-test"' -Iinclude \
+		tests/test_flip_cpu_profile.c src/runtime/flip_cpu_profile.c src/runtime/flip_cpu_policy.c \
+		-o $@
+
+$(BUILD)/test-flip-cpu-dynamic: tests/test_flip_cpu_dynamic.c src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c include/flip_cpu_dynamic.h include/flip_cpu_policy.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_CPU_POLICY_ROOT='"/tmp/flipos-cpu-dynamic-test"' -Iinclude \
+		tests/test_flip_cpu_dynamic.c src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c \
+		-o $@
+
 $(BUILD)/test-flip-optimizer: tests/test_flip_optimizer.c src/runtime/flip_optimizer.c include/flip_optimizer.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_POSIX_C_SOURCE=200809L \
@@ -425,10 +451,11 @@ $(BUILD)/test-flip-core: tests/test_flip_core.c src/runtime/flip_core.c include/
 		tests/test_flip_core.c src/runtime/flip_core.c \
 		-o $@
 
-$(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c include/flip_core_host.h include/flip_perf_diag.h | $(BUILD)
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+$(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c include/flip_core_host.h include/flip_perf_diag.h include/flip_cpu_dynamic.h include/flip_cpu_policy.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -Iinclude \
 		tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c \
 		src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c \
+		src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c \
 		-o $@
 
 $(BUILD)/test-flip-video-layout: tests/test_flip_video_layout.c src/runtime/flip_video_layout.c include/flip_video_layout.h | $(BUILD)
@@ -591,6 +618,12 @@ $(BUILD)/flip_performance.o: src/runtime/flip_performance.c include/flip_perform
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_cpu_policy.o: src/runtime/flip_cpu_policy.c include/flip_cpu_policy.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -c $< -o $@
+
+$(BUILD)/flip_cpu_profile.o: src/runtime/flip_cpu_profile.c include/flip_cpu_profile.h include/flip_cpu_policy.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -c $< -o $@
+
+$(BUILD)/flip_cpu_dynamic.o: src/runtime/flip_cpu_dynamic.c include/flip_cpu_dynamic.h include/flip_cpu_policy.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -c $< -o $@
 
 $(BUILD)/flip_optimizer.o: src/runtime/flip_optimizer.c include/flip_optimizer.h | $(BUILD)
@@ -819,6 +852,8 @@ clean:
 		$(BUILD)/test-flip-battery \
 		$(BUILD)/test-flip-performance \
 		$(BUILD)/test-flip-cpu-policy \
+		$(BUILD)/test-flip-cpu-profile \
+		$(BUILD)/test-flip-cpu-dynamic \
 		$(BUILD)/test-flip-optimizer \
 		$(BUILD)/test-flip-bios \
 		$(BUILD)/test-flip-library-cache \

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "flip_session.h"
+#include "flip_cpu_profile.h"
 #include "flip_paths.h"
 #include "flip_exit_protocol.h"
 #include "flip_session_registry.h"
@@ -714,6 +715,65 @@ int flip_session_prune_recent(void)
     return removed;
 }
 
+static int session_cpu_profile_apply(
+    const flip_session_metadata_t *metadata,
+    flip_cpu_profile_t *profile)
+{
+    if (!profile)
+        return -1;
+
+    memset(profile, 0, sizeof(*profile));
+
+    if (!metadata ||
+        !metadata->system ||
+        !metadata->system->id)
+        return 0;
+
+    int result =
+        flip_cpu_profile_apply(
+            metadata->system->id,
+            profile);
+
+    if (result > 0) {
+        fprintf(
+            stderr,
+            "SESSION_CPU_PROFILE: applied system=%s max_khz=%u original_max_khz=%u\n",
+            metadata->system->id,
+            profile->applied_max_khz,
+            profile->original.max_khz);
+    } else if (result < 0) {
+        fprintf(
+            stderr,
+            "SESSION_CPU_PROFILE: apply failed system=%s; continuing existing policy\n",
+            metadata->system->id);
+    }
+
+    return result;
+}
+
+static void session_cpu_profile_restore(
+    flip_cpu_profile_t *profile)
+{
+    if (!profile || !profile->active)
+        return;
+
+    unsigned original_max_khz =
+        profile->original.max_khz;
+
+    if (flip_cpu_profile_restore(profile) < 0) {
+        fprintf(
+            stderr,
+            "SESSION_CPU_PROFILE: restore failed target_max_khz=%u\n",
+            original_max_khz);
+        return;
+    }
+
+    fprintf(
+        stderr,
+        "SESSION_CPU_PROFILE: restored max_khz=%u\n",
+        original_max_khz);
+}
+
 static int restore_hardware(
     flip_drm_t *drm)
 {
@@ -777,6 +837,11 @@ int flip_session_launch(
         "SESSION: launch program=%s\n",
         program);
 
+    flip_cpu_profile_t cpu_profile;
+    session_cpu_profile_apply(
+        metadata,
+        &cpu_profile);
+
     flip_input_close();
     flip_drm_close(drm);
 
@@ -793,12 +858,31 @@ int flip_session_launch(
             "SESSION: fork failed: %s\n",
             strerror(errno));
 
+        session_cpu_profile_restore(
+            &cpu_profile);
+
         restore_hardware(drm);
 
         return -1;
     }
 
     if (pid == 0) {
+
+        if (cpu_profile.active) {
+            char dynamic_max_khz[32];
+            snprintf(
+                dynamic_max_khz,
+                sizeof(dynamic_max_khz),
+                "%u",
+                cpu_profile.original.max_khz);
+            setenv(
+                "FLIP_CPU_DYNAMIC_MAX_KHZ",
+                dynamic_max_khz,
+                1);
+        } else {
+            unsetenv(
+                "FLIP_CPU_DYNAMIC_MAX_KHZ");
+        }
 
         execv(
             program,
@@ -857,6 +941,9 @@ int flip_session_launch(
             0,
             started,
             now_epoch());
+
+        session_cpu_profile_restore(
+            &cpu_profile);
 
         if (restore_hardware(drm) < 0)
             return -1;
@@ -956,6 +1043,9 @@ int flip_session_launch(
         signal_number,
         started,
         now_epoch());
+
+    session_cpu_profile_restore(
+        &cpu_profile);
 
     if (restore_hardware(drm) < 0)
         return -1;

@@ -4,6 +4,7 @@
 
 #include "flip_audio.h"
 #include "flip_controls.h"
+#include "flip_cpu_dynamic.h"
 #include "flip_hotkeys.h"
 #include "flip_input.h"
 #include "flip_lifecycle.h"
@@ -16,6 +17,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -105,7 +107,7 @@ static uint64_t elapsed_us(uint64_t start_us)
     return now_us - start_us;
 }
 
-static void log_audio_diag(void)
+static flip_audio_diag_snapshot_t log_audio_diag(void)
 {
     flip_audio_diag_snapshot_t audio_diag;
     memset(&audio_diag, 0, sizeof(audio_diag));
@@ -131,6 +133,7 @@ static void log_audio_diag(void)
         (unsigned long long)audio_diag.queue_dropped_frames);
 
     flip_audio_diag_reset();
+    return audio_diag;
 }
 
 static void log_perf_diag(const flip_perf_diag_t *diag, double measured_fps)
@@ -158,6 +161,27 @@ static void log_perf_diag(const flip_perf_diag_t *diag, double measured_fps)
         (unsigned long long)diag->late.max_us,
         (unsigned long long)diag->late_frames,
         (unsigned long long)diag->resyncs);
+}
+
+static unsigned dynamic_cpu_allowed_max_from_env(void)
+{
+    const char *text =
+        getenv("FLIP_CPU_DYNAMIC_MAX_KHZ");
+
+    if (!text || !text[0])
+        return 0;
+
+    char *end = NULL;
+    unsigned long value =
+        strtoul(text, &end, 10);
+
+    if (end == text ||
+        *end != '\0' ||
+        value == 0 ||
+        value > 0xffffffffUL)
+        return 0;
+
+    return (unsigned)value;
 }
 
 int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
@@ -257,6 +281,38 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
     flip_perf_diag_t perf_diag;
     flip_perf_diag_reset(&perf_diag);
     flip_audio_diag_reset();
+
+    flip_cpu_dynamic_t dynamic_cpu;
+    memset(&dynamic_cpu, 0, sizeof(dynamic_cpu));
+
+    unsigned dynamic_cpu_allowed_max =
+        dynamic_cpu_allowed_max_from_env();
+
+    if (dynamic_cpu_allowed_max > 0) {
+        int dynamic_result =
+            flip_cpu_dynamic_init(
+                &dynamic_cpu,
+                dynamic_cpu_allowed_max);
+
+        if (dynamic_result > 0) {
+            fprintf(
+                stderr,
+                "FLIP_CPU_DYNAMIC: enabled current_max_khz=%u allowed_max_khz=%u warmup=%u\n",
+                dynamic_cpu.current_max_khz,
+                dynamic_cpu.allowed_max_khz,
+                dynamic_cpu.warmup_windows);
+        } else if (dynamic_result == 0) {
+            fprintf(
+                stderr,
+                "FLIP_CPU_DYNAMIC: no escalation range current_max_khz=%u allowed_max_khz=%u\n",
+                dynamic_cpu.current_max_khz,
+                dynamic_cpu.allowed_max_khz);
+        } else {
+            fprintf(
+                stderr,
+                "FLIP_CPU_DYNAMIC: initialization failed; leaving policy unchanged\n");
+        }
+    }
 
     int restore_result = 0;
     if (config->restore_state) {
@@ -421,7 +477,45 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
         if (wait_result > 0)
             fprintf(stderr, "FLIP_CORE_HOST: frame schedule resync\n");
         if (fps_result > 0) {
-            log_audio_diag();
+            flip_audio_diag_snapshot_t audio_diag =
+                log_audio_diag();
+
+            uint64_t host_avg_us =
+                flip_perf_metric_avg_us(
+                    &perf_diag.host,
+                    perf_diag.frames);
+
+            if (dynamic_cpu.enabled) {
+                unsigned previous_max_khz =
+                    dynamic_cpu.current_max_khz;
+
+                int dynamic_result =
+                    flip_cpu_dynamic_sample(
+                        &dynamic_cpu,
+                        measured_fps,
+                        fps,
+                        host_avg_us,
+                        audio_diag.queue_dropped_frames);
+
+                if (dynamic_result > 0) {
+                    fprintf(
+                        stderr,
+                        "FLIP_CPU_DYNAMIC: raised max_khz=%u->%u fps=%.3f target=%.3f host_avg_us=%llu audio_drops=%llu raise_count=%u\n",
+                        previous_max_khz,
+                        dynamic_cpu.current_max_khz,
+                        measured_fps,
+                        fps,
+                        (unsigned long long)host_avg_us,
+                        (unsigned long long)audio_diag.queue_dropped_frames,
+                        dynamic_cpu.raise_count);
+                } else if (dynamic_result < 0) {
+                    fprintf(
+                        stderr,
+                        "FLIP_CPU_DYNAMIC: policy update failed; disabling escalation\n");
+                    dynamic_cpu.enabled = 0;
+                }
+            }
+
             log_perf_diag(&perf_diag, measured_fps);
             flip_perf_diag_reset(&perf_diag);
         }

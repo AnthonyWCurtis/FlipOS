@@ -285,15 +285,70 @@ Each system should primarily require a core, thin adapter, metadata/configuratio
 
 ## Phase 10 — Performance / Power
 
-- [ ] CPU governor policy
-- [ ] Per-system performance profiles
+### Phase 10A — Measurement / Characterization
+
+- [x] Persistent playtest telemetry
+- [x] Stock GB/GBC/GBA performance baseline
+- [x] RK3566 CPU OPP / regulator reconnaissance
+- [x] GBA frequency-ceiling characterization across LeafGreen, Golden Sun: The Lost Age, Mother 3 and Final Fantasy VI Advance
+- [x] Establish 1.104 GHz as the conservative GBA starting ceiling on the current hardware
+- [x] Establish that 816 MHz is not a safe general GBA ceiling (Final Fantasy VI slowdown)
+- [ ] Complete controlled unplugged A/B battery measurements
+
+### Phase 10B — FlipOS Dynamic CPU Performance Controller
+
+Architecture rule: FlipOS manages a safe CPU-frequency ceiling while the kernel
+ondemand governor remains responsible for normal down-clocking within that
+ceiling. Emulator performance, not a hard-coded per-game database, can raise
+the ceiling one valid RK3566 OPP at a time when more headroom is required.
+
+- [x] Native cpufreq policy service
+- [x] Capture and restore the exact pre-launch CPU policy
+- [x] Never raise a lower limit imposed by another safety/thermal policy
+- [x] Dynamic ceiling escalation state machine with host tests
+- [x] Apply managed GBA starting ceiling automatically at session launch
+- [x] Feed emulator FPS/frame-time/audio-pressure windows into the controller
+- [ ] Raise ceiling one OPP on sustained or severe performance pressure
+- [x] Never exceed the pre-launch maximum ceiling
+- [ ] Restore exact pre-launch policy after normal exit, GameSwitcher, error or crash (normal GameSwitcher hardware path verified; error/crash hardware path pending)
+- [ ] Verify lid sleep/wake reapplies and restores the managed policy correctly
+- [ ] Real-hardware GBA regression across the four characterization titles
+- [ ] Characterize GB/GBC starting ceilings and enable the same dynamic controller
+- [ ] Consider persistent per-title learned ceilings only if later evidence justifies it
+
+Initial policy is intentionally upward-only within a session. This avoids
+frequency oscillation and avoids deliberately degrading gameplay to probe a
+lower ceiling. The kernel governor still selects lower clocks automatically
+when workload permits.
+
+Current hardware acceptance evidence: Final Fantasy VI Advance launched through
+the FlipOS frontend with the pre-launch 1.992 GHz ceiling captured, a managed
+1.104 GHz ceiling applied, and the dynamic controller enabled with 1.992 GHz as
+its absolute escalation limit. Sustained ~59.73 FPS caused no unnecessary
+escalation. A GameSwitcher suspend committed cartridge save + state, terminated
+the GBA runner normally and restored the exact 1.992 GHz pre-launch ceiling
+before frontend hardware ownership resumed.
+
+### Phase 10C — CPU Optimizer / Voltage Calibration
+
+- [x] Native optimizer result/state foundation
+- [x] RK3566 voltage/OPP reconnaissance
+- [ ] Watchdog/rollback proof before voltage writes
+- [ ] Per-device silicon calibration framework
+- [ ] Validate stress, idle/light-load, real emulators, thermal variation, sleep/resume and long soak
+- [ ] Apply guardband and stock fallback
+- [ ] Optimizer results UI with measured whole-device A/B power data
+- [ ] Undervolting only when hardware support and rollback safety are verified
+
+### Phase 10D — Thermal / Charging / Runtime Efficiency
+
+- [ ] Smart charge-while-playing policy
 - [ ] Suspend optimization
 - [ ] Battery drain investigation
 - [ ] Thermal behavior
 - [ ] Frame pacing optimization
 - [ ] Audio latency tuning
 - [ ] Idle behavior
-- [ ] Undervolting only if hardware support and safety are verified
 
 ## Phase 11 — UX Refinement
 
