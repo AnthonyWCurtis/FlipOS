@@ -8,7 +8,7 @@ static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s status | arm TRIAL_ID | confirm TRIAL_ID | "
+        "usage: %s status | arm TRIAL_ID | confirm TRIAL_ID | cancel TRIAL_ID | "
         "boot-check | clear-stock-only\n",
         program);
 }
@@ -55,6 +55,14 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
 
         printf("OPTIMIZER_GUARD: confirmed trial=%s\n", argv[2]);
+        return EXIT_SUCCESS;
+    }
+
+    if (argc == 3 && strcmp(argv[1], "cancel") == 0) {
+        if (flip_optimizer_guard_cancel(argv[2], 0) < 0)
+            return EXIT_FAILURE;
+
+        printf("OPTIMIZER_GUARD: cancelled trial=%s\n", argv[2]);
         return EXIT_SUCCESS;
     }
 

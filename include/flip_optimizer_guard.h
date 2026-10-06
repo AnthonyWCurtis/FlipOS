@@ -30,6 +30,7 @@ typedef struct {
 
 int flip_optimizer_guard_arm(const char *trial_id, unsigned epoch);
 int flip_optimizer_guard_confirm(const char *trial_id, unsigned epoch);
+int flip_optimizer_guard_cancel(const char *trial_id, unsigned epoch);
 int flip_optimizer_guard_boot_check(
     unsigned epoch,
     char *rolled_back_trial,

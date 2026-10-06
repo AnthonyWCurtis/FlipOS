@@ -25,6 +25,9 @@ int flip_cpu_policy_query_info(flip_cpu_policy_info_t *info);
 int flip_cpu_policy_snapshot(flip_cpu_policy_snapshot_t *snapshot);
 int flip_cpu_policy_set_limits(unsigned min_khz, unsigned max_khz);
 int flip_cpu_policy_set_max(unsigned max_khz);
+int flip_cpu_policy_set_governor(const char *governor);
+int flip_cpu_policy_set_speed(unsigned khz);
+int flip_cpu_policy_get_current(unsigned *khz);
 int flip_cpu_policy_restore(const flip_cpu_policy_snapshot_t *snapshot);
 
 #endif

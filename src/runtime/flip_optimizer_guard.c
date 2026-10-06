@@ -391,6 +391,31 @@ int flip_optimizer_guard_confirm(
     return fsync_root();
 }
 
+int flip_optimizer_guard_cancel(
+    const char *trial_id,
+    unsigned epoch)
+{
+    if (!valid_trial_id(trial_id))
+        return -1;
+
+    active_trial_t active;
+    int rc = read_active(&active);
+
+    if (rc != 1 || strcmp(active.trial_id, trial_id) != 0)
+        return -1;
+
+    if (write_event(
+            "cancelled",
+            trial_id,
+            epoch) < 0)
+        return -1;
+
+    if (unlink(FLIP_OPTIMIZER_GUARD_ACTIVE_FILE) != 0)
+        return -1;
+
+    return fsync_root();
+}
+
 int flip_optimizer_guard_boot_check(
     unsigned epoch,
     char *rolled_back_trial,

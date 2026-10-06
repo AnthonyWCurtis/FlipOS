@@ -21,6 +21,9 @@ int flip_optimizer_calibration_session_ready_for_apply(
 int flip_optimizer_calibration_session_confirm_stable(
     flip_optimizer_calibration_t *calibration);
 
+int flip_optimizer_calibration_session_cancel_unapplied(
+    flip_optimizer_calibration_t *calibration);
+
 int flip_optimizer_calibration_session_reconcile(
     flip_optimizer_calibration_t *calibration);
 

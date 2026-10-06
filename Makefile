@@ -117,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-calibration-tool verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-guard test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-calibration-tool optimizer-candidate-tool opp-voltage-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-guard test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -139,6 +139,10 @@ optimizer-guard-tool: $(BUILD)/flip-optimizer-guard
 
 optimizer-calibration-tool: $(BUILD)/flip-optimizer-calibration
 
+optimizer-candidate-tool: $(BUILD)/flip-optimizer-candidate
+
+opp-voltage-module: $(BUILD)/flip_opp_voltage.ko
+
 verify:
 	@log=/tmp/flipos-verify.log; \
 	if ( \
@@ -158,6 +162,7 @@ verify:
 		$(MAKE) test-optimizer-guard && \
 		$(MAKE) test-optimizer-calibration && \
 		$(MAKE) test-optimizer-calibration-session && \
+		$(MAKE) optimizer-candidate-tool && \
 		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
@@ -350,6 +355,8 @@ test-architecture:
 	python3 tests/test_save_safety_management_architecture.py
 	python3 tests/test_verify_target_architecture.py
 	python3 tests/test_optimizer_guard_boot_architecture.py
+	python3 tests/test_optimizer_candidate_architecture.py
+	python3 tests/test_opp_voltage_module_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -827,6 +834,27 @@ $(BUILD)/flip-optimizer-calibration: src/hwtest/flip_optimizer_calibration_tool.
 		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer.c \
 		-static -lm -o $@
 
+$(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c src/runtime/flip_cpu_policy.c src/runtime/flip_optimizer_calibration_session.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer.c include/flip_cpu_policy.h include/flip_optimizer_calibration_session.h include/flip_optimizer_calibration.h include/flip_optimizer_guard.h include/flip_optimizer.h | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Iinclude \
+		src/hwtest/flip_optimizer_candidate_tool.c \
+		src/runtime/flip_cpu_policy.c \
+		src/runtime/flip_optimizer_calibration_session.c \
+		src/runtime/flip_optimizer_calibration.c \
+		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer.c \
+		-static -lm -o $@
+
+$(BUILD)/flip_opp_voltage.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile | $(BUILD)
+	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
+	rm -rf $(BUILD)/opp-voltage-module $(BUILD)/kernel-python-shim
+	mkdir -p $(BUILD)/opp-voltage-module $(BUILD)/kernel-python-shim
+	cp tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile $(BUILD)/opp-voltage-module/
+	ln -sf "$$(command -v python3)" $(BUILD)/kernel-python-shim/python
+	PATH="$(CURDIR)/$(BUILD)/kernel-python-shim:$$PATH" \
+		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/opp-voltage-module" \
+		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
+	cp $(BUILD)/opp-voltage-module/flip_opp_voltage.ko $@
+
 $(BUILD)/flip-perf-capture: $(PERF_CAPTURE_OBJS)
 	$(CC) -static -o $@ $(PERF_CAPTURE_OBJS)
 
@@ -900,6 +928,8 @@ clean:
 		$(BUILD)/flip-cpu-policy \
 		$(BUILD)/flip-optimizer-guard \
 		$(BUILD)/flip-optimizer-calibration \
+		$(BUILD)/flip-optimizer-candidate \
+		$(BUILD)/flip_opp_voltage.ko \
 		$(BUILD)/libgambatte_libretro.a \
 		$(BUILD)/mgba_libretro.a \
 		$(BUILD)/test-flip-controls \

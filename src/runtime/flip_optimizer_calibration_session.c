@@ -111,6 +111,33 @@ int flip_optimizer_calibration_session_confirm_stable(
     return flip_optimizer_calibration_save(calibration);
 }
 
+int flip_optimizer_calibration_session_cancel_unapplied(
+    flip_optimizer_calibration_t *calibration)
+{
+    if (!calibration ||
+        !flip_optimizer_calibration_session_ready_for_apply(
+            calibration))
+        return -1;
+
+    char trial_id[
+        FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
+
+    strcpy(
+        trial_id,
+        calibration->pending_trial_id);
+
+    if (flip_optimizer_guard_cancel(
+            trial_id,
+            0) < 0)
+        return -1;
+
+    if (flip_optimizer_calibration_cancel_pending(
+            calibration) < 0)
+        return -1;
+
+    return flip_optimizer_calibration_save(calibration);
+}
+
 int flip_optimizer_calibration_session_reconcile(
     flip_optimizer_calibration_t *calibration)
 {

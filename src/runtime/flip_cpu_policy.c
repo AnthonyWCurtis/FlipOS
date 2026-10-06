@@ -197,6 +197,36 @@ int flip_cpu_policy_set_max(unsigned max_khz)
     return flip_cpu_policy_set_limits(min_khz, max_khz);
 }
 
+int flip_cpu_policy_set_governor(const char *governor)
+{
+    if (!governor || !governor[0])
+        return -1;
+
+    return write_text("scaling_governor", governor);
+}
+
+int flip_cpu_policy_set_speed(unsigned khz)
+{
+    if (!frequency_supported(khz))
+        return -1;
+
+    char governor[FLIP_CPU_POLICY_GOVERNOR_MAX];
+
+    if (read_line(
+            "scaling_governor",
+            governor,
+            sizeof(governor)) < 0 ||
+        strcmp(governor, "userspace") != 0)
+        return -1;
+
+    return write_unsigned("scaling_setspeed", khz);
+}
+
+int flip_cpu_policy_get_current(unsigned *khz)
+{
+    return read_unsigned("scaling_cur_freq", khz);
+}
+
 int flip_cpu_policy_restore(const flip_cpu_policy_snapshot_t *snapshot)
 {
     if (!snapshot || !snapshot->governor[0])

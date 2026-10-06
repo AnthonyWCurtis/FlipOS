@@ -41,6 +41,28 @@ static void test_arm_and_confirm(void)
     assert(status.last_epoch == 111);
 }
 
+static void test_cancel_matching_trial(void)
+{
+    reset_root();
+
+    assert(flip_optimizer_guard_arm("table-only", 150) == 0);
+    assert(flip_optimizer_guard_cancel("wrong", 151) < 0);
+
+    flip_optimizer_guard_status_t status;
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 1);
+    assert(status.stock_only == 0);
+
+    assert(flip_optimizer_guard_cancel("table-only", 152) == 0);
+
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 0);
+    assert(strcmp(status.last_action, "cancelled") == 0);
+    assert(strcmp(status.last_trial_id, "table-only") == 0);
+    assert(status.last_epoch == 152);
+}
+
 static void test_boot_rolls_back_unconfirmed_trial(void)
 {
     reset_root();
@@ -106,6 +128,7 @@ int main(void)
     assert(flip_optimizer_guard_status(NULL) < 0);
 
     test_arm_and_confirm();
+    test_cancel_matching_trial();
     test_boot_rolls_back_unconfirmed_trial();
     test_corrupt_trial_fails_safe();
     test_trial_id_validation();

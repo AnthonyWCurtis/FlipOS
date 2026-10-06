@@ -56,6 +56,8 @@ static void reset_policy(void)
     write_value("scaling_min_freq", "408000\n");
     write_value("scaling_max_freq", "1992000\n");
     write_value("scaling_governor", "ondemand\n");
+    write_value("scaling_setspeed", "408000\n");
+    write_value("scaling_cur_freq", "408000\n");
 }
 
 static void test_query_and_snapshot(void)
@@ -95,6 +97,31 @@ static void test_cap_and_restore(void)
     assert(strcmp(governor, "ondemand") == 0);
 }
 
+static void test_userspace_speed_helpers(void)
+{
+    reset_policy();
+
+    assert(flip_cpu_policy_set_speed(1104000) < 0);
+
+    assert(flip_cpu_policy_set_governor("userspace") == 0);
+
+    char governor[64];
+    read_text_value(
+        "scaling_governor",
+        governor,
+        sizeof(governor));
+    assert(strcmp(governor, "userspace") == 0);
+
+    assert(flip_cpu_policy_set_speed(1104000) == 0);
+    assert(read_unsigned_value("scaling_setspeed") == 1104000);
+    assert(flip_cpu_policy_set_speed(1234567) < 0);
+
+    unsigned current = 0;
+    assert(flip_cpu_policy_get_current(&current) == 0);
+    assert(current == 408000);
+    assert(flip_cpu_policy_get_current(NULL) < 0);
+}
+
 static void test_rejects_invalid_frequency(void)
 {
     reset_policy();
@@ -115,6 +142,7 @@ int main(void)
 
     test_query_and_snapshot();
     test_cap_and_restore();
+    test_userspace_speed_helpers();
     test_rejects_invalid_frequency();
 
     printf("flip_cpu_policy tests passed\n");

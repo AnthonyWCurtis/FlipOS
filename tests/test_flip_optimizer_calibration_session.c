@@ -89,6 +89,34 @@ static void test_confirmed_stable_commits_candidate(void)
     assert(strcmp(guard.last_action, "confirmed") == 0);
 }
 
+static void test_cancel_unapplied_removes_pending_and_guard(void)
+{
+    reset_roots();
+    flip_optimizer_calibration_t calibration =
+        make_calibration();
+
+    assert(flip_optimizer_calibration_session_prepare(
+               &calibration,
+               NULL,
+               NULL) == 1);
+    assert(
+        flip_optimizer_calibration_session_ready_for_apply(
+            &calibration) == 1);
+
+    assert(
+        flip_optimizer_calibration_session_cancel_unapplied(
+            &calibration) == 0);
+
+    assert(calibration.pending == 0);
+    assert(calibration.opps[2].tests_run == 0);
+
+    flip_optimizer_guard_status_t guard;
+    assert(flip_optimizer_guard_status(&guard) == 0);
+    assert(guard.active == 0);
+    assert(guard.stock_only == 0);
+    assert(strcmp(guard.last_action, "cancelled") == 0);
+}
+
 static void test_reboot_rollback_marks_candidate_unstable(void)
 {
     reset_roots();
@@ -186,6 +214,7 @@ int main(void)
 {
     test_prepare_arms_matching_guard();
     test_confirmed_stable_commits_candidate();
+    test_cancel_unapplied_removes_pending_and_guard();
     test_reboot_rollback_marks_candidate_unstable();
     test_confirm_event_recovers_pending_state();
     test_orphaned_prearm_candidate_is_cancelled();
