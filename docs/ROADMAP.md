@@ -311,7 +311,7 @@ the ceiling one valid RK3566 OPP at a time when more headroom is required.
 - [ ] Raise ceiling one OPP on sustained or severe performance pressure
 - [x] Never exceed the pre-launch maximum ceiling
 - [ ] Restore exact pre-launch policy after normal exit, GameSwitcher, error or crash (normal GameSwitcher hardware path verified; error/crash hardware path pending)
-- [ ] Verify lid sleep/wake reapplies and restores the managed policy correctly
+- [x] Verify lid sleep/wake reapplies and restores the managed policy correctly
 - [ ] Real-hardware GBA regression across the four characterization titles
 - [ ] Characterize GB/GBC starting ceilings and enable the same dynamic controller
 - [ ] Consider persistent per-title learned ceilings only if later evidence justifies it
@@ -328,6 +328,14 @@ its absolute escalation limit. Sustained ~59.73 FPS caused no unnecessary
 escalation. A GameSwitcher suspend committed cartridge save + state, terminated
 the GBA runner normally and restored the exact 1.992 GHz pre-launch ceiling
 before frontend hardware ownership resumed.
+
+Lid sleep/wake was also verified on real hardware. Closing the lid caused FFVI
+to commit save + state, exit through the normal suspend path and restore the
+1.992 GHz pre-launch ceiling before deep sleep. On wake, the frontend
+automatically resumed FFVI, reapplied the managed 1.104 GHz ceiling, re-enabled
+the dynamic controller with 1.992 GHz as its escalation limit and restored the
+430144-byte FFVI savestate successfully. Post-wake FPS remained at the ~59.73
+target with no unnecessary clock escalation.
 
 ### Phase 10C — CPU Optimizer / Voltage Calibration
 
