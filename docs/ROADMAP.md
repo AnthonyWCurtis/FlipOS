@@ -376,11 +376,25 @@ workload can automatically request more CPU headroom.
 - [x] Native optimizer result/state foundation
 - [x] RK3566 voltage/OPP reconnaissance
 - [x] Watchdog/rollback proof before voltage writes
-- [ ] Per-device silicon calibration framework
+- [x] Per-device silicon calibration framework
 - [ ] Validate stress, idle/light-load, real emulators, thermal variation, sleep/resume and long soak
 - [ ] Apply guardband and stock fallback
 - [ ] Optimizer results UI with measured whole-device A/B power data
 - [ ] Undervolting only when hardware support and rollback safety are verified
+
+Per-device calibration framework acceptance on 2026-10-06 is also complete.
+The read-only live probe identifies this physical Flip by RK3566 CPU serial
+b9f4ffca2f298ad2 and model MIYOO RK3566 355 V10 Board, reads all eight CPU
+OPPs from debugfs, and reads the vdd_cpu regulator floor directly from sysfs.
+The resulting plan uses 12.5 mV candidate steps and a 25 mV final guardband,
+tests highest OPP first, persists the exact pending OPP/voltage/trial ID, and
+can map a boot rollback back to that candidate as unstable.
+
+The initialized hardware plan contains all eight stock OPPs from 408 MHz /
+850 mV through 1992 MHz / 1100 mV with the regulator floor at 712.5 mV. The
+plan survived a real reboot with pending=0 and complete_opps=0 while the boot
+guard remained inactive and the stock CPU policy stayed intact. The probe and
+state tool have no voltage-write command; this milestone remains dry-run only.
 
 Hardware rollback acceptance on 2026-10-06 used a fake optimizer trial with
 no voltage writes. The trial marker was durably armed and the Flip was rebooted

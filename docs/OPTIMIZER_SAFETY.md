@@ -62,3 +62,17 @@ MHz ondemand CPU policy was live.
 A second fake trial was explicitly confirmed before reboot; the subsequent boot
 remained safe with no rollback and no stock-only latch. No CPU voltage was
 written during either proof.
+
+## Calibration-state integration
+
+The per-device calibration state persists the exact pending OPP, candidate
+microvolts and deterministic trial ID. A future candidate runner must save that
+state and arm the matching optimizer-guard trial before calling any voltage
+backend.
+
+If the device reboots before the candidate is explicitly recorded as stable,
+the boot guard rolls the trial back and the calibration framework can map the
+matching rollback event to the pending candidate as unstable. This preserves
+both fail-safe boot behavior and the search boundary.
+
+The calibration probe itself is read-only with respect to CPU voltage.

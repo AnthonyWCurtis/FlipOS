@@ -117,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-guard test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-calibration-tool verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-guard test-optimizer-calibration test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -137,6 +137,8 @@ cpu-policy-tool: $(BUILD)/flip-cpu-policy
 
 optimizer-guard-tool: $(BUILD)/flip-optimizer-guard
 
+optimizer-calibration-tool: $(BUILD)/flip-optimizer-calibration
+
 verify:
 	@log=/tmp/flipos-verify.log; \
 	if ( \
@@ -153,6 +155,8 @@ verify:
 		$(MAKE) test-cpu-profile && \
 		$(MAKE) test-cpu-dynamic && \
 		$(MAKE) test-optimizer && \
+		$(MAKE) test-optimizer-guard && \
+		$(MAKE) test-optimizer-calibration && \
 		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
@@ -232,6 +236,9 @@ test-optimizer: $(BUILD)/test-flip-optimizer
 
 test-optimizer-guard: $(BUILD)/test-flip-optimizer-guard
 	$(BUILD)/test-flip-optimizer-guard
+
+test-optimizer-calibration: $(BUILD)/test-flip-optimizer-calibration
+	$(BUILD)/test-flip-optimizer-calibration
 
 test-bios: $(BUILD)/test-flip-bios
 	$(BUILD)/test-flip-bios
@@ -404,6 +411,14 @@ $(BUILD)/test-flip-optimizer-guard: tests/test_flip_optimizer_guard.c src/runtim
 		-DFLIP_OPTIMIZER_GUARD_ROOT='"/tmp/flipos-optimizer-guard-test"' -Iinclude \
 		tests/test_flip_optimizer_guard.c src/runtime/flip_optimizer_guard.c \
 		-o $@
+
+$(BUILD)/test-flip-optimizer-calibration: tests/test_flip_optimizer_calibration.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer.c include/flip_optimizer_calibration.h include/flip_optimizer.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_OPTIMIZER_CALIBRATION_ROOT='"/tmp/flipos-optimizer-calibration-test"' -Iinclude \
+		tests/test_flip_optimizer_calibration.c \
+		src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer.c \
+		-lm -o $@
 
 $(BUILD)/test-flip-bios: tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c include/flip_bios.h include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
@@ -788,6 +803,13 @@ $(BUILD)/flip-optimizer-guard: src/hwtest/flip_optimizer_guard_tool.c src/runtim
 		src/hwtest/flip_optimizer_guard_tool.c src/runtime/flip_optimizer_guard.c \
 		-static -o $@
 
+$(BUILD)/flip-optimizer-calibration: src/hwtest/flip_optimizer_calibration_tool.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer.c include/flip_optimizer_calibration.h include/flip_optimizer.h | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L -Iinclude \
+		src/hwtest/flip_optimizer_calibration_tool.c \
+		src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer.c \
+		-static -lm -o $@
+
 $(BUILD)/flip-perf-capture: $(PERF_CAPTURE_OBJS)
 	$(CC) -static -o $@ $(PERF_CAPTURE_OBJS)
 
@@ -860,6 +882,7 @@ clean:
 		$(BUILD)/flip-perf-capture \
 		$(BUILD)/flip-cpu-policy \
 		$(BUILD)/flip-optimizer-guard \
+		$(BUILD)/flip-optimizer-calibration \
 		$(BUILD)/libgambatte_libretro.a \
 		$(BUILD)/mgba_libretro.a \
 		$(BUILD)/test-flip-controls \
@@ -876,6 +899,7 @@ clean:
 		$(BUILD)/test-flip-cpu-dynamic \
 		$(BUILD)/test-flip-optimizer \
 		$(BUILD)/test-flip-optimizer-guard \
+		$(BUILD)/test-flip-optimizer-calibration \
 		$(BUILD)/test-flip-bios \
 		$(BUILD)/test-flip-library-cache \
 		$(BUILD)/test-flip-exit-protocol \
