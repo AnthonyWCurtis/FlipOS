@@ -121,3 +121,38 @@ test.
 The next step is to identify and prove a kernel-owned runtime voltage/OPP update
 mechanism. Raw RK860 I2C writes and persistent boot-time DTB/OPP changes remain
 prohibited.
+
+## Runtime OPP backend acceptance
+
+The kernel-owned runtime OPP update mechanism is now proven on this Flip.
+
+A GPL kernel module built against the matching Rockchip 5.10.160 tree uses
+dev_pm_opp_adjust_voltage rather than raw RK860 I2C access. A stock-safe
+round-trip proof was first performed while CPU0 was capped below the target
+OPP: the 1992 MHz OPP table entry changed from 1100.0 mV to 1112.5 mV and back
+to 1100.0 mV, while the physical vdd_cpu rail remained at the lower active OPP
+voltage. The module then unloaded cleanly.
+
+The committed guarded candidate backend was subsequently accepted in
+table-only mode using the real first calibration candidate:
+
+- trial: cpu-1992000-1087500-1;
+- target OPP: 1992 MHz;
+- candidate: 1087.5 mV;
+- CPU parked at 1800 MHz / 1050.0 mV;
+- candidate OPP table entry applied and verified;
+- physical rail remained at the 1800 MHz parking voltage;
+- voltage_entered=0;
+- stock 1992 MHz OPP table restored to 1100.0 mV;
+- kernel module unloaded;
+- exact pre-test 408-1992 MHz ondemand policy restored;
+- unapplied trial cancelled rather than counted as stable or unstable
+  calibration evidence.
+
+The backend source is retained in tools/kernel/flip_opp_voltage and can be
+rebuilt explicitly against the prepared matching kernel tree with the optional
+opp-voltage-module Make target. Normal FlipOS builds do not depend on the
+external kernel tree.
+
+The next acceptance boundary is a controlled live candidate test where the CPU
+is deliberately moved onto the adjusted OPP for a bounded stress window.\n

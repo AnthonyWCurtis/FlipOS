@@ -97,3 +97,25 @@ Hardware dry-run acceptance used the real first candidate at 1992 MHz /
 remained at the stock 1100 mV. Rebooting without confirmation produced an
 automatic guard rollback and calibration reconcile. The artificial result was
 then discarded and the clean plan reinitialized. No voltage was written.
+
+## Hardware watchdog limitation
+
+The RK3566 DesignWare watchdog at /dev/watchdog0 was tested on real hardware
+before live undervolting. With an eight-second timeout, stopping the userspace
+feeder caused the hardware watchdog to fire and ADB/USB to disappear. However,
+the Miyoo Flip did not return to a normal autonomous boot/USB state afterward.
+A manual power-cycle was required.
+
+The durable optimizer trial survived that event. On the following manual boot,
+optimizer-guard ran before telemetry/frontend, recorded the unconfirmed
+watchdog proof trial as rolled back, set stock-only, and the kernel returned to
+its stock device-tree CPU OPP table and 408-1992 MHz ondemand policy.
+
+Therefore the DesignWare watchdog is useful as a hang detector but is not
+accepted as an unattended full-board recovery mechanism on this Miyoo hardware.
+Initial real voltage candidates remain runtime-only and non-persistent, so a
+manual power-cycle always restores the stock kernel OPP table. A hard hang may
+require that manual power-cycle.
+
+No persistent undervolt profile may be enabled on the strength of this
+watchdog test.\n

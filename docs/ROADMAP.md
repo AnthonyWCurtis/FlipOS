@@ -419,6 +419,21 @@ stock device-tree OPP table, while the guard prevents the failed candidate from
 being retried automatically. Persistent boot-time OPP/DTB experiments remain
 prohibited until an earlier boot-stage fallback path is independently proven.
 
+The runtime kernel OPP update path is now hardware-proven using the matching
+Rockchip 5.10.160 OPP API. The first real 1992 MHz / 1087.5 mV candidate was
+also accepted in table-only mode: CPU0 was parked at 1800 MHz / 1050 mV, the
+candidate table entry was applied and verified without entering that OPP,
+then the stock table and exact pre-test CPU policy were restored and the
+unapplied trial cancelled.
+
+The RK3566 DesignWare watchdog was also exercised with a stopped feeder. It
+fired and removed the device from USB, but did not return this Miyoo board to a
+normal autonomous boot; manual power-cycle was required. After manual boot the
+durable guard correctly quarantined the unconfirmed trial and the stock kernel
+OPP table was restored. Until a true full-board unattended reset mechanism is
+proven, hard-hang recovery during runtime-only undervolt calibration may require
+manual power-cycle.
+
 ### Phase 10D — Thermal / Charging / Runtime Efficiency
 
 - [ ] Smart charge-while-playing policy
