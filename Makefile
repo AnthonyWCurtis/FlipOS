@@ -30,6 +30,8 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_battery.o \
 	$(BUILD)/flip_performance.o \
+	$(BUILD)/flip_cpu_policy.o \
+	$(BUILD)/flip_optimizer.o \
 	$(BUILD)/flip_exit_protocol.o \
 	$(BUILD)/flip_session_persistence.o \
 	$(BUILD)/flip_session_registry.o \
@@ -111,7 +113,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-optimizer test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -127,6 +129,8 @@ gpu-sender: $(BUILD)/flip-gpu-sender
 
 perf-capture: $(BUILD)/flip-perf-capture
 
+cpu-policy-tool: $(BUILD)/flip-cpu-policy
+
 verify:
 	@log=/tmp/flipos-verify.log; \
 	if ( \
@@ -139,6 +143,8 @@ verify:
 		$(MAKE) test-log && \
 		$(MAKE) test-battery && \
 		$(MAKE) test-performance && \
+		$(MAKE) test-cpu-policy && \
+		$(MAKE) test-optimizer && \
 		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
@@ -203,6 +209,12 @@ test-battery: $(BUILD)/test-flip-battery
 
 test-performance: $(BUILD)/test-flip-performance
 	$(BUILD)/test-flip-performance
+
+test-cpu-policy: $(BUILD)/test-flip-cpu-policy
+	$(BUILD)/test-flip-cpu-policy
+
+test-optimizer: $(BUILD)/test-flip-optimizer
+	$(BUILD)/test-flip-optimizer
 
 test-bios: $(BUILD)/test-flip-bios
 	$(BUILD)/test-flip-bios
@@ -339,6 +351,20 @@ $(BUILD)/test-flip-performance: tests/test_flip_performance.c src/runtime/flip_p
 		-DFLIP_PERF_GPU_ROOT='"/tmp/flipos-performance-test/gpu"' -Iinclude \
 		tests/test_flip_performance.c src/runtime/flip_performance.c \
 		-o $@
+
+$(BUILD)/test-flip-cpu-policy: tests/test_flip_cpu_policy.c src/runtime/flip_cpu_policy.c include/flip_cpu_policy.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_CPU_POLICY_ROOT='"/tmp/flipos-cpu-policy-test"' -Iinclude \
+		tests/test_flip_cpu_policy.c src/runtime/flip_cpu_policy.c \
+		-o $@
+
+$(BUILD)/test-flip-optimizer: tests/test_flip_optimizer.c src/runtime/flip_optimizer.c include/flip_optimizer.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_OPTIMIZER_ROOT='"/tmp/flipos-optimizer-test"' -Iinclude \
+		tests/test_flip_optimizer.c src/runtime/flip_optimizer.c \
+		-lm -o $@
 
 $(BUILD)/test-flip-bios: tests/test_flip_bios.c src/runtime/flip_bios.c src/runtime/flip_paths.c include/flip_bios.h include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
@@ -564,6 +590,12 @@ $(BUILD)/flip_battery.o: src/runtime/flip_battery.c include/flip_battery.h | $(B
 $(BUILD)/flip_performance.o: src/runtime/flip_performance.c include/flip_performance.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_cpu_policy.o: src/runtime/flip_cpu_policy.c include/flip_cpu_policy.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -c $< -o $@
+
+$(BUILD)/flip_optimizer.o: src/runtime/flip_optimizer.c include/flip_optimizer.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -c $< -o $@
+
 $(BUILD)/flip_bios.o: src/runtime/flip_bios.c include/flip_bios.h include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -699,6 +731,11 @@ $(BUILD)/flip-gpu-service: \
 		src/runtime/flip_video_layout.c \
 		-ldl -o $@
 
+$(BUILD)/flip-cpu-policy: src/hwtest/flip_cpu_policy_tool.c $(BUILD)/flip_cpu_policy.o include/flip_cpu_policy.h | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		src/hwtest/flip_cpu_policy_tool.c $(BUILD)/flip_cpu_policy.o \
+		-static -o $@
+
 $(BUILD)/flip-perf-capture: $(PERF_CAPTURE_OBJS)
 	$(CC) -static -o $@ $(PERF_CAPTURE_OBJS)
 
@@ -769,6 +806,7 @@ clean:
 		$(BUILD)/flip-gpu-service \
 		$(BUILD)/flip-gpu-sender \
 		$(BUILD)/flip-perf-capture \
+		$(BUILD)/flip-cpu-policy \
 		$(BUILD)/libgambatte_libretro.a \
 		$(BUILD)/mgba_libretro.a \
 		$(BUILD)/test-flip-controls \
@@ -780,6 +818,8 @@ clean:
 		$(BUILD)/test-flip-log \
 		$(BUILD)/test-flip-battery \
 		$(BUILD)/test-flip-performance \
+		$(BUILD)/test-flip-cpu-policy \
+		$(BUILD)/test-flip-optimizer \
 		$(BUILD)/test-flip-bios \
 		$(BUILD)/test-flip-library-cache \
 		$(BUILD)/test-flip-exit-protocol \
