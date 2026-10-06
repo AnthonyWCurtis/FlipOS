@@ -391,10 +391,16 @@ tests highest OPP first, persists the exact pending OPP/voltage/trial ID, and
 can map a boot rollback back to that candidate as unstable.
 
 The initialized hardware plan contains all eight stock OPPs from 408 MHz /
-850 mV through 1992 MHz / 1100 mV with the regulator floor at 712.5 mV. The
-plan survived a real reboot with pending=0 and complete_opps=0 while the boot
-guard remained inactive and the stock CPU policy stayed intact. The probe and
-state tool have no voltage-write command; this milestone remains dry-run only.
+850 mV through 1992 MHz / 1100 mV with the regulator floor at 712.5 mV.
+
+The stronger transaction path was also dry-run on hardware. The first 1992 MHz
+candidate (1087.5 mV) was persisted and paired with a matching boot-guard trial,
+which made ready_for_apply=1 while the live kernel OPP remained at the stock
+1100 mV. Rebooting without confirmation caused the guard to roll back before
+the frontend and the boot reconciler mapped that exact trial back to the
+pending calibration candidate. The artificial result was then discarded, the
+stock-only latch cleared, and a clean plan reinitialized with pending=0 and
+complete_opps=0. No voltage was written during this milestone.
 
 Hardware rollback acceptance on 2026-10-06 used a fake optimizer trial with
 no voltage writes. The trial marker was durably armed and the Flip was rebooted

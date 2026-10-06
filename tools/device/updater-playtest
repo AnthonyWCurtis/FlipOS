@@ -25,10 +25,18 @@ chmod 755 "$ROOT/bin/flip-gb"
 [ ! -f "$ROOT/bin/flip-perf-capture" ] || chmod 755 "$ROOT/bin/flip-perf-capture"
 [ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
 [ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
+[ ! -f "$ROOT/bin/flip-optimizer-calibration" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration"
 
 if [ -x "$ROOT/bin/flip-optimizer-guard" ]; then
     if ! "$ROOT/bin/flip-optimizer-guard" boot-check >> "$LOG" 2>&1; then
         echo "OPTIMIZER_GUARD: boot check failed; remaining stock-only by default" >> "$LOG"
+    fi
+fi
+
+if [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
+   [ -f "$ROOT/state/optimizer/cpu-calibration" ]; then
+    if ! "$ROOT/bin/flip-optimizer-calibration" reconcile >> "$LOG" 2>&1; then
+        echo "OPTIMIZER_CALIBRATION: boot reconcile failed; calibration paused" >> "$LOG"
     fi
 fi
 

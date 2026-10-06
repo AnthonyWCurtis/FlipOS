@@ -613,12 +613,10 @@ static int finish_pending(
         }
     } else {
         opp->highest_unstable_uv = candidate;
-        opp->raw_final_uv = max_unsigned(
-            opp->lowest_stable_uv,
-            guarded_final(
-                calibration,
-                opp,
-                candidate));
+        opp->raw_final_uv = guarded_final(
+            calibration,
+            opp,
+            opp->lowest_stable_uv);
         opp->complete = 1;
     }
 
@@ -658,6 +656,22 @@ int flip_optimizer_calibration_record_rollback(
         return -1;
 
     return finish_pending(calibration, 0);
+}
+
+int flip_optimizer_calibration_cancel_pending(
+    flip_optimizer_calibration_t *calibration)
+{
+    if (!calibration ||
+        flip_optimizer_calibration_validate(calibration) < 0 ||
+        !calibration->pending)
+        return -1;
+
+    calibration->pending = 0;
+    calibration->pending_index = 0;
+    calibration->pending_uv = 0;
+    calibration->pending_trial_id[0] = '\0';
+
+    return flip_optimizer_calibration_validate(calibration);
 }
 
 int flip_optimizer_calibration_is_complete(

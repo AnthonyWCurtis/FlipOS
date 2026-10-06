@@ -95,6 +95,41 @@ static void test_unstable_candidate_finishes_with_guardband(void)
     assert(opp->complete == 1);
 }
 
+static void test_guardband_is_above_lowest_proven_stable(void)
+{
+    flip_optimizer_calibration_t calibration =
+        make_calibration();
+
+    size_t index = 0;
+    unsigned uv = 0;
+
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration, &index, &uv) == 1);
+    assert(uv == 1087500);
+    assert(flip_optimizer_calibration_record_pending(
+               &calibration, 1) == 0);
+
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration, &index, &uv) == 1);
+    assert(uv == 1075000);
+    assert(flip_optimizer_calibration_record_pending(
+               &calibration, 1) == 0);
+
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration, &index, &uv) == 1);
+    assert(uv == 1062500);
+    assert(flip_optimizer_calibration_record_pending(
+               &calibration, 0) == 0);
+
+    const flip_optimizer_calibration_opp_t *opp =
+        &calibration.opps[3];
+
+    assert(opp->lowest_stable_uv == 1075000);
+    assert(opp->highest_unstable_uv == 1062500);
+    assert(opp->raw_final_uv == 1100000);
+    assert(opp->complete == 1);
+}
+
 static void test_rollback_maps_pending_candidate_to_unstable(void)
 {
     flip_optimizer_calibration_t calibration =
@@ -194,6 +229,7 @@ int main(void)
 {
     test_highest_opp_first_and_stable_descent();
     test_unstable_candidate_finishes_with_guardband();
+    test_guardband_is_above_lowest_proven_stable();
     test_rollback_maps_pending_candidate_to_unstable();
     test_floor_completion_and_monotonic_result();
     test_save_load_pending_state();

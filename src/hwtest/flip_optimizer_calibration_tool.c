@@ -1,4 +1,6 @@
 #include "flip_optimizer_calibration.h"
+#include "flip_optimizer_calibration_session.h"
+#include "flip_optimizer_guard.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -366,9 +368,11 @@ static int make_live_calibration(
 static int print_status(void)
 {
     flip_optimizer_calibration_t calibration;
+    flip_optimizer_guard_status_t guard;
 
     if (flip_optimizer_calibration_load(
-            &calibration) < 0)
+            &calibration) < 0 ||
+        flip_optimizer_guard_status(&guard) < 0)
         return -1;
 
     print_plan(&calibration);
@@ -391,6 +395,18 @@ static int print_status(void)
         complete += calibration.opps[i].complete ? 1 : 0;
 
     printf("complete_opps=%zu\n", complete);
+    printf("guard_active=%d\n", guard.active);
+    printf("guard_stock_only=%d\n", guard.stock_only);
+    if (guard.active)
+        printf("guard_trial_id=%s\n", guard.trial_id);
+    if (guard.last_action[0])
+        printf("guard_last_action=%s\n", guard.last_action);
+
+    printf(
+        "ready_for_apply=%d\n",
+        flip_optimizer_calibration_session_ready_for_apply(
+            &calibration));
+
     return 0;
 }
 
@@ -398,7 +414,8 @@ static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s probe | init | status\n",
+        "usage: %s probe | init | status | prepare | ready | "
+        "reconcile | confirm-stable | clear-stock-only\n",
         program);
 }
 
@@ -438,6 +455,101 @@ int main(int argc, char **argv)
         return print_status() == 0
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
+
+    if (strcmp(argv[1], "prepare") == 0) {
+        flip_optimizer_calibration_t calibration;
+        size_t index = 0;
+        unsigned uv = 0;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        int rc =
+            flip_optimizer_calibration_session_prepare(
+                &calibration,
+                &index,
+                &uv);
+
+        if (rc < 0)
+            return EXIT_FAILURE;
+
+        if (rc == 0) {
+            printf("calibration_complete=1\n");
+            return EXIT_SUCCESS;
+        }
+
+        printf("prepared=1\n");
+        printf("opp_index=%zu\n", index);
+        printf(
+            "frequency_khz=%u\n",
+            calibration.opps[index].frequency_khz);
+        printf("candidate_uv=%u\n", uv);
+        printf(
+            "trial_id=%s\n",
+            calibration.pending_trial_id);
+        printf("voltage_written=0\n");
+        return EXIT_SUCCESS;
+    }
+
+    if (strcmp(argv[1], "ready") == 0) {
+        flip_optimizer_calibration_t calibration;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        int ready =
+            flip_optimizer_calibration_session_ready_for_apply(
+                &calibration);
+
+        printf("ready_for_apply=%d\n", ready);
+        return ready ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+    if (strcmp(argv[1], "reconcile") == 0) {
+        flip_optimizer_calibration_t calibration;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        int rc =
+            flip_optimizer_calibration_session_reconcile(
+                &calibration);
+
+        if (rc < 0)
+            return EXIT_FAILURE;
+
+        printf("reconcile=%d\n", rc);
+        return EXIT_SUCCESS;
+    }
+
+    if (strcmp(argv[1], "confirm-stable") == 0) {
+        flip_optimizer_calibration_t calibration;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0 ||
+            flip_optimizer_calibration_session_confirm_stable(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        printf("confirmed_stable=1\n");
+        return EXIT_SUCCESS;
+    }
+
+    if (strcmp(argv[1], "clear-stock-only") == 0) {
+        flip_optimizer_calibration_t calibration;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0 ||
+            flip_optimizer_calibration_session_clear_stock_only(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        printf("stock_only_cleared=1\n");
+        return EXIT_SUCCESS;
+    }
 
     usage(argv[0]);
     return EXIT_FAILURE;

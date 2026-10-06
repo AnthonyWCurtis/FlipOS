@@ -76,3 +76,24 @@ matching rollback event to the pending candidate as unstable. This preserves
 both fail-safe boot behavior and the search boundary.
 
 The calibration probe itself is read-only with respect to CPU voltage.
+
+The calibration transaction layer persists the pending candidate before arming
+the guard. A future voltage backend is permitted to run only when
+ready_for_apply confirms that:
+
+- calibration state is valid and has a pending candidate;
+- optimizer-guard has an active trial with the exact same trial ID;
+- the stock-only latch is not set.
+
+At boot, guard rollback processing runs first and calibration reconciliation
+runs immediately afterward, both before telemetry or the frontend. A matching
+rolled-back trial is therefore converted into an unstable calibration bound
+automatically. A matching confirmed event can likewise recover a confirmation
+if power was lost after guard confirmation but before calibration state was
+committed.
+
+Hardware dry-run acceptance used the real first candidate at 1992 MHz /
+1087.5 mV. The transaction reached ready_for_apply=1 while the kernel OPP
+remained at the stock 1100 mV. Rebooting without confirmation produced an
+automatic guard rollback and calibration reconcile. The artificial result was
+then discarded and the clean plan reinitialized. No voltage was written.

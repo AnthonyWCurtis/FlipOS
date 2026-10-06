@@ -10,6 +10,9 @@ required = [
     'chmod 755 "$ROOT/bin/flip-optimizer-guard"',
     '"$ROOT/bin/flip-optimizer-guard" boot-check',
     'OPTIMIZER_GUARD: boot check failed',
+    'chmod 755 "$ROOT/bin/flip-optimizer-calibration"',
+    '"$ROOT/bin/flip-optimizer-calibration" reconcile',
+    'OPTIMIZER_CALIBRATION: boot reconcile failed',
     'if [ -x "$ROOT/bin/flip-playtest-logger.sh" ]',
     '"$ROOT/bin/flip-frontend" >> "$LOG" 2>&1',
 ]
@@ -19,14 +22,15 @@ for token in required:
         errors.append(f"optimizer guard boot wrapper missing: {token}")
 
 guard_pos = wrapper.find('"$ROOT/bin/flip-optimizer-guard" boot-check')
+reconcile_pos = wrapper.find('"$ROOT/bin/flip-optimizer-calibration" reconcile')
 logger_pos = wrapper.find('if [ -x "$ROOT/bin/flip-playtest-logger.sh" ]')
 frontend_pos = wrapper.find('"$ROOT/bin/flip-frontend" >> "$LOG" 2>&1')
 
-if guard_pos < 0 or logger_pos < 0 or frontend_pos < 0:
+if min(guard_pos, reconcile_pos, logger_pos, frontend_pos) < 0:
     pass
-elif not (guard_pos < logger_pos < frontend_pos):
+elif not (guard_pos < reconcile_pos < logger_pos < frontend_pos):
     errors.append(
-        "optimizer guard must run before playtest logger and frontend"
+        "optimizer boot order must be guard, calibration reconcile, logger, frontend"
     )
 
 if errors:
