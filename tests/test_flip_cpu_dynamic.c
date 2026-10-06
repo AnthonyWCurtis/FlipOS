@@ -71,6 +71,23 @@ static void test_healthy_workload_stays_put(void)
     assert(controller.raise_count == 0);
 }
 
+static void test_full_speed_near_budget_does_not_raise(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    consume_warmup(&controller);
+
+    for (int i = 0; i < 8; ++i) {
+        assert(flip_cpu_dynamic_sample(
+            &controller, 59.976, 59.728, 16626, 0) == 0);
+    }
+
+    assert(read_unsigned_value("scaling_max_freq") == 1104000);
+    assert(controller.raise_count == 0);
+}
+
 static void test_ffvi_style_816_rescue_raises_to_1104(void)
 {
     reset_policy(816000);
@@ -193,6 +210,7 @@ static void test_controller_does_not_lower_policy(void)
 int main(void)
 {
     test_healthy_workload_stays_put();
+    test_full_speed_near_budget_does_not_raise();
     test_ffvi_style_816_rescue_raises_to_1104();
     test_single_timing_wobble_does_not_raise();
     test_two_bad_windows_raise_one_opp();

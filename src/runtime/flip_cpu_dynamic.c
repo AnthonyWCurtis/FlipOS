@@ -129,7 +129,19 @@ int flip_cpu_dynamic_sample(
     int severe_fps_bad =
         measured_fps < target_fps * 0.97;
 
+    /*
+     * Host time is supporting evidence only. Some healthy full-speed
+     * workloads naturally consume almost the entire frame budget; raising
+     * clocks solely because host_avg_us is high causes false escalation.
+     *
+     * Only let host pressure contribute once measured FPS is already
+     * measurably below target. Full-speed FPS therefore wins.
+     */
+    int marginal_fps_bad =
+        measured_fps < target_fps * 0.9975;
+
     int host_pressure =
+        marginal_fps_bad &&
         host_avg_us > 0 &&
         (double)host_avg_us >= frame_budget_us * 0.95;
 

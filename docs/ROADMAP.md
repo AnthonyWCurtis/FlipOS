@@ -308,7 +308,7 @@ the ceiling one valid RK3566 OPP at a time when more headroom is required.
 - [x] Dynamic ceiling escalation state machine with host tests
 - [x] Apply managed GBA starting ceiling automatically at session launch
 - [x] Feed emulator FPS/frame-time/audio-pressure windows into the controller
-- [ ] Raise ceiling one OPP on sustained or severe performance pressure
+- [x] Raise ceiling one OPP on sustained or severe performance pressure
 - [x] Never exceed the pre-launch maximum ceiling
 - [ ] Restore exact pre-launch policy after normal exit, GameSwitcher, error or crash (normal GameSwitcher hardware path verified; error/crash hardware path pending)
 - [x] Verify lid sleep/wake reapplies and restores the managed policy correctly
@@ -336,6 +336,22 @@ automatically resumed FFVI, reapplied the managed 1.104 GHz ceiling, re-enabled
 the dynamic controller with 1.992 GHz as its escalation limit and restored the
 430144-byte FFVI savestate successfully. Post-wake FPS remained at the ~59.73
 target with no unnecessary clock escalation.
+
+Dynamic upward rescue was then exercised directly on hardware with FFVI from an
+816 MHz developer start. The first implementation correctly raised 816 -> 1104
+MHz under severe slowdown, but hardware testing exposed a false-escalation bug:
+near-frame-budget host time could continue raising clocks even after FPS had
+fully recovered. The controller was corrected so host-time pressure is only
+supporting evidence when measured FPS is already slipping; healthy full-speed
+FPS is authoritative.
+
+The corrected controller was re-tested on the same Flip. FFVI initially held
+near target at 816 MHz and correctly stayed there. When workload increased, FPS
+fell through 58.595 to 57.820, FlipOS raised the ceiling exactly one OPP from
+816 -> 1104 MHz, and FPS immediately recovered to ~59.72-59.73. The controller
+then remained at 1104 MHz across many subsequent full-speed windows with no
+false escalation to 1416 MHz. This validates both performance rescue and
+post-recovery hysteresis on real hardware.
 
 ### Phase 10C — CPU Optimizer / Voltage Calibration
 
