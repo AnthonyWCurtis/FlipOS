@@ -135,3 +135,56 @@ Keep 1.104 GHz as the provisional-safe GBA ceiling. It removes access to all
 higher-voltage CPU OPPs on the current unit while retaining significantly more
 frequency margin than 816 MHz. Do not promote 816 MHz to the release profile
 without broader and longer validation.
+
+## 2026-10-06 - Mother 3
+
+Mother 3 was added as a third GBA workload. The run covered normal early-game
+play. Later battle/effect-heavy sections should still be tested separately.
+
+### Stock baseline - 1.992 GHz ceiling
+
+- 90 telemetry samples over 89 seconds
+- CPU mean: 1142.67 MHz
+- CPU load mean: 16.56%
+- SoC mean: 47.75 C
+- FPS samples: 90
+- FPS minimum: 59.712
+- FPS mean: 59.727
+- FPS maximum: 59.743
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+### Candidate profile - 1.104 GHz ceiling
+
+- 180 telemetry samples over 179 seconds
+- CPU mean: 976.80 MHz
+- CPU load mean: 16.26%
+- SoC mean: 47.47 C
+- FPS samples: 179
+- FPS minimum: 59.710
+- FPS mean: 59.728
+- FPS maximum: 59.753
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+The 1.104 GHz result again matches stock performance for the captured workload.
+
+### Experimental probe - 816 MHz ceiling
+
+- 60 telemetry samples over 59 seconds
+- CPU mean: 816.00 MHz
+- CPU load mean: 19.01%
+- SoC mean: 47.75 C
+- FPS samples: 60
+- FPS minimum: 59.718
+- FPS mean: 59.727
+- FPS maximum: 59.740
+- no audio queue drops
+- no GPU invalid events
+- no crash/error/warning events
+
+816 MHz remains promising but experimental. The provisional-safe GBA ceiling
+remains 1.104 GHz until broader title coverage and demanding later-game scenes
+are validated.
