@@ -14,10 +14,10 @@ that matter.
 | CPU external buck regulator | Rockchip RK8600 family | I2C 0x40, compatible `rockchip,rk8600`; kernel `rk860x-regulator` | RK860 / RK860x regulator datasheet; RK860x Linux binding/driver notes |
 | Additional external buck regulator | TCS TCS4525 | I2C 0x1c, compatible `tcs,tcs4525` | TCS4525 datasheet / register map |
 | Wi-Fi | Realtek RTL8733BU | live DT `wifi_chip_type=rtl8733bu`; vendor driver logs | RTL8733BU datasheet / hardware design guide; Realtek vendor Linux driver documentation / release notes |
-| SPI NAND flash | exact model not yet identified | SFC node `spi-nand` at `spi@fe300000/flash@0` | Exact NAND datasheet after JEDEC/READ-ID capture |
+| SPI NAND flash | ESMT 1 Gbit / 128 MiB SPI-NAND, exact suffix not yet identified | live kernel: `esmt SPI NAND`, 128 MiB, 128 KiB blocks, 2048-byte pages, 64-byte OOB | Supplied F50L1G41A datasheet is geometry-compatible; exact suffix still requires READ-ID confirmation |
 | USB / accessory MUIC | exact model not yet identified | I2C 0x30, compatible `gi,muic` | Exact MUIC datasheet after driver/board identification |
 | LCD panel | exact model/controller not yet identified | DSI two-lane `simple-panel-dsi`; 68x121 mm DT size | Exact panel/controller datasheet after panel ID / init-sequence identification |
-| LPDDR memory | exact part not yet identified | RK3566 memory controller / board RAM | Exact LPDDR4/LPDDR4X datasheet after package marking or DDR-init identification |
+| LPDDR memory | 1 GiB installed; exact vendor/part not yet identified | live `/proc/meminfo` reports ~979 MiB usable after kernel reservations | Supplied Samsung K4F8E304HB 8 Gb LPDDR4 datasheet is capacity-compatible only; exact package still requires vendor/DDR-init or board-marking confirmation |
 
 ## RK817 reset wiring confirmed on this Miyoo board
 

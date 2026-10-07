@@ -144,6 +144,30 @@ without ADB or a power-button intervention.
 No persistent undervolt profile may be enabled on the strength of the
 DesignWare watchdog test.
 
+### Layered TSADC/RK817 recovery progress
+
+The live Miyoo device tree confirms the documented `TSADC_SHUT_ORG` route on
+GPIO0_A1 and the RK817 reset path. FlipOS now has a route-only kernel helper
+which temporarily selects that documented shutdown output during calibration;
+it does not alter the 120 C thermal shutdown threshold.
+
+The live candidate runner also owns the DesignWare watchdog heartbeat during
+the dangerous window. Its 100 ms monitor loop pings the watchdog only while the
+candidate is making progress. Once `/dev/watchdog0` has been opened, the trial
+is reboot-required because this kernel cannot guarantee that the physical timer
+can be stopped again.
+
+A stock-voltage acceptance probe armed the RK817-directed TSADC route and the
+11-second hardware watchdog, quiesced two SD writers, performed no voltage
+write, and requested reboot while both recovery layers remained armed. The
+Flip returned autonomously with `boot_mode=normal`, a read-write SD mount, the
+TSADC helper unloaded by reboot, and a clean optimizer guard. This proves the
+success-path reboot lifecycle.
+
+The remaining acceptance gate is to prove the same autonomous return when the
+hardware watchdog itself supplies the reset event. Live undervolting remains
+paused until that final stock-voltage recovery proof is complete.
+
 ## Self-healing supervisor architecture — 2026-10-07
 
 The first live undervolt sweep exposed a second failure mode that the original
