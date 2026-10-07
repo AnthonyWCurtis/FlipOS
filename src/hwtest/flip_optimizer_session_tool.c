@@ -22,6 +22,7 @@ typedef struct {
     int active;
     int paused;
     unsigned duration_seconds;
+    unsigned target_complete_count;
 } session_state_t;
 
 static int fsync_parent(void)
@@ -49,10 +50,11 @@ static int save_session(const session_state_t *state)
     int n = snprintf(
         buf,
         sizeof(buf),
-        "version=1\nactive=%d\npaused=%d\nduration_seconds=%u\n",
+        "version=1\nactive=%d\npaused=%d\nduration_seconds=%u\ntarget_complete_count=%u\n",
         state->active ? 1 : 0,
         state->paused ? 1 : 0,
-        state->duration_seconds);
+        state->duration_seconds,
+        state->target_complete_count);
 
     if (n <= 0 || (size_t)n >= sizeof(buf)) {
         close(fd);
@@ -100,6 +102,11 @@ static int load_session(session_state_t *state)
                 "duration_seconds=%u",
                 &state->duration_seconds) == 1)
             continue;
+        if (sscanf(
+                line,
+                "target_complete_count=%u",
+                &state->target_complete_count) == 1)
+            continue;
     }
 
     int failed = ferror(f);
@@ -110,7 +117,10 @@ static int load_session(session_state_t *state)
         (state->active != 0 && state->active != 1) ||
         (state->paused != 0 && state->paused != 1) ||
         state->duration_seconds == 0 ||
-        state->duration_seconds > 120)
+        state->duration_seconds > 120 ||
+        state->target_complete_count == 0 ||
+        state->target_complete_count >
+            FLIP_OPTIMIZER_CALIBRATION_MAX_OPPS)
         return -1;
 
     return 1;
@@ -151,6 +161,9 @@ static int print_status(void)
         printf(
             "duration_seconds=%u\n",
             state.duration_seconds);
+        printf(
+            "target_complete_count=%u\n",
+            state.target_complete_count);
     }
 
     flip_optimizer_calibration_t calibration;
@@ -170,7 +183,9 @@ static int print_status(void)
     return 0;
 }
 
-static int start_session(unsigned duration_seconds)
+static int start_session(
+    unsigned duration_seconds,
+    int one_opp_only)
 {
     flip_optimizer_calibration_t calibration;
     if (flip_optimizer_calibration_load(
@@ -184,20 +199,32 @@ static int start_session(unsigned duration_seconds)
     if (calibration.pending)
         return -1;
 
+    unsigned completed =
+        complete_count(&calibration);
+    unsigned target =
+        one_opp_only
+            ? completed + 1U
+            : (unsigned)calibration.opp_count;
+
+    if (target > calibration.opp_count)
+        target = (unsigned)calibration.opp_count;
+
     session_state_t state = {
         .active = 1,
         .paused = 0,
         .duration_seconds = duration_seconds,
+        .target_complete_count = target,
     };
 
     if (save_session(&state) < 0)
         return -1;
 
     printf(
-        "OPTIMIZER_SESSION: STARTED duration_s=%u complete=%u/%zu\n",
+        "OPTIMIZER_SESSION: STARTED duration_s=%u complete=%u/%zu target=%u\n",
         duration_seconds,
-        complete_count(&calibration),
-        calibration.opp_count);
+        completed,
+        calibration.opp_count,
+        target);
     return 0;
 }
 
@@ -253,19 +280,25 @@ static int boot_resume(void)
             "pending-after-recovery");
     }
 
-    if (flip_optimizer_calibration_is_complete(
+    unsigned completed =
+        complete_count(&calibration);
+
+    if (completed >= state.target_complete_count ||
+        flip_optimizer_calibration_is_complete(
             &calibration)) {
         printf(
-            "OPTIMIZER_SESSION: COMPLETE complete=%u/%zu\n",
-            complete_count(&calibration),
-            calibration.opp_count);
+            "OPTIMIZER_SESSION: COMPLETE complete=%u/%zu target=%u\n",
+            completed,
+            calibration.opp_count,
+            state.target_complete_count);
         return clear_session();
     }
 
     printf(
-        "OPTIMIZER_SESSION: RESUME complete=%u/%zu duration_s=%u\n",
-        complete_count(&calibration),
+        "OPTIMIZER_SESSION: RESUME complete=%u/%zu target=%u duration_s=%u\n",
+        completed,
         calibration.opp_count,
+        state.target_complete_count,
         state.duration_seconds);
     fflush(stdout);
 
@@ -292,14 +325,18 @@ static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s start [SECONDS] | stop | status | boot-resume\n",
+        "usage: %s start [SECONDS] | start-one [SECONDS] | stop | status | boot-resume\n",
         program);
 }
 
 int main(int argc, char **argv)
 {
-    if (argc >= 2 && strcmp(argv[1], "start") == 0) {
+    if (argc >= 2 &&
+        (strcmp(argv[1], "start") == 0 ||
+         strcmp(argv[1], "start-one") == 0)) {
         unsigned duration = DEFAULT_DURATION_SECONDS;
+        int one_opp_only =
+            strcmp(argv[1], "start-one") == 0;
 
         if (argc == 3) {
             char *end = NULL;
@@ -320,7 +357,9 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
 
-        return start_session(duration) == 0
+        return start_session(
+                   duration,
+                   one_opp_only) == 0
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
     }
