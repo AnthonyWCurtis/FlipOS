@@ -1,6 +1,7 @@
 #include "flip_cpu_policy.h"
 #include "flip_optimizer_calibration.h"
 #include "flip_optimizer_calibration_session.h"
+#include "flip_optimizer_supervisor.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -898,6 +899,13 @@ static int ensure_candidate_ready(
 {
     if (!calibration)
         return -1;
+
+    if (flip_optimizer_supervisor_runtime_stock_safe()) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: runtime stock-safe latch active\n");
+        return -1;
+    }
 
     if (flip_optimizer_calibration_load(
             calibration) < 0)

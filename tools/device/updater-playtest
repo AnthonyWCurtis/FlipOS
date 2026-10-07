@@ -3,51 +3,102 @@
 ROOT=/mnt/SDCARD/flipos-dev
 LOG="$ROOT/logs/frontend.log"
 PREV="$ROOT/logs/frontend.previous.log"
+RAM_LOG=/tmp/flipos-frontend.log
+SUPERVISOR="$ROOT/bin/flip-optimizer-supervisor"
+RAM_STOCK_SAFE=/tmp/flipos-optimizer-stock-safe
 
-mkdir -p "$ROOT/logs" "$ROOT/logs/playtest" "$ROOT/state"
+# Optimizer safety must be decided before any SD-card write is attempted.
+# The supervisor only reads durable trial state and enforces its decision with
+# a RAM latch, so a read-only/corrupt FAT volume cannot bypass stock-safe boot.
+SUPERVISOR_OUT=""
+SUPERVISOR_RC=0
 
-# Keep one previous frontend log. Rotate at boot once it exceeds 5 MiB.
-if [ -f "$LOG" ]; then
-    bytes=$(wc -c < "$LOG" 2>/dev/null || echo 0)
-    if [ "${bytes:-0}" -ge 5242880 ]; then
-        rm -f "$PREV"
-        mv "$LOG" "$PREV"
+if [ -x "$SUPERVISOR" ]; then
+    SUPERVISOR_OUT=$("$SUPERVISOR" boot-enforce 2>&1)
+    SUPERVISOR_RC=$?
+else
+    SUPERVISOR_OUT="OPTIMIZER_SUPERVISOR: missing; forcing runtime stock-safe"
+    SUPERVISOR_RC=1
+fi
+
+if [ "$SUPERVISOR_RC" -ne 0 ]; then
+    printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+fi
+
+SD_WRITABLE=0
+if awk '
+    $2 == "/mnt/sdcard" && $4 ~ /(^|,)rw(,|$)/ { writable=1 }
+    END { exit writable ? 0 : 1 }
+' /proc/mounts 2>/dev/null; then
+    SD_WRITABLE=1
+fi
+
+if [ "$SD_WRITABLE" -eq 1 ]; then
+    mkdir -p "$ROOT/logs" "$ROOT/logs/playtest" "$ROOT/state"
+
+    if [ -f "$LOG" ]; then
+        bytes=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+        if [ "${bytes:-0}" -ge 5242880 ]; then
+            rm -f "$PREV"
+            mv "$LOG" "$PREV"
+        fi
+    fi
+
+    LOG_TARGET="$LOG"
+else
+    LOG_TARGET="$RAM_LOG"
+    : > "$LOG_TARGET"
+fi
+
+{
+    echo "========================================"
+    echo "FlipOS launcher starting: $(date)"
+    echo "========================================"
+    printf '%s\n' "$SUPERVISOR_OUT"
+    if [ "$SD_WRITABLE" -ne 1 ]; then
+        echo "OPTIMIZER_SUPERVISOR: SD read-only; durable settlement deferred"
+    fi
+} >> "$LOG_TARGET" 2>&1
+
+if [ "$SD_WRITABLE" -eq 1 ]; then
+    chmod 755 "$ROOT/bin/flip-frontend"
+    chmod 755 "$ROOT/bin/flip-gb"
+    [ ! -f "$ROOT/bin/flip-gba" ] || chmod 755 "$ROOT/bin/flip-gba"
+    [ ! -f "$ROOT/bin/flip-perf-capture" ] || chmod 755 "$ROOT/bin/flip-perf-capture"
+    [ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
+    [ ! -f "$ROOT/bin/flip-optimizer-supervisor" ] || chmod 755 "$ROOT/bin/flip-optimizer-supervisor"
+    [ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
+    [ ! -f "$ROOT/bin/flip-optimizer-calibration" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration"
+fi
+
+# Durable rollback bookkeeping is secondary to the RAM safety decision.
+if [ "$SD_WRITABLE" -eq 1 ]; then
+    if [ -x "$ROOT/bin/flip-optimizer-guard" ]; then
+        if ! "$ROOT/bin/flip-optimizer-guard" boot-check >> "$LOG_TARGET" 2>&1; then
+            echo "OPTIMIZER_GUARD: boot check failed; runtime stock-safe remains authoritative" >> "$LOG_TARGET"
+            printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+        fi
+    fi
+
+    if [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
+       [ -f "$ROOT/state/optimizer/cpu-calibration" ]; then
+        if ! "$ROOT/bin/flip-optimizer-calibration" reconcile >> "$LOG_TARGET" 2>&1; then
+            echo "OPTIMIZER_CALIBRATION: boot reconcile failed; calibration paused" >> "$LOG_TARGET"
+            printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+        fi
     fi
 fi
 
-echo "========================================" >> "$LOG"
-echo "FlipOS launcher starting: $(date)" >> "$LOG"
-echo "========================================" >> "$LOG"
-
-chmod 755 "$ROOT/bin/flip-frontend"
-chmod 755 "$ROOT/bin/flip-gb"
-[ ! -f "$ROOT/bin/flip-gba" ] || chmod 755 "$ROOT/bin/flip-gba"
-[ ! -f "$ROOT/bin/flip-perf-capture" ] || chmod 755 "$ROOT/bin/flip-perf-capture"
-[ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
-[ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
-[ ! -f "$ROOT/bin/flip-optimizer-calibration" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration"
-
-if [ -x "$ROOT/bin/flip-optimizer-guard" ]; then
-    if ! "$ROOT/bin/flip-optimizer-guard" boot-check >> "$LOG" 2>&1; then
-        echo "OPTIMIZER_GUARD: boot check failed; remaining stock-only by default" >> "$LOG"
-    fi
-fi
-
-if [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
-   [ -f "$ROOT/state/optimizer/cpu-calibration" ]; then
-    if ! "$ROOT/bin/flip-optimizer-calibration" reconcile >> "$LOG" 2>&1; then
-        echo "OPTIMIZER_CALIBRATION: boot reconcile failed; calibration paused" >> "$LOG"
-    fi
-fi
-
-if [ -x "$ROOT/bin/flip-playtest-logger.sh" ] && [ -x "$ROOT/bin/flip-perf-capture" ]; then
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ -x "$ROOT/bin/flip-playtest-logger.sh" ] && \
+   [ -x "$ROOT/bin/flip-perf-capture" ]; then
     "$ROOT/bin/flip-playtest-logger.sh"
 fi
 
-"$ROOT/bin/flip-frontend" >> "$LOG" 2>&1
+"$ROOT/bin/flip-frontend" >> "$LOG_TARGET" 2>&1
 rc=$?
 
-echo "FlipOS exited rc=$rc: $(date)" >> "$LOG"
-sync
+echo "FlipOS exited rc=$rc: $(date)" >> "$LOG_TARGET" 2>&1
+[ "$SD_WRITABLE" -ne 1 ] || sync
 
 exec /usr/miyoo/bin/runmiyoo-original.sh

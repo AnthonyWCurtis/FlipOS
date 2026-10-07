@@ -18,6 +18,19 @@
 #define FLIP_OPTIMIZER_GUARD_STOCK_ONLY_FILE \
     FLIP_OPTIMIZER_GUARD_ROOT "/stock-only"
 
+typedef enum {
+    FLIP_OPTIMIZER_GUARD_BOOT_CLEAN = 0,
+    FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED = 1,
+    FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT = 2,
+    FLIP_OPTIMIZER_GUARD_BOOT_IO_ERROR = 3
+} flip_optimizer_guard_boot_state_t;
+
+typedef struct {
+    flip_optimizer_guard_boot_state_t state;
+    char trial_id[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    unsigned armed_epoch;
+} flip_optimizer_guard_boot_inspection_t;
+
 typedef struct {
     int active;
     int stock_only;
@@ -31,6 +44,8 @@ typedef struct {
 int flip_optimizer_guard_arm(const char *trial_id, unsigned epoch);
 int flip_optimizer_guard_confirm(const char *trial_id, unsigned epoch);
 int flip_optimizer_guard_cancel(const char *trial_id, unsigned epoch);
+int flip_optimizer_guard_boot_inspect(
+    flip_optimizer_guard_boot_inspection_t *inspection);
 int flip_optimizer_guard_boot_check(
     unsigned epoch,
     char *rolled_back_trial,

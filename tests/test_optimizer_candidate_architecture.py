@@ -11,6 +11,8 @@ required = [
     'strcmp(argv[1], "table-only") == 0',
     'strcmp(argv[1], "live-once") == 0',
     "flip_optimizer_calibration_session_ready_for_apply",
+    "flip_optimizer_supervisor_runtime_stock_safe",
+    "runtime stock-safe latch active",
     "module_apply_table(",
     "module_restore_table()",
     "flip_optimizer_calibration_session_cancel_unapplied",

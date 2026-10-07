@@ -416,6 +416,37 @@ int flip_optimizer_guard_cancel(
     return fsync_root();
 }
 
+int flip_optimizer_guard_boot_inspect(
+    flip_optimizer_guard_boot_inspection_t *inspection)
+{
+    if (!inspection)
+        return -1;
+
+    memset(inspection, 0, sizeof(*inspection));
+
+    active_trial_t active;
+    int rc = read_active(&active);
+
+    if (rc == 0) {
+        inspection->state = FLIP_OPTIMIZER_GUARD_BOOT_CLEAN;
+        return 0;
+    }
+
+    if (rc == 1) {
+        inspection->state =
+            FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED;
+        strcpy(inspection->trial_id, active.trial_id);
+        inspection->armed_epoch = active.epoch;
+        return 0;
+    }
+
+    inspection->state =
+        rc == -2
+            ? FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT
+            : FLIP_OPTIMIZER_GUARD_BOOT_IO_ERROR;
+    return 0;
+}
+
 int flip_optimizer_guard_boot_check(
     unsigned epoch,
     char *rolled_back_trial,
