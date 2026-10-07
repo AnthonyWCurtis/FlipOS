@@ -14,7 +14,8 @@ deadman_required = [
     "CLOCK_MONOTONIC",
     "TIMER_ABSTIME",
     "SYS_reboot",
-    "LINUX_REBOOT_CMD_RESTART",
+    "LINUX_REBOOT_CMD_RESTART2",
+    '"watchdog"',
     "write(ready_fd, &ready, 1)",
 ]
 for token in deadman_required:

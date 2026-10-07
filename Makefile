@@ -435,7 +435,8 @@ $(BUILD)/test-flip-optimizer-guard: tests/test_flip_optimizer_guard.c src/runtim
 $(BUILD)/test-flip-optimizer-supervisor: tests/test_flip_optimizer_supervisor.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c include/flip_optimizer_supervisor.h include/flip_optimizer_guard.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_POSIX_C_SOURCE=200809L \
-		-DFLIP_OPTIMIZER_GUARD_ROOT='"/tmp/flipos-optimizer-supervisor-test"' -Iinclude \
+		-DFLIP_OPTIMIZER_GUARD_ROOT='"/tmp/flipos-optimizer-supervisor-test"' \
+		-DFLIP_OPTIMIZER_BOOT_MODE_PATH='"/tmp/flipos-optimizer-boot-mode-test"' -Iinclude \
 		tests/test_flip_optimizer_supervisor.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c \
 		-o $@
 

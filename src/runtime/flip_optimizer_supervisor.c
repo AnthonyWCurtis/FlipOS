@@ -2,8 +2,68 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+const char *flip_optimizer_supervisor_reset_name(
+    flip_optimizer_reset_cause_t cause)
+{
+    switch (cause) {
+    case FLIP_OPTIMIZER_RESET_COLDBOOT:
+        return "coldboot";
+    case FLIP_OPTIMIZER_RESET_NORMAL:
+        return "normal";
+    case FLIP_OPTIMIZER_RESET_PANIC:
+        return "panic";
+    case FLIP_OPTIMIZER_RESET_WATCHDOG:
+        return "watchdog";
+    case FLIP_OPTIMIZER_RESET_OTHER:
+        return "other";
+    case FLIP_OPTIMIZER_RESET_UNKNOWN:
+    default:
+        return "unknown";
+    }
+}
+
+static flip_optimizer_reset_cause_t read_boot_mode(
+    char *boot_mode,
+    size_t boot_mode_size)
+{
+    if (!boot_mode || boot_mode_size < 2)
+        return FLIP_OPTIMIZER_RESET_UNKNOWN;
+
+    boot_mode[0] = '\0';
+
+    FILE *file = fopen(FLIP_OPTIMIZER_BOOT_MODE_PATH, "r");
+    if (!file)
+        return FLIP_OPTIMIZER_RESET_UNKNOWN;
+
+    if (!fgets(boot_mode, (int)boot_mode_size, file)) {
+        fclose(file);
+        boot_mode[0] = '\0';
+        return FLIP_OPTIMIZER_RESET_UNKNOWN;
+    }
+
+    fclose(file);
+
+    char *end = strpbrk(boot_mode, "\r\n");
+    if (end)
+        *end = '\0';
+
+    if (!boot_mode[0])
+        return FLIP_OPTIMIZER_RESET_UNKNOWN;
+    if (strcmp(boot_mode, "coldboot") == 0)
+        return FLIP_OPTIMIZER_RESET_COLDBOOT;
+    if (strcmp(boot_mode, "normal") == 0)
+        return FLIP_OPTIMIZER_RESET_NORMAL;
+    if (strcmp(boot_mode, "panic") == 0)
+        return FLIP_OPTIMIZER_RESET_PANIC;
+    if (strcmp(boot_mode, "watchdog") == 0)
+        return FLIP_OPTIMIZER_RESET_WATCHDOG;
+
+    return FLIP_OPTIMIZER_RESET_OTHER;
+}
 
 const char *flip_optimizer_supervisor_reason_name(
     flip_optimizer_supervisor_reason_t reason)
@@ -29,6 +89,10 @@ int flip_optimizer_supervisor_boot_decide(
         return -1;
 
     memset(decision, 0, sizeof(*decision));
+
+    decision->reset_cause = read_boot_mode(
+        decision->boot_mode,
+        sizeof(decision->boot_mode));
 
     flip_optimizer_guard_boot_inspection_t inspection;
     if (flip_optimizer_guard_boot_inspect(&inspection) < 0) {

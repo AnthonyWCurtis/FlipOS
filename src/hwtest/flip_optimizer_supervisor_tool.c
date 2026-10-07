@@ -46,6 +46,12 @@ int main(int argc, char **argv)
         "reason=%s\n",
         flip_optimizer_supervisor_reason_name(decision.reason));
     printf(
+        "reset_cause=%s\n",
+        flip_optimizer_supervisor_reset_name(decision.reset_cause));
+    printf(
+        "boot_mode=%s\n",
+        decision.boot_mode[0] ? decision.boot_mode : "unknown");
+    printf(
         "trial_id=%s\n",
         decision.trial_id[0] ? decision.trial_id : "none");
     printf("boot_decision_writes=0\n");

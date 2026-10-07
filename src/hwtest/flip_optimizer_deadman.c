@@ -62,12 +62,14 @@ static int arm_realtime_runtime(void)
 
 static void direct_reboot(void)
 {
+    static const char mode[] = "watchdog";
+
     syscall(
         SYS_reboot,
         LINUX_REBOOT_MAGIC1,
         LINUX_REBOOT_MAGIC2,
-        LINUX_REBOOT_CMD_RESTART,
-        NULL);
+        LINUX_REBOOT_CMD_RESTART2,
+        mode);
     _exit(125);
 }
 
