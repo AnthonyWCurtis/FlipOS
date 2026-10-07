@@ -13,6 +13,8 @@
 #include "flip_library.h"
 #include "flip_log.h"
 #include "flip_power.h"
+#include "flip_battery.h"
+#include "flip_optimizer.h"
 
 #include <stdint.h>
 #include <ctype.h>
@@ -43,7 +45,9 @@ typedef enum {
     SCREEN_HOME = 0,
     SCREEN_SYSTEMS,
     SCREEN_GAMES,
-    SCREEN_RECENT
+    SCREEN_RECENT,
+    SCREEN_SETTINGS,
+    SCREEN_OPTIMIZER
 } screen_t;
 
 typedef struct {
@@ -108,6 +112,34 @@ static const char *home_items[] = {
 
 #define HOME_ITEM_COUNT \
     ((int)(sizeof(home_items) / sizeof(home_items[0])))
+
+
+static const char *settings_items[] = {
+    "CPU OPTIMIZATION",
+    "BACK"
+};
+
+#define SETTINGS_ITEM_COUNT \
+    ((int)(sizeof(settings_items) / sizeof(settings_items[0])))
+
+static const char *optimizer_actions[] = {
+    "OPTIMIZE CPU",
+    "VIEW RESULTS",
+    "RESET OPTIMIZATION",
+    "BACK"
+};
+
+#define OPTIMIZER_ACTION_COUNT \
+    ((int)(sizeof(optimizer_actions) / sizeof(optimizer_actions[0])))
+
+#define OPTIMIZER_CALIBRATION_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/cpu-calibration"
+#define OPTIMIZER_UI_RETURN_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/ui-return"
+#define OPTIMIZER_CALIBRATION_TOOL \
+    FLIP_BIN_ROOT "/flip-optimizer-calibration"
+#define OPTIMIZER_SESSION_TOOL \
+    FLIP_BIN_ROOT "/flip-optimizer-session"
 
 static void stop_handler(int sig)
 {
@@ -1130,6 +1162,558 @@ static int centred_text_x(
     return (640 - width) / 2;
 }
 
+static int read_int_file(
+    const char *path,
+    int *value)
+{
+    if (!path || !value)
+        return -1;
+
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return -1;
+
+    int parsed = 0;
+    int rc = fscanf(f, "%d", &parsed);
+    fclose(f);
+
+    if (rc != 1)
+        return -1;
+
+    *value = parsed;
+    return 0;
+}
+
+static int optimizer_external_power_online(void)
+{
+    int online = 0;
+
+    if (read_int_file(
+            "/sys/class/power_supply/usb/online",
+            &online) == 0 &&
+        online > 0)
+        return 1;
+
+    online = 0;
+    if (read_int_file(
+            "/sys/class/power_supply/ac/online",
+            &online) == 0 &&
+        online > 0)
+        return 1;
+
+    return 0;
+}
+
+static int optimizer_battery_percent(void)
+{
+    flip_battery_snapshot_t battery;
+
+    if (flip_battery_read(&battery) < 0 ||
+        !battery.percent_valid)
+        return -1;
+
+    return battery.percent;
+}
+
+static int optimizer_result_load(
+    flip_optimizer_result_t *result)
+{
+    if (!result)
+        return 0;
+
+    return flip_optimizer_load(result) == 0
+        ? 1
+        : 0;
+}
+
+static int optimizer_run_tool(
+    const char *tool,
+    const char *arg1,
+    const char *arg2)
+{
+    pid_t pid = fork();
+
+    if (pid < 0)
+        return -1;
+
+    if (pid == 0) {
+        if (arg2) {
+            execl(
+                tool,
+                tool,
+                arg1,
+                arg2,
+                (char *)NULL);
+        } else if (arg1) {
+            execl(
+                tool,
+                tool,
+                arg1,
+                (char *)NULL);
+        } else {
+            execl(
+                tool,
+                tool,
+                (char *)NULL);
+        }
+
+        _exit(127);
+    }
+
+    int status = 0;
+
+    do {
+        if (waitpid(pid, &status, 0) < 0) {
+            if (errno == EINTR)
+                continue;
+            return -1;
+        }
+        break;
+    } while (1);
+
+    if (!WIFEXITED(status) ||
+        WEXITSTATUS(status) != 0)
+        return -1;
+
+    return 0;
+}
+
+static int optimizer_write_return_marker(void)
+{
+    FILE *f = fopen(
+        OPTIMIZER_UI_RETURN_PATH,
+        "w");
+
+    if (!f)
+        return -1;
+
+    int failed =
+        fprintf(
+            f,
+            "return_to_optimizer=1\n") < 0;
+
+    if (fflush(f) != 0 ||
+        fsync(fileno(f)) != 0 ||
+        fclose(f) != 0)
+        failed = 1;
+
+    return failed ? -1 : 0;
+}
+
+static int optimizer_start_fresh(void)
+{
+    int battery = optimizer_battery_percent();
+
+    if (!optimizer_external_power_online() ||
+        battery < 30)
+        return 1;
+
+    if (optimizer_run_tool(
+            OPTIMIZER_SESSION_TOOL,
+            "stop",
+            NULL) < 0)
+        return -1;
+
+    if (optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "reset",
+            NULL) < 0)
+        return -1;
+
+    if (optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "init",
+            NULL) < 0)
+        return -1;
+
+    if (optimizer_write_return_marker() < 0)
+        return -1;
+
+    if (optimizer_run_tool(
+            OPTIMIZER_SESSION_TOOL,
+            "start",
+            "20") < 0)
+        return -1;
+
+    sync();
+    return 0;
+}
+
+static int optimizer_reset_all(void)
+{
+    if (optimizer_run_tool(
+            OPTIMIZER_SESSION_TOOL,
+            "stop",
+            NULL) < 0)
+        return -1;
+
+    if (optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "reset",
+            NULL) < 0)
+        return -1;
+
+    (void)unlink(
+        OPTIMIZER_UI_RETURN_PATH);
+
+    sync();
+    return 0;
+}
+
+static void draw_settings(
+    flip_drm_t *drm,
+    int selected,
+    double poweroff_progress)
+{
+    flip_draw_clear(drm, BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("SETTINGS", 4),
+        28,
+        "SETTINGS",
+        4,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("SYSTEM", 2),
+        76,
+        "SYSTEM",
+        2,
+        DIM);
+
+    for (int i = 0;
+         i < SETTINGS_ITEM_COUNT;
+         ++i) {
+
+        int y = 155 + i * 62;
+
+        if (i == selected) {
+            flip_draw_rect(
+                drm,
+                125,
+                y - 10,
+                390,
+                44,
+                PANEL);
+            flip_draw_rect_outline(
+                drm,
+                125,
+                y - 10,
+                390,
+                44,
+                2,
+                FG);
+        }
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                settings_items[i],
+                3),
+            y,
+            settings_items[i],
+            3,
+            i == selected
+                ? FG
+                : DIM);
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "A SELECT   B BACK",
+            1),
+        452,
+        "A SELECT   B BACK",
+        1,
+        DIM);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+    flip_osd_draw(drm);
+    flip_drm_present(drm);
+}
+
+static void draw_optimizer(
+    flip_drm_t *drm,
+    int selected,
+    int confirm_action,
+    const char *message,
+    double poweroff_progress)
+{
+    flip_optimizer_result_t result;
+    int have_result =
+        optimizer_result_load(&result);
+
+    int plugged =
+        optimizer_external_power_online();
+
+    int battery =
+        optimizer_battery_percent();
+
+    flip_draw_clear(drm, BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "CPU OPTIMIZATION",
+            3),
+        20,
+        "CPU OPTIMIZATION",
+        3,
+        FG);
+
+    const char *state_text =
+        have_result
+            ? "OPTIMIZED"
+            : "NOT OPTIMIZED";
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            state_text,
+            2),
+        61,
+        state_text,
+        2,
+        have_result
+            ? FG
+            : DIM);
+
+    char power_text[96];
+    if (battery >= 0) {
+        snprintf(
+            power_text,
+            sizeof(power_text),
+            "%s   BATTERY %d%%",
+            plugged
+                ? "CHARGER CONNECTED"
+                : "CONNECT CHARGER",
+            battery);
+    } else {
+        snprintf(
+            power_text,
+            sizeof(power_text),
+            "%s",
+            plugged
+                ? "CHARGER CONNECTED"
+                : "CONNECT CHARGER");
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            power_text,
+            1),
+        91,
+        power_text,
+        1,
+        plugged
+            ? FG
+            : DIM);
+
+    if (have_result) {
+        flip_draw_text(
+            drm,
+            72,
+            118,
+            "STOCK -> OPTIMIZED",
+            1,
+            DIM);
+
+        int shown = 0;
+        for (size_t reverse = result.opp_count;
+             reverse > 0 &&
+             shown < 5;
+             --reverse) {
+            size_t i = reverse - 1;
+            const flip_optimizer_opp_t *opp =
+                &result.opps[i];
+
+            char row[96];
+
+            snprintf(
+                row,
+                sizeof(row),
+                "%4u MHz   %4u -> %4u mV",
+                opp->frequency_khz / 1000,
+                opp->stock_uv / 1000,
+                opp->optimized_uv / 1000);
+
+            flip_draw_text(
+                drm,
+                72,
+                137 + shown * 20,
+                row,
+                1,
+                FG);
+
+            shown++;
+        }
+
+        flip_draw_text(
+            drm,
+            72,
+            241,
+            "816 / 600 / 408 MHz kept at stock",
+            1,
+            DIM);
+    } else {
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "DEVICE-SPECIFIC CPU VOLTAGE CALIBRATION",
+                1),
+            132,
+            "DEVICE-SPECIFIC CPU VOLTAGE CALIBRATION",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "SEVERAL AUTOMATIC RESTARTS ARE NORMAL",
+                1),
+            154,
+            "SEVERAL AUTOMATIC RESTARTS ARE NORMAL",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "KEEP CHARGER CONNECTED UNTIL COMPLETE",
+                1),
+            176,
+            "KEEP CHARGER CONNECTED UNTIL COMPLETE",
+            1,
+            FG);
+    }
+
+    for (int i = 0;
+         i < OPTIMIZER_ACTION_COUNT;
+         ++i) {
+
+        const char *label =
+            optimizer_actions[i];
+
+        if (i == 0 && have_result)
+            label = "RUN OPTIMIZATION AGAIN";
+
+        if (i == 1 && !have_result)
+            label = "VIEW RESULTS (NONE)";
+
+        int y = 282 + i * 36;
+
+        if (i == selected) {
+            flip_draw_rect(
+                drm,
+                105,
+                y - 6,
+                430,
+                29,
+                PANEL);
+            flip_draw_rect_outline(
+                drm,
+                105,
+                y - 6,
+                430,
+                29,
+                1,
+                FG);
+        }
+
+        flip_draw_text(
+            drm,
+            centred_text_x(label, 2),
+            y,
+            label,
+            2,
+            i == selected
+                ? FG
+                : DIM);
+    }
+
+    if (message && message[0]) {
+        flip_draw_text(
+            drm,
+            centred_text_x(message, 1),
+            430,
+            message,
+            1,
+            FG);
+    } else {
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "A SELECT   B BACK",
+                1),
+            452,
+            "A SELECT   B BACK",
+            1,
+            DIM);
+    }
+
+    if (confirm_action != 0) {
+        const char *confirm =
+            confirm_action == 1
+                ? "START CPU OPTIMIZATION?"
+                : "RESET CPU OPTIMIZATION?";
+
+        const char *detail =
+            confirm_action == 1
+                ? "KEEP CHARGER CONNECTED"
+                : "STOCK VOLTAGES WILL BE USED";
+
+        flip_draw_rect(
+            drm,
+            90,
+            350,
+            460,
+            92,
+            PANEL);
+        flip_draw_rect_outline(
+            drm,
+            90,
+            350,
+            460,
+            92,
+            2,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(confirm, 2),
+            365,
+            confirm,
+            2,
+            FG);
+        flip_draw_text(
+            drm,
+            centred_text_x(detail, 1),
+            394,
+            detail,
+            1,
+            DIM);
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "A CONFIRM   B CANCEL",
+                1),
+            421,
+            "A CONFIRM   B CANCEL",
+            1,
+            FG);
+    }
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+    flip_osd_draw(drm);
+    flip_drm_present(drm);
+}
+
 static void draw_home(
     flip_drm_t *drm,
     int selected,
@@ -2050,6 +2634,9 @@ int main(void)
     int home_selected = 0;
     int game_selected = 0;
     int recent_selected = 0;
+    int settings_selected = 0;
+    int optimizer_selected = 0;
+    int optimizer_confirm = 0;
 
     int prev_up = 0;
     int prev_down = 0;
@@ -2076,6 +2663,7 @@ int main(void)
     double poweroff_started = 0.0;
 
     char message[64] = "";
+    char optimizer_message[96] = "";
 
     const flip_system_t *game_system =
         flip_system_default();
@@ -2133,11 +2721,29 @@ int main(void)
     load_recent_history();
     load_suspended_session();
 
-    draw_home(
-        &drm,
-        home_selected,
-        message,
-        0.0);
+    if (access(
+            OPTIMIZER_UI_RETURN_PATH,
+            F_OK) == 0) {
+        screen = SCREEN_OPTIMIZER;
+        (void)unlink(
+            OPTIMIZER_UI_RETURN_PATH);
+        snprintf(
+            optimizer_message,
+            sizeof(optimizer_message),
+            "OPTIMIZATION COMPLETE");
+        draw_optimizer(
+            &drm,
+            optimizer_selected,
+            optimizer_confirm,
+            optimizer_message,
+            0.0);
+    } else {
+        draw_home(
+            &drm,
+            home_selected,
+            message,
+            0.0);
+    }
 
     while (running) {
 
@@ -2251,12 +2857,32 @@ int main(void)
                         game_selected,
                         0.0);
 
-                } else {
+                } else if (
+                    screen ==
+                        SCREEN_RECENT) {
 
                     draw_recent(
                         &drm,
                         game_system,
                         recent_selected,
+                        0.0);
+
+                } else if (
+                    screen ==
+                        SCREEN_SETTINGS) {
+
+                    draw_settings(
+                        &drm,
+                        settings_selected,
+                        0.0);
+
+                } else {
+
+                    draw_optimizer(
+                        &drm,
+                        optimizer_selected,
+                        optimizer_confirm,
+                        optimizer_message,
                         0.0);
                 }
 
@@ -2374,6 +3000,27 @@ int main(void)
                 if (recent_selected < 0)
                     recent_selected =
                         recent_count - 1;
+
+            } else if (
+                screen ==
+                    SCREEN_SETTINGS) {
+
+                settings_selected--;
+
+                if (settings_selected < 0)
+                    settings_selected =
+                        SETTINGS_ITEM_COUNT - 1;
+
+            } else if (
+                screen ==
+                    SCREEN_OPTIMIZER &&
+                optimizer_confirm == 0) {
+
+                optimizer_selected--;
+
+                if (optimizer_selected < 0)
+                    optimizer_selected =
+                        OPTIMIZER_ACTION_COUNT - 1;
             }
 
             redraw = 1;
@@ -2424,6 +3071,27 @@ int main(void)
                 if (recent_selected >=
                     recent_count)
                     recent_selected = 0;
+
+            } else if (
+                screen ==
+                    SCREEN_SETTINGS) {
+
+                settings_selected++;
+
+                if (settings_selected >=
+                    SETTINGS_ITEM_COUNT)
+                    settings_selected = 0;
+
+            } else if (
+                screen ==
+                    SCREEN_OPTIMIZER &&
+                optimizer_confirm == 0) {
+
+                optimizer_selected++;
+
+                if (optimizer_selected >=
+                    OPTIMIZER_ACTION_COUNT)
+                    optimizer_selected = 0;
             }
 
             redraw = 1;
@@ -2431,8 +3099,19 @@ int main(void)
 
         if (b &&
             !prev_b &&
+            screen == SCREEN_OPTIMIZER &&
+            optimizer_confirm != 0) {
+
+            optimizer_confirm = 0;
+            optimizer_message[0] = '\0';
+            redraw = 1;
+        }
+
+        if (b &&
+            !prev_b &&
             gameswitcher_confirm ==
-                GAMESWITCHER_CONFIRM_NONE) {
+                GAMESWITCHER_CONFIRM_NONE &&
+            optimizer_confirm == 0) {
 
             if (screen ==
                 SCREEN_GAMES) {
@@ -2457,10 +3136,100 @@ int main(void)
                     '\0';
 
                 redraw = 1;
+
+            } else if (
+                screen ==
+                    SCREEN_SETTINGS) {
+
+                screen =
+                    SCREEN_HOME;
+
+                message[0] =
+                    '\0';
+
+                redraw = 1;
+
+            } else if (
+                screen ==
+                    SCREEN_OPTIMIZER) {
+
+                screen =
+                    SCREEN_SETTINGS;
+
+                optimizer_message[0] =
+                    '\0';
+
+                redraw = 1;
             }
         }
 
         int confirm_handled = 0;
+
+        if (screen == SCREEN_OPTIMIZER &&
+            optimizer_confirm != 0 &&
+            a &&
+            !prev_a) {
+
+            int action =
+                optimizer_confirm;
+
+            optimizer_confirm = 0;
+            confirm_handled = 1;
+
+            if (action == 1) {
+                int start_rc =
+                    optimizer_start_fresh();
+
+                if (start_rc == 1) {
+                    snprintf(
+                        optimizer_message,
+                        sizeof(optimizer_message),
+                        "CONNECT CHARGER - BATTERY 30%%+");
+                    redraw = 1;
+
+                } else if (start_rc < 0) {
+                    snprintf(
+                        optimizer_message,
+                        sizeof(optimizer_message),
+                        "OPTIMIZER START FAILED");
+                    redraw = 1;
+
+                } else {
+                    snprintf(
+                        optimizer_message,
+                        sizeof(optimizer_message),
+                        "STARTING OPTIMIZATION...");
+                    draw_optimizer(
+                        &drm,
+                        optimizer_selected,
+                        0,
+                        optimizer_message,
+                        0.0);
+
+                    fprintf(
+                        stderr,
+                        "FRONTEND_OPTIMIZER start requested charger=1\n");
+                    fflush(stderr);
+                    sync();
+                    reboot(RB_AUTOBOOT);
+                }
+
+            } else if (action == 2) {
+                if (optimizer_reset_all() < 0) {
+                    snprintf(
+                        optimizer_message,
+                        sizeof(optimizer_message),
+                        "RESET FAILED");
+                } else {
+                    snprintf(
+                        optimizer_message,
+                        sizeof(optimizer_message),
+                        "RESET TO STOCK");
+                }
+
+                redraw = 1;
+            }
+        }
 
         /*
          * B cancels a GameSwitcher confirmation instead
@@ -2695,6 +3464,19 @@ int main(void)
 
                     redraw = 1;
 
+                } else if (
+                    home_selected == 2) {
+
+                    screen =
+                        SCREEN_SETTINGS;
+
+                    settings_selected = 0;
+                    message[0] = '\0';
+                    fprintf(
+                        stderr,
+                        "FRONTEND_SETTINGS entered\n");
+                    redraw = 1;
+
                 } else {
 
                     snprintf(
@@ -2704,6 +3486,77 @@ int main(void)
 
                     redraw = 1;
                 }
+
+            } else if (
+                screen ==
+                    SCREEN_SETTINGS) {
+
+                if (settings_selected == 0) {
+                    screen =
+                        SCREEN_OPTIMIZER;
+                    optimizer_selected = 0;
+                    optimizer_confirm = 0;
+                    optimizer_message[0] = '\0';
+                    fprintf(
+                        stderr,
+                        "FRONTEND_OPTIMIZER entered\n");
+                } else {
+                    screen =
+                        SCREEN_HOME;
+                }
+
+                redraw = 1;
+
+            } else if (
+                screen ==
+                    SCREEN_OPTIMIZER &&
+                optimizer_confirm == 0) {
+
+                if (optimizer_selected == 0) {
+                    optimizer_confirm = 1;
+                    optimizer_message[0] = '\0';
+
+                } else if (
+                    optimizer_selected == 1) {
+
+                    flip_optimizer_result_t result;
+
+                    if (optimizer_result_load(
+                            &result)) {
+                        snprintf(
+                            optimizer_message,
+                            sizeof(optimizer_message),
+                            "RESULTS SHOWN ABOVE");
+                    } else {
+                        snprintf(
+                            optimizer_message,
+                            sizeof(optimizer_message),
+                            "NO RESULTS AVAILABLE");
+                    }
+
+                } else if (
+                    optimizer_selected == 2) {
+
+                    flip_optimizer_result_t result;
+
+                    if (optimizer_result_load(
+                            &result)) {
+                        optimizer_confirm = 2;
+                        optimizer_message[0] = '\0';
+                    } else {
+                        snprintf(
+                            optimizer_message,
+                            sizeof(optimizer_message),
+                            "NOTHING TO RESET");
+                    }
+
+                } else {
+                    screen =
+                        SCREEN_SETTINGS;
+                    optimizer_message[0] = '\0';
+                }
+
+                redraw = 1;
 
             } else if (
                 screen ==
@@ -2974,12 +3827,32 @@ int main(void)
                     game_selected,
                     progress);
 
-            } else {
+            } else if (
+                screen ==
+                    SCREEN_RECENT) {
 
                 draw_recent(
                     &drm,
                     game_system,
                     recent_selected,
+                    progress);
+
+            } else if (
+                screen ==
+                    SCREEN_SETTINGS) {
+
+                draw_settings(
+                    &drm,
+                    settings_selected,
+                    progress);
+
+            } else {
+
+                draw_optimizer(
+                    &drm,
+                    optimizer_selected,
+                    optimizer_confirm,
+                    optimizer_message,
                     progress);
             }
 
@@ -3035,12 +3908,32 @@ int main(void)
                     game_selected,
                     0.0);
 
-            } else {
+            } else if (
+                screen ==
+                    SCREEN_RECENT) {
 
                 draw_recent(
                     &drm,
                     game_system,
                     recent_selected,
+                    0.0);
+
+            } else if (
+                screen ==
+                    SCREEN_SETTINGS) {
+
+                draw_settings(
+                    &drm,
+                    settings_selected,
+                    0.0);
+
+            } else {
+
+                draw_optimizer(
+                    &drm,
+                    optimizer_selected,
+                    optimizer_confirm,
+                    optimizer_message,
                     0.0);
             }
         }

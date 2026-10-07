@@ -6,12 +6,16 @@ ROOT=/mnt/SDCARD/flipos-dev
 BOOT_UPDATER=/mnt/SDCARD/.tmp_update/updater
 
 required=(
+    build/flip-frontend
+    build/flip_opp_voltage.ko
+    build/flip_tsadc_recovery.ko
     build/flip-optimizer-supervisor
     build/flip-optimizer-deadman
     build/flip-optimizer-guard
     build/flip-optimizer-calibration
     build/flip-optimizer-candidate
     build/flip-optimizer-session
+    build/flip-optimizer-progress
     tools/device/updater-playtest
 )
 
@@ -23,16 +27,20 @@ for path in "${required[@]}"; do
 done
 
 "$ADB" get-state >/dev/null
-"$ADB" shell "mkdir -p /mnt/SDCARD/.tmp_update '$ROOT/bin'"
+"$ADB" shell "mkdir -p /mnt/SDCARD/.tmp_update '$ROOT/bin' '$ROOT/lib'"
 
 "$ADB" shell "if [ -f '$BOOT_UPDATER' ]; then rm -f '$BOOT_UPDATER.previous'; cp '$BOOT_UPDATER' '$BOOT_UPDATER.previous'; fi"
 
+"$ADB" push build/flip-frontend "$ROOT/bin/flip-frontend" >/dev/null
+"$ADB" push build/flip_opp_voltage.ko "$ROOT/lib/flip_opp_voltage.ko" >/dev/null
+"$ADB" push build/flip_tsadc_recovery.ko "$ROOT/lib/flip_tsadc_recovery.ko" >/dev/null
 "$ADB" push build/flip-optimizer-supervisor "$ROOT/bin/flip-optimizer-supervisor" >/dev/null
 "$ADB" push build/flip-optimizer-deadman "$ROOT/bin/flip-optimizer-deadman" >/dev/null
 "$ADB" push build/flip-optimizer-guard "$ROOT/bin/flip-optimizer-guard" >/dev/null
 "$ADB" push build/flip-optimizer-calibration "$ROOT/bin/flip-optimizer-calibration" >/dev/null
 "$ADB" push build/flip-optimizer-candidate "$ROOT/bin/flip-optimizer-candidate" >/dev/null
 "$ADB" push build/flip-optimizer-session "$ROOT/bin/flip-optimizer-session" >/dev/null
+"$ADB" push build/flip-optimizer-progress "$ROOT/bin/flip-optimizer-progress" >/dev/null
 
 "$ADB" push tools/device/updater-playtest "$ROOT/updater-playtest" >/dev/null
 "$ADB" push tools/device/updater-playtest "$BOOT_UPDATER" >/dev/null
@@ -46,7 +54,11 @@ done
         '$ROOT/bin/flip-optimizer-guard' \
         '$ROOT/bin/flip-optimizer-calibration' \
         '$ROOT/bin/flip-optimizer-candidate' \
-        '$ROOT/bin/flip-optimizer-session'
+        '$ROOT/bin/flip-optimizer-session' \
+        '$ROOT/bin/flip-optimizer-progress'
+    chmod 644 \
+        '$ROOT/lib/flip_opp_voltage.ko' \
+        '$ROOT/lib/flip_tsadc_recovery.ko'
     sync
     echo DEPLOY_PLAYTEST_OK
     sha256sum '$BOOT_UPDATER' '$ROOT/updater-playtest'

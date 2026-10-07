@@ -16,6 +16,10 @@
 #define FLIP_OPTIMIZER_RESULT_FILE FLIP_OPTIMIZER_ROOT "/cpu-result"
 #endif
 
+#ifndef FLIP_OPTIMIZER_REPORT_FILE
+#define FLIP_OPTIMIZER_REPORT_FILE FLIP_OPTIMIZER_ROOT "/cpu-report"
+#endif
+
 typedef struct {
     unsigned frequency_khz;
     unsigned stock_uv;

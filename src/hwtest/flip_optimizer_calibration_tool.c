@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #define CPUINFO_PATH "/proc/cpuinfo"
 #define MODEL_PATH "/proc/device-tree/model"
@@ -430,13 +432,118 @@ static int print_status(void)
     return 0;
 }
 
+static int publish_completed_calibration(void)
+{
+    flip_optimizer_calibration_t calibration;
+    flip_optimizer_result_t result;
+
+    if (flip_optimizer_calibration_load(&calibration) < 0 ||
+        !flip_optimizer_calibration_is_complete(&calibration))
+        return -1;
+
+    time_t now = time(NULL);
+    if (now <= 0 || (unsigned long long)now > 0xffffffffULL)
+        return -1;
+
+    if (flip_optimizer_calibration_build_result(
+            &calibration,
+            (unsigned)now,
+            &result) < 0 ||
+        flip_optimizer_save(&result) < 0)
+        return -1;
+
+    FILE *report = fopen(FLIP_OPTIMIZER_REPORT_FILE, "w");
+    if (!report)
+        return -1;
+
+    int failed = 0;
+    failed |= fprintf(
+        report,
+        "FlipOS CPU Optimization Report\n"
+        "device_id=%s\n"
+        "model=%s\n"
+        "calibrated_epoch=%u\n"
+        "guardband_uv=%u\n"
+        "opp_count=%zu\n\n",
+        calibration.device_id,
+        calibration.model,
+        result.calibrated_epoch,
+        calibration.guardband_uv,
+        calibration.opp_count) < 0;
+
+    for (size_t i = 0; i < calibration.opp_count; ++i) {
+        const flip_optimizer_calibration_opp_t *source =
+            &calibration.opps[i];
+        const flip_optimizer_opp_t *published =
+            &result.opps[i];
+
+        unsigned reduction_uv =
+            published->stock_uv - published->optimized_uv;
+
+        failed |= fprintf(
+            report,
+            "opp%zu frequency_khz=%u stock_uv=%u optimized_uv=%u "
+            "reduction_uv=%u tests=%u mode=%s "
+            "lowest_stable_uv=%u highest_unstable_uv=%u\n",
+            i,
+            published->frequency_khz,
+            published->stock_uv,
+            published->optimized_uv,
+            reduction_uv,
+            source->tests_run,
+            source->tests_run == 0
+                ? "stock-preserved"
+                : "calibrated",
+            source->lowest_stable_uv,
+            source->highest_unstable_uv) < 0;
+    }
+
+    if (fflush(report) != 0 ||
+        fsync(fileno(report)) != 0 ||
+        fclose(report) != 0)
+        failed = 1;
+
+    if (failed)
+        return -1;
+
+    printf("published=1\n");
+    printf("result=%s\n", FLIP_OPTIMIZER_RESULT_FILE);
+    printf("report=%s\n", FLIP_OPTIMIZER_REPORT_FILE);
+    return 0;
+}
+
+static int reset_calibration_state(void)
+{
+    flip_optimizer_guard_status_t guard;
+
+    if (flip_optimizer_guard_status(&guard) < 0 ||
+        guard.active ||
+        guard.stock_only)
+        return -1;
+
+    if (unlink(FLIP_OPTIMIZER_CALIBRATION_FILE) != 0 &&
+        errno != ENOENT)
+        return -1;
+
+    if (unlink(FLIP_OPTIMIZER_RESULT_FILE) != 0 &&
+        errno != ENOENT)
+        return -1;
+
+    if (unlink(FLIP_OPTIMIZER_REPORT_FILE) != 0 &&
+        errno != ENOENT)
+        return -1;
+
+    printf("optimizer_reset=1\n");
+    return 0;
+}
+
 static void usage(const char *program)
 {
     fprintf(
         stderr,
         "usage: %s probe | init | status | prepare | ready | "
         "reconcile | recover-boot | cancel-unapplied | confirm-stable | "
-        "preserve-stock-low | clear-stock-only\n",
+        "preserve-stock-low | publish | reset | clear-stock-only\n",
         program);
 }
 
@@ -611,6 +718,16 @@ int main(int argc, char **argv)
                 &calibration));
         return EXIT_SUCCESS;
     }
+
+    if (strcmp(argv[1], "publish") == 0)
+        return publish_completed_calibration() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+
+    if (strcmp(argv[1], "reset") == 0)
+        return reset_calibration_state() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
 
     if (strcmp(argv[1], "clear-stock-only") == 0) {
         flip_optimizer_calibration_t calibration;

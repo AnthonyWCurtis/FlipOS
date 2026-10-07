@@ -117,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool opp-voltage-module tsadc-recovery-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool opp-voltage-module tsadc-recovery-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -146,6 +146,8 @@ optimizer-calibration-tool: $(BUILD)/flip-optimizer-calibration
 optimizer-candidate-tool: $(BUILD)/flip-optimizer-candidate
 
 optimizer-session-tool: $(BUILD)/flip-optimizer-session
+
+optimizer-progress-tool: $(BUILD)/flip-optimizer-progress
 
 opp-voltage-module: $(BUILD)/flip_opp_voltage.ko
 
@@ -392,6 +394,7 @@ test-architecture:
 	python3 tests/test_tsadc_recovery_module_architecture.py
 	python3 tests/test_optimizer_hw_watchdog_architecture.py
 	python3 tests/test_optimizer_session_architecture.py
+	python3 tests/test_optimizer_ui_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -920,6 +923,12 @@ $(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c sr
 		src/runtime/flip_optimizer_quiesce.c src/runtime/flip_optimizer_panic_policy.c \
 		src/runtime/flip_optimizer_hw_watchdog.c src/runtime/flip_optimizer.c \
 		-static -pthread -lm -o $@
+
+$(BUILD)/flip-optimizer-progress: src/hwtest/flip_optimizer_progress.c $(BUILD)/flip_drm.o $(BUILD)/flip_draw.o include/flip_drm.h include/flip_draw.h | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		src/hwtest/flip_optimizer_progress.c \
+		$(BUILD)/flip_drm.o $(BUILD)/flip_draw.o \
+		-static -o $@
 
 $(BUILD)/flip-optimizer-session: src/hwtest/flip_optimizer_session_tool.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer.c include/flip_optimizer_calibration.h include/flip_optimizer_supervisor.h include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h include/flip_optimizer.h | $(BUILD)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
