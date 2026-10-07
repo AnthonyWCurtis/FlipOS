@@ -397,7 +397,7 @@ unstable userspace test process to write a final result.
 - [ ] Prove consumer-safe autonomous full-board recovery from a deep undervolt wedge with no ADB and no power-button intervention before exposing Optimize CPU in the UI
 - [x] Capture the live Miyoo Flip device tree and validate the RK817 PMIC reset pin/function path on this exact board
 - [x] Prove stock-voltage reboot while TSADC->RK817 routing and the 11-second hardware watchdog are both armed returns autonomously to FlipOS
-- [ ] Prove the same autonomous return when the hardware watchdog itself is the reset trigger before resuming live undervolting
+- [x] Prove the same autonomous return when the hardware watchdog itself is the reset trigger before resuming live undervolting
 - [x] Add a RAM-resident high-priority deadman fallback using direct reboot/reset primitives where the kernel permits
 - [x] Add kernel panic/oops/stall auto-reboot policy only after hardware validation on this exact Flip
 - [x] Resume calibration automatically at the correct candidate after a recovered failure
