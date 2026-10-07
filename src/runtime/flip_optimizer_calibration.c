@@ -232,9 +232,12 @@ int flip_optimizer_calibration_validate(
             calibration->pending_uv < opp->floor_uv ||
             calibration->pending_uv >=
                 opp->lowest_stable_uv ||
-            opp->lowest_stable_uv -
-                calibration->pending_uv !=
-                calibration->voltage_step_uv)
+            (opp->stock_uv -
+                calibration->pending_uv) %
+                    calibration->voltage_step_uv != 0 ||
+            (opp->highest_unstable_uv &&
+             calibration->pending_uv <=
+                opp->highest_unstable_uv))
             return -1;
     } else if (calibration->pending_index ||
                calibration->pending_uv ||
@@ -553,9 +556,47 @@ int flip_optimizer_calibration_prepare_next(
                 calibration->voltage_step_uv)
             return -1;
 
-        unsigned candidate =
-            opp->lowest_stable_uv -
-            calibration->voltage_step_uv;
+        unsigned candidate = 0;
+
+        if (opp->highest_unstable_uv) {
+            unsigned gap =
+                opp->lowest_stable_uv -
+                opp->highest_unstable_uv;
+
+            if (gap <= calibration->voltage_step_uv)
+                return -1;
+
+            unsigned midpoint_steps =
+                (gap / calibration->voltage_step_uv) / 2U;
+
+            if (midpoint_steps == 0)
+                midpoint_steps = 1;
+
+            candidate =
+                opp->highest_unstable_uv +
+                midpoint_steps *
+                    calibration->voltage_step_uv;
+        } else {
+            unsigned coarse_step =
+                calibration->voltage_step_uv * 4U;
+            unsigned available =
+                opp->lowest_stable_uv -
+                opp->floor_uv;
+
+            if (coarse_step > available)
+                coarse_step =
+                    (available /
+                     calibration->voltage_step_uv) *
+                    calibration->voltage_step_uv;
+
+            if (coarse_step == 0)
+                coarse_step =
+                    calibration->voltage_step_uv;
+
+            candidate =
+                opp->lowest_stable_uv -
+                coarse_step;
+        }
 
         calibration->pending = 1;
         calibration->pending_index = index;
@@ -613,6 +654,15 @@ static int finish_pending(
         }
     } else {
         opp->highest_unstable_uv = candidate;
+    }
+
+    if (!opp->complete &&
+        opp->highest_unstable_uv &&
+        opp->lowest_stable_uv >
+            opp->highest_unstable_uv &&
+        opp->lowest_stable_uv -
+                opp->highest_unstable_uv <=
+            calibration->voltage_step_uv) {
         opp->raw_final_uv = guarded_final(
             calibration,
             opp,

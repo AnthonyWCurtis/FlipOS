@@ -427,7 +427,7 @@ voltage.
 
 - [ ] Keep 408/600/816 MHz at stock voltage unless Flip-specific evidence proves low-load undervolting is safe and worthwhile
 - [ ] Continue descending higher OPPs in 12.5 mV steps, highest frequency first
-- [ ] Find each raw stability boundary, then apply the existing 25 mV production guardband
+- [ ] Find each raw stability boundary with adaptive 50 mV -> 25 mV -> 12.5 mV refinement, then apply the existing 25 mV production guardband
 - [ ] Validate static heavy load
 - [ ] Validate idle/light-load residency
 - [ ] Validate rapid DVFS transition stress across the full OPP ladder
@@ -435,6 +435,7 @@ voltage.
 - [ ] Validate thermal variation, sleep/resume and long soak
 - [ ] Treat reboot, freeze, USB collapse, regulator fault, kernel fault or corrupted trial state as candidate failure
 - [ ] Apply stock fallback whenever calibration evidence is incomplete or suspect
+- [ ] On-device calibration progress screen: do-not-power-off warning, progress %, current OPP/voltage, stage and live ETA
 - [ ] Optimizer results UI with measured whole-device A/B power data
 - [ ] Undervolting only when hardware support and self-healing rollback safety are verified
 
@@ -442,9 +443,11 @@ Per-device calibration framework acceptance on 2026-10-06 is also complete.
 The read-only live probe identifies this physical Flip by RK3566 CPU serial
 b9f4ffca2f298ad2 and model MIYOO RK3566 355 V10 Board, reads all eight CPU
 OPPs from debugfs, and reads the vdd_cpu regulator floor directly from sysfs.
-The resulting plan uses 12.5 mV candidate steps and a 25 mV final guardband,
-tests highest OPP first, persists the exact pending OPP/voltage/trial ID, and
-can map a boot rollback back to that candidate as unstable.
+The voltage grid remains 12.5 mV with a 25 mV final guardband, but the search
+now uses adaptive coarse-to-fine probing: 50 mV jumps while no failure boundary
+is known, then midpoint refinement through 25 mV and finally 12.5 mV precision.
+It still tests highest OPP first, persists the exact pending OPP/voltage/trial
+ID, and can map a boot rollback back to that candidate as unstable.
 
 The initialized hardware plan contains all eight stock OPPs from 408 MHz /
 850 mV through 1992 MHz / 1100 mV with the RK860 regulator floor at 712.5 mV and an effective CPU calibration floor of 812.5 mV.
