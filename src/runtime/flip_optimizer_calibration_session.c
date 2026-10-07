@@ -111,6 +111,38 @@ int flip_optimizer_calibration_session_confirm_stable(
     return flip_optimizer_calibration_save(calibration);
 }
 
+int flip_optimizer_calibration_session_confirm_unstable(
+    flip_optimizer_calibration_t *calibration)
+{
+    if (!calibration ||
+        !flip_optimizer_calibration_session_ready_for_apply(
+            calibration))
+        return -1;
+
+    char trial_id[
+        FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
+
+    strcpy(
+        trial_id,
+        calibration->pending_trial_id);
+
+    /*
+     * Close the guard first. If power is lost before calibration state is
+     * committed, reconcile() can recover the failed event on next boot.
+     */
+    if (flip_optimizer_guard_fail(
+            trial_id,
+            0) < 0)
+        return -1;
+
+    if (flip_optimizer_calibration_record_pending(
+            calibration,
+            0) < 0)
+        return -1;
+
+    return flip_optimizer_calibration_save(calibration);
+}
+
 int flip_optimizer_calibration_session_cancel_unapplied(
     flip_optimizer_calibration_t *calibration)
 {
@@ -185,7 +217,10 @@ int flip_optimizer_calibration_session_reconcile(
                 "rolled_back") == 0 ||
             strcmp(
                 guard.last_action,
-                "rollback_corrupt") == 0) {
+                "rollback_corrupt") == 0 ||
+            strcmp(
+                guard.last_action,
+                "failed") == 0) {
             if (flip_optimizer_calibration_record_rollback(
                     calibration,
                     calibration->pending_trial_id) < 0 ||

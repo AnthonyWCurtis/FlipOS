@@ -63,6 +63,24 @@ static void test_cancel_matching_trial(void)
     assert(status.last_epoch == 152);
 }
 
+
+static void test_fail_matching_trial(void)
+{
+    reset_root();
+
+    assert(flip_optimizer_guard_arm("live-fail", 170) == 0);
+    assert(flip_optimizer_guard_fail("wrong", 171) < 0);
+    assert(flip_optimizer_guard_fail("live-fail", 172) == 0);
+
+    flip_optimizer_guard_status_t status;
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 0);
+    assert(strcmp(status.last_action, "failed") == 0);
+    assert(strcmp(status.last_trial_id, "live-fail") == 0);
+    assert(status.last_epoch == 172);
+}
+
 static void test_boot_rolls_back_unconfirmed_trial(void)
 {
     reset_root();
@@ -129,6 +147,7 @@ int main(void)
 
     test_arm_and_confirm();
     test_cancel_matching_trial();
+    test_fail_matching_trial();
     test_boot_rolls_back_unconfirmed_trial();
     test_corrupt_trial_fails_safe();
     test_trial_id_validation();

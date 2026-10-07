@@ -1334,6 +1334,7 @@ static int run_live_once(unsigned duration_seconds)
     int voltage_entered = 0;
     int cleanup_ok = 1;
     int stress_ok = 0;
+    int candidate_exercised = 0;
     pid_t deadman_pid = -1;
 
     if (ensure_candidate_ready(&calibration) < 0) {
@@ -1512,6 +1513,7 @@ static int run_live_once(unsigned duration_seconds)
     }
 
     voltage_entered = 1;
+    candidate_exercised = 1;
 
     if (run_integrity_check() < 0) {
         fprintf(
@@ -1634,16 +1636,41 @@ fail:
     }
 
     if (!stress_ok) {
-        /*
-         * The silicon entered the candidate but did not complete the bounded
-         * acceptance. Leave the guard active and reboot normally so boot
-         * reconciliation records this candidate as unstable.
-         */
-        fprintf(
-            stderr,
-            "OPTIMIZER_CANDIDATE: candidate not accepted; "
-            "rebooting for rollback classification\n");
-        emergency_reboot();
+        if (!transaction_ready)
+            return -1;
+
+        if (!candidate_exercised) {
+            if (flip_optimizer_calibration_session_cancel_unapplied(
+                    &calibration) < 0) {
+                fprintf(
+                    stderr,
+                    "OPTIMIZER_CANDIDATE: unapplied trial cancel failed; "
+                    "rebooting\n");
+                emergency_reboot();
+            }
+
+            fprintf(
+                stderr,
+                "OPTIMIZER_CANDIDATE: live attempt aborted before "
+                "candidate entry\n");
+            return -1;
+        }
+
+        if (flip_optimizer_calibration_session_confirm_unstable(
+                &calibration) < 0) {
+            fprintf(
+                stderr,
+                "OPTIMIZER_CANDIDATE: unstable result commit failed; "
+                "rebooting\n");
+            emergency_reboot();
+        }
+
+        printf(
+            "OPTIMIZER_CANDIDATE: LIVE_UNSTABLE "
+            "target_khz=%u candidate_uv=%u\n",
+            target_khz,
+            candidate_uv);
+        return 0;
     }
 
     if (!transaction_ready ||
