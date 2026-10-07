@@ -70,6 +70,7 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     [ ! -f "$ROOT/bin/flip-optimizer-deadman" ] || chmod 755 "$ROOT/bin/flip-optimizer-deadman"
     [ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
     [ ! -f "$ROOT/bin/flip-optimizer-calibration" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration"
+    [ ! -f "$ROOT/bin/flip-optimizer-session" ] || chmod 755 "$ROOT/bin/flip-optimizer-session"
 fi
 
 # Durable rollback bookkeeping is secondary to the RAM safety decision.
@@ -95,6 +96,19 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     if ! "$SUPERVISOR" boot-enforce >> "$LOG_TARGET" 2>&1; then
         echo "OPTIMIZER_SUPERVISOR: post-settlement enforcement failed" >> "$LOG_TARGET"
         printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+    fi
+fi
+
+# An explicit optimizer session may continue only after boot recovery has
+# completely settled and the second supervisor pass says runtime is safe.
+# If inactive/paused/complete this returns normally and frontend boot proceeds.
+# If active with work remaining it execs one bounded candidate; that candidate
+# settles and reboots, so normal frontend startup is intentionally skipped.
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ ! -e "$RAM_STOCK_SAFE" ] && \
+   [ -x "$ROOT/bin/flip-optimizer-session" ]; then
+    if ! "$ROOT/bin/flip-optimizer-session" boot-resume >> "$LOG_TARGET" 2>&1; then
+        echo "OPTIMIZER_SESSION: boot resume failed; normal frontend boot continues" >> "$LOG_TARGET"
     fi
 fi
 

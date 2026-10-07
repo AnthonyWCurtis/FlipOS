@@ -17,6 +17,7 @@ required = [
     '"$ROOT/bin/flip-optimizer-guard" boot-check',
     '"$ROOT/bin/flip-optimizer-calibration" recover-boot',
     'post-settlement enforcement',
+    '"$ROOT/bin/flip-optimizer-session" boot-resume',
     'runtime stock-safe remains authoritative',
     'if [ "$SD_WRITABLE" -eq 1 ] &&',
     '"$ROOT/bin/flip-frontend" >> "$LOG_TARGET" 2>&1',
@@ -38,14 +39,36 @@ first_sd_write_candidates = [
 first_sd_write = min(first_sd_write_candidates) if first_sd_write_candidates else -1
 guard_pos = wrapper.find('"$ROOT/bin/flip-optimizer-guard" boot-check')
 reconcile_pos = wrapper.find('"$ROOT/bin/flip-optimizer-calibration" recover-boot')
+post_settlement_pos = wrapper.find('post-settlement enforcement')
+session_pos = wrapper.find('"$ROOT/bin/flip-optimizer-session" boot-resume')
+logger_pos = wrapper.find('\n    "$ROOT/bin/flip-playtest-logger.sh"\n')
 frontend_pos = wrapper.find('"$ROOT/bin/flip-frontend" >> "$LOG_TARGET" 2>&1')
 
-if min(supervisor_pos, first_sd_write, guard_pos, reconcile_pos, frontend_pos) < 0:
+if min(
+    supervisor_pos,
+    first_sd_write,
+    guard_pos,
+    reconcile_pos,
+    post_settlement_pos,
+    session_pos,
+    logger_pos,
+    frontend_pos,
+) < 0:
     pass
-elif not (supervisor_pos < first_sd_write < guard_pos < reconcile_pos < frontend_pos):
+elif not (
+    supervisor_pos
+    < first_sd_write
+    < guard_pos
+    < reconcile_pos
+    < post_settlement_pos
+    < session_pos
+    < logger_pos
+    < frontend_pos
+):
     errors.append(
         "boot safety order must be supervisor, optional writes, guard settlement, "
-        "calibration reconcile, frontend"
+        "calibration reconcile, post-settlement enforcement, optimizer session, "
+        "logger, frontend"
     )
 
 supervisor_line = next(

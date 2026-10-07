@@ -11,6 +11,7 @@ required=(
     build/flip-optimizer-guard
     build/flip-optimizer-calibration
     build/flip-optimizer-candidate
+    build/flip-optimizer-session
     tools/device/updater-playtest
 )
 
@@ -31,6 +32,7 @@ done
 "$ADB" push build/flip-optimizer-guard "$ROOT/bin/flip-optimizer-guard" >/dev/null
 "$ADB" push build/flip-optimizer-calibration "$ROOT/bin/flip-optimizer-calibration" >/dev/null
 "$ADB" push build/flip-optimizer-candidate "$ROOT/bin/flip-optimizer-candidate" >/dev/null
+"$ADB" push build/flip-optimizer-session "$ROOT/bin/flip-optimizer-session" >/dev/null
 
 "$ADB" push tools/device/updater-playtest "$ROOT/updater-playtest" >/dev/null
 "$ADB" push tools/device/updater-playtest "$BOOT_UPDATER" >/dev/null
@@ -43,7 +45,8 @@ done
         '$ROOT/bin/flip-optimizer-deadman' \
         '$ROOT/bin/flip-optimizer-guard' \
         '$ROOT/bin/flip-optimizer-calibration' \
-        '$ROOT/bin/flip-optimizer-candidate'
+        '$ROOT/bin/flip-optimizer-candidate' \
+        '$ROOT/bin/flip-optimizer-session'
     sync
     echo DEPLOY_PLAYTEST_OK
     sha256sum '$BOOT_UPDATER' '$ROOT/updater-playtest'
