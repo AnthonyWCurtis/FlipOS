@@ -116,6 +116,38 @@ for forbidden in [
     if forbidden in probe:
         errors.append(f"stock watchdog reboot probe must be voltage-neutral: {forbidden}")
 
+
+button_probe_start = candidate.find("static int run_watchdog_button_expiry_probe")
+button_probe_end = candidate.find("static int run_watchdog_reboot_probe", button_probe_start)
+button_probe = candidate[button_probe_start:button_probe_end]
+
+for token in [
+    '"/dev/input/event0"',
+    "ev.code == 57",
+    "WATCHDOG_BUTTON_PROBE_READY",
+    "wait_for_a_press(60)",
+    "flip_optimizer_hw_watchdog_arm(",
+    "WATCHDOG_BUTTON_PROBE_TRIGGERED",
+    "stopping_heartbeats=1",
+]:
+    if token not in candidate and token not in button_probe:
+        errors.append(f"button-triggered watchdog probe missing: {token}")
+
+press_pos = button_probe.find("wait_for_a_press(60)")
+arm_pos = button_probe.find("flip_optimizer_hw_watchdog_arm(")
+if press_pos < 0 or arm_pos < 0 or press_pos > arm_pos:
+    errors.append("A press must happen before hardware watchdog is opened")
+
+for forbidden in [
+    "module_apply_table(",
+    "enter_candidate_frequency(",
+    "flip_optimizer_calibration_session_confirm_stable",
+    "flip_optimizer_calibration_session_confirm_unstable",
+    "read_cpu_rail_uv(",
+]:
+    if forbidden in button_probe:
+        errors.append(f"button watchdog acceptance must be voltage-neutral: {forbidden}")
+
 if errors:
     for error in errors:
         print(error)

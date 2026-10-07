@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/reboot.h>
+#include <linux/input.h>
 #include <pthread.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -2059,6 +2060,142 @@ static int run_quiesce_probe(unsigned seconds)
     return 0;
 }
 
+static int wait_for_a_press(unsigned timeout_seconds)
+{
+    int fd = open(
+        "/dev/input/event0",
+        O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+
+    if (fd < 0)
+        return -1;
+
+    struct timespec start;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    for (;;) {
+        struct input_event ev;
+        ssize_t n = read(fd, &ev, sizeof(ev));
+
+        if (n == (ssize_t)sizeof(ev)) {
+            if (ev.type == EV_KEY &&
+                ev.code == 57 &&
+                ev.value == 1) {
+                close(fd);
+                return 1;
+            }
+            continue;
+        }
+
+        if (n < 0 &&
+            errno != EAGAIN &&
+            errno != EWOULDBLOCK &&
+            errno != EINTR) {
+            close(fd);
+            return -1;
+        }
+
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
+            close(fd);
+            return -1;
+        }
+
+        if ((unsigned)(now.tv_sec - start.tv_sec) >=
+            timeout_seconds) {
+            close(fd);
+            return 0;
+        }
+
+        const struct timespec delay = {
+            .tv_sec = 0,
+            .tv_nsec = 20 * 1000 * 1000,
+        };
+        (void)nanosleep(&delay, NULL);
+    }
+}
+
+static int run_watchdog_button_expiry_probe(void)
+{
+    if (geteuid() != 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: root required\n");
+        return -1;
+    }
+
+    flip_optimizer_quiesce_t quiesce = {0};
+    flip_optimizer_hw_watchdog_t hw_watchdog = {
+        .fd = -1,
+    };
+    int tsadc_loaded = 0;
+    int tsadc_armed = 0;
+    int pressed = -1;
+
+    if (flip_optimizer_quiesce_begin(
+            &quiesce) < 0)
+        return -1;
+
+    if (tsadc_recovery_load() < 0)
+        goto safe_abort;
+    tsadc_loaded = 1;
+
+    if (tsadc_recovery_set(1) < 0)
+        goto safe_abort;
+    tsadc_armed = 1;
+
+    printf(
+        "OPTIMIZER_CANDIDATE: WATCHDOG_BUTTON_PROBE_READY "
+        "press_A=1 timeout_s=60 voltage_written=0\n");
+    fflush(stdout);
+
+    pressed = wait_for_a_press(60);
+
+    if (pressed <= 0) {
+        if (pressed == 0) {
+            printf(
+                "OPTIMIZER_CANDIDATE: WATCHDOG_BUTTON_PROBE_TIMEOUT\n");
+            fflush(stdout);
+        }
+        goto safe_abort;
+    }
+
+    if (flip_optimizer_hw_watchdog_arm(
+            &hw_watchdog,
+            FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: watchdog button probe arm failed touched=%d\n",
+            hw_watchdog.touched);
+
+        if (hw_watchdog.touched)
+            emergency_reboot();
+
+        goto safe_abort;
+    }
+
+    sync();
+
+    printf(
+        "OPTIMIZER_CANDIDATE: WATCHDOG_BUTTON_PROBE_TRIGGERED "
+        "timeout_s=%u voltage_written=0 stopping_heartbeats=1\n",
+        hw_watchdog.timeout_seconds);
+    fflush(stdout);
+
+    for (;;)
+        pause();
+
+safe_abort:
+    if (tsadc_armed)
+        (void)tsadc_recovery_set(0);
+    if (tsadc_loaded)
+        (void)tsadc_recovery_unload();
+    (void)flip_optimizer_quiesce_end(&quiesce);
+    return pressed < 0 ? -1 : 0;
+}
+
 static int run_watchdog_reboot_probe(void)
 {
     if (geteuid() != 0) {
@@ -2290,7 +2427,7 @@ static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | watchdog-reboot-probe | live-once SECONDS\n",
+        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | watchdog-reboot-probe | watchdog-button-expiry-probe | live-once SECONDS\n",
         program);
 }
 
@@ -2326,6 +2463,12 @@ int main(int argc, char **argv)
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
     }
+
+    if (argc == 2 &&
+        strcmp(argv[1], "watchdog-button-expiry-probe") == 0)
+        return run_watchdog_button_expiry_probe() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
 
     if (argc == 2 &&
         strcmp(argv[1], "watchdog-reboot-probe") == 0)
