@@ -370,14 +370,19 @@ static int make_live_calibration(
             &opp_count) < 0)
         return -1;
 
-    return flip_optimizer_calibration_init(
+    if (flip_optimizer_calibration_init(
+            calibration,
+            device_id,
+            model,
+            opps,
+            opp_count,
+            FLIP_OPTIMIZER_CALIBRATION_DEFAULT_STEP_UV,
+            FLIP_OPTIMIZER_CALIBRATION_DEFAULT_GUARDBAND_UV) < 0)
+        return -1;
+
+    return flip_optimizer_calibration_preserve_stock_below(
         calibration,
-        device_id,
-        model,
-        opps,
-        opp_count,
-        FLIP_OPTIMIZER_CALIBRATION_DEFAULT_STEP_UV,
-        FLIP_OPTIMIZER_CALIBRATION_DEFAULT_GUARDBAND_UV);
+        FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ);
 }
 
 static int print_status(void)
@@ -430,7 +435,8 @@ static void usage(const char *program)
     fprintf(
         stderr,
         "usage: %s probe | init | status | prepare | ready | "
-        "reconcile | recover-boot | cancel-unapplied | confirm-stable | clear-stock-only\n",
+        "reconcile | recover-boot | cancel-unapplied | confirm-stable | "
+        "preserve-stock-low | clear-stock-only\n",
         program);
 }
 
@@ -581,6 +587,28 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
 
         printf("confirmed_stable=1\n");
+        return EXIT_SUCCESS;
+    }
+
+    if (strcmp(argv[1], "preserve-stock-low") == 0) {
+        flip_optimizer_calibration_t calibration;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0 ||
+            flip_optimizer_calibration_preserve_stock_below(
+                &calibration,
+                FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ) < 0 ||
+            flip_optimizer_calibration_save(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        printf(
+            "stock_preserved_below_khz=%u\n",
+            FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ);
+        printf(
+            "calibration_complete=%d\n",
+            flip_optimizer_calibration_is_complete(
+                &calibration));
         return EXIT_SUCCESS;
     }
 

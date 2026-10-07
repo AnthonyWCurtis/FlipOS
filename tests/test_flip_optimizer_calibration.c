@@ -271,6 +271,40 @@ static void test_monotonic_result(void)
     assert(result.guardband_uv == 25000);
 }
 
+static void test_preserve_low_opps_at_stock(void)
+{
+    flip_optimizer_calibration_t calibration =
+        make_calibration();
+
+    assert(flip_optimizer_calibration_preserve_stock_below(
+               &calibration,
+               1104000) == 0);
+
+    assert(calibration.opps[0].frequency_khz == 408000);
+    assert(calibration.opps[0].complete == 1);
+    assert(calibration.opps[0].lowest_stable_uv ==
+           calibration.opps[0].stock_uv);
+    assert(calibration.opps[0].raw_final_uv ==
+           calibration.opps[0].stock_uv);
+    assert(calibration.opps[0].highest_unstable_uv == 0);
+    assert(calibration.opps[0].tests_run == 0);
+
+    assert(calibration.opps[1].frequency_khz == 1104000);
+    assert(calibration.opps[1].complete == 0);
+    assert(calibration.opps[1].raw_final_uv == 0);
+
+    size_t index = 0;
+    unsigned uv = 0;
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration,
+               &index,
+               &uv) == 1);
+
+    assert(flip_optimizer_calibration_preserve_stock_below(
+               &calibration,
+               1104000) < 0);
+}
+
 static void test_save_load_pending_state(void)
 {
     assert(system(
@@ -311,6 +345,7 @@ int main(void)
     test_rollback_creates_refinement_bracket();
     test_floor_completion();
     test_monotonic_result();
+    test_preserve_low_opps_at_stock();
     test_save_load_pending_state();
 
     printf("flip_optimizer_calibration tests passed\n");

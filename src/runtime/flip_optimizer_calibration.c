@@ -724,6 +724,34 @@ int flip_optimizer_calibration_cancel_pending(
     return flip_optimizer_calibration_validate(calibration);
 }
 
+int flip_optimizer_calibration_preserve_stock_below(
+    flip_optimizer_calibration_t *calibration,
+    unsigned min_frequency_khz)
+{
+    if (!calibration ||
+        !min_frequency_khz ||
+        flip_optimizer_calibration_validate(calibration) < 0 ||
+        calibration->pending)
+        return -1;
+
+    for (size_t i = 0; i < calibration->opp_count; ++i) {
+        flip_optimizer_calibration_opp_t *opp =
+            &calibration->opps[i];
+
+        if (opp->frequency_khz >= min_frequency_khz ||
+            opp->complete)
+            continue;
+
+        opp->lowest_stable_uv = opp->stock_uv;
+        opp->highest_unstable_uv = 0;
+        opp->raw_final_uv = opp->stock_uv;
+        opp->tests_run = 0;
+        opp->complete = 1;
+    }
+
+    return flip_optimizer_calibration_validate(calibration);
+}
+
 int flip_optimizer_calibration_is_complete(
     const flip_optimizer_calibration_t *calibration)
 {

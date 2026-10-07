@@ -11,6 +11,7 @@
 #define FLIP_OPTIMIZER_CALIBRATION_DEFAULT_STEP_UV 12500U
 #define FLIP_OPTIMIZER_CALIBRATION_DEFAULT_GUARDBAND_UV 25000U
 #define FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV 812500U
+#define FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ 1104000U
 
 #ifndef FLIP_OPTIMIZER_CALIBRATION_ROOT
 #define FLIP_OPTIMIZER_CALIBRATION_ROOT "/mnt/SDCARD/flipos-dev/state/optimizer"
@@ -88,6 +89,10 @@ int flip_optimizer_calibration_record_rollback(
 
 int flip_optimizer_calibration_cancel_pending(
     flip_optimizer_calibration_t *calibration);
+
+int flip_optimizer_calibration_preserve_stock_below(
+    flip_optimizer_calibration_t *calibration,
+    unsigned min_frequency_khz);
 
 int flip_optimizer_calibration_is_complete(
     const flip_optimizer_calibration_t *calibration);
