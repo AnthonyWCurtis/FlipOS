@@ -117,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool opp-voltage-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool opp-voltage-module tsadc-recovery-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -146,6 +146,8 @@ optimizer-calibration-tool: $(BUILD)/flip-optimizer-calibration
 optimizer-candidate-tool: $(BUILD)/flip-optimizer-candidate
 
 opp-voltage-module: $(BUILD)/flip_opp_voltage.ko
+
+tsadc-recovery-module: $(BUILD)/flip_tsadc_recovery.ko
 
 verify:
 	@log=/tmp/flipos-verify.log; \
@@ -384,6 +386,7 @@ test-architecture:
 	python3 tests/test_optimizer_guard_boot_architecture.py
 	python3 tests/test_optimizer_candidate_architecture.py
 	python3 tests/test_opp_voltage_module_architecture.py
+	python3 tests/test_tsadc_recovery_module_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -923,6 +926,17 @@ $(BUILD)/flip_opp_voltage.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c t
 		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/opp-voltage-module" \
 		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
 	cp $(BUILD)/opp-voltage-module/flip_opp_voltage.ko $@
+
+$(BUILD)/flip_tsadc_recovery.ko: tools/kernel/flip_tsadc_recovery/flip_tsadc_recovery.c tools/kernel/flip_tsadc_recovery/Makefile | $(BUILD)
+	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
+	rm -rf $(BUILD)/tsadc-recovery-module $(BUILD)/kernel-python-shim
+	mkdir -p $(BUILD)/tsadc-recovery-module $(BUILD)/kernel-python-shim
+	cp tools/kernel/flip_tsadc_recovery/flip_tsadc_recovery.c tools/kernel/flip_tsadc_recovery/Makefile $(BUILD)/tsadc-recovery-module/
+	ln -sf "$$(command -v python3)" $(BUILD)/kernel-python-shim/python
+	PATH="$(CURDIR)/$(BUILD)/kernel-python-shim:$$PATH" \
+		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/tsadc-recovery-module" \
+		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
+	cp $(BUILD)/tsadc-recovery-module/flip_tsadc_recovery.ko $@
 
 $(BUILD)/flip-perf-capture: $(PERF_CAPTURE_OBJS)
 	$(CC) -static -o $@ $(PERF_CAPTURE_OBJS)
