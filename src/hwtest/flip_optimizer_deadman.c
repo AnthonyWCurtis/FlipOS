@@ -75,8 +75,33 @@ static void direct_reboot(void)
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "probe") == 0) {
+        if (arm_realtime_runtime() < 0) {
+            fprintf(
+                stderr,
+                "OPTIMIZER_DEADMAN: probe failed errno=%d\n",
+                errno);
+            return EXIT_FAILURE;
+        }
+
+        struct sched_param param;
+        int policy = sched_getscheduler(0);
+        if (policy < 0 ||
+            sched_getparam(0, &param) < 0)
+            return EXIT_FAILURE;
+
+        printf(
+            "OPTIMIZER_DEADMAN: PROBE_OK policy=%d priority=%d\n",
+            policy,
+            param.sched_priority);
+        return EXIT_SUCCESS;
+    }
+
     if (argc != 4 || strcmp(argv[1], "arm") != 0) {
-        fprintf(stderr, "usage: %s arm SECONDS READY_FD\n", argv[0]);
+        fprintf(
+            stderr,
+            "usage: %s probe | arm SECONDS READY_FD\n",
+            argv[0]);
         return EXIT_FAILURE;
     }
 

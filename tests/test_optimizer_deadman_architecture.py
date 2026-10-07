@@ -8,6 +8,8 @@ candidate = Path("src/hwtest/flip_optimizer_candidate_tool.c").read_text()
 errors = []
 
 deadman_required = [
+    '"probe"',
+    "PROBE_OK",
     "mlockall(MCL_CURRENT | MCL_FUTURE)",
     "SCHED_FIFO",
     "sched_setscheduler",
