@@ -377,10 +377,41 @@ workload can automatically request more CPU headroom.
 - [x] RK3566 voltage/OPP reconnaissance
 - [x] Watchdog/rollback proof before voltage writes
 - [x] Per-device silicon calibration framework
-- [ ] Validate stress, idle/light-load, real emulators, thermal variation, sleep/resume and long soak
-- [ ] Apply guardband and stock fallback
+
+#### Phase 10C1 — FlipOS Self-Healing Calibration Supervisor
+
+This is now a hard safety gate before any further live undervolt sweep. FlipOS
+must own the complete failure/recovery loop so a marginal voltage can freeze or
+reset the RK3566 without requiring manual ADB intervention or trusting the
+unstable userspace test process to write a final result.
+
+- [ ] Build a native FlipOS recovery supervisor independent of the emulator/frontend
+- [ ] Arm the recovery path before every voltage write and verify it before entering the candidate OPP
+- [ ] Keep dangerous-phase coordination in RAM; avoid SD/FAT writes while silicon is intentionally unstable
+- [ ] Persist only the minimum pre-trial durable record before the test, sync it once, then stop writing until stock voltage is restored
+- [ ] On reboot, treat an armed-but-unconfirmed trial as failed and restore stock-only operation before normal FlipOS startup
+- [ ] Distinguish clean pass, controlled failure, watchdog/reset, power loss and corrupt/incomplete trial state
+- [ ] Prove recovery still works if the SD card remounts read-only after a hard crash
+- [ ] Investigate and validate an RK3566 full-board reset path; use hardware watchdog only if it can autonomously return this board to boot
+- [ ] Add a RAM-resident high-priority deadman fallback using direct reboot/reset primitives where the kernel permits
+- [ ] Add kernel panic/oops/stall auto-reboot policy only after hardware validation on this exact Flip
+- [ ] Resume calibration automatically at the correct candidate after a recovered failure
+- [ ] Never publish or persist an optimized profile unless every accepted OPP has completed the full validation matrix
+
+#### Phase 10C2 — FlipOS Per-Device Voltage Characterization
+
+- [ ] Keep 408/600/816 MHz at stock voltage unless Flip-specific evidence proves low-load undervolting is safe and worthwhile
+- [ ] Continue descending higher OPPs in 12.5 mV steps, highest frequency first
+- [ ] Find each raw stability boundary, then apply the existing 25 mV production guardband
+- [ ] Validate static heavy load
+- [ ] Validate idle/light-load residency
+- [ ] Validate rapid DVFS transition stress across the full OPP ladder
+- [ ] Validate real emulators and dynamic-clock escalation/de-escalation behaviour
+- [ ] Validate thermal variation, sleep/resume and long soak
+- [ ] Treat reboot, freeze, USB collapse, regulator fault, kernel fault or corrupted trial state as candidate failure
+- [ ] Apply stock fallback whenever calibration evidence is incomplete or suspect
 - [ ] Optimizer results UI with measured whole-device A/B power data
-- [ ] Undervolting only when hardware support and rollback safety are verified
+- [ ] Undervolting only when hardware support and self-healing rollback safety are verified
 
 Per-device calibration framework acceptance on 2026-10-06 is also complete.
 The read-only live probe identifies this physical Flip by RK3566 CPU serial
