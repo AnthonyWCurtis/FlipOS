@@ -395,8 +395,8 @@ unstable userspace test process to write a final result.
 - [x] Prove recovery still works if the SD card remounts read-only after a hard crash
 - [x] Investigate and validate an RK3566 full-board reset path; use hardware watchdog only if it can autonomously return this board to boot
 - [x] Add a RAM-resident high-priority deadman fallback using direct reboot/reset primitives where the kernel permits
-- [ ] Add kernel panic/oops/stall auto-reboot policy only after hardware validation on this exact Flip
-- [ ] Resume calibration automatically at the correct candidate after a recovered failure
+- [x] Add kernel panic/oops/stall auto-reboot policy only after hardware validation on this exact Flip
+- [x] Resume calibration automatically at the correct candidate after a recovered failure
 - [ ] Never publish or persist an optimized profile unless every accepted OPP has completed the full validation matrix
 
 Implementation progress on 2026-10-07: the native `flip-optimizer-supervisor`
@@ -411,15 +411,17 @@ candidate failures that successfully return to stock voltage are now committed
 as unstable without rebooting; attempts that fail before candidate voltage was
 actually entered are cancelled rather than misclassified as silicon failures.
 
-The RK3566 kernel also exposes `/sys/kernel/boot_mode` through its existing
-syscon-reboot-mode driver. This physical Flip reported `coldboot` after the
-manual power-cycle recovery. The supervisor now classifies coldboot, normal,
-panic and watchdog reset modes. The deadman requests `RESTART2("watchdog")`,
-allowing the Rockchip PMUGRF reboot-mode register to tag a future deadman reset
-without writing to FAT. These paths are host-tested and build-clean but the
-deadman reset tag, read-only boot recovery and unattended reboot behavior still
-require explicit real-hardware acceptance before the remaining safety
-checkboxes can close.
+The RK3566 kernel exposes `/sys/kernel/boot_mode` through its existing
+syscon-reboot-mode driver. Hardware acceptance on this physical Flip proved
+both unattended recovery layers: the RAM-locked deadman returned with
+`boot_mode=watchdog`, while a controlled SysRq kernel fault returned with
+`boot_mode=panic` after the temporary 10-second kernel panic timeout. Ramoops
+captured persistent panic evidence, the SD returned read-write, FlipOS frontend
+and telemetry restarted, and the temporary kernel recovery sysctls returned to
+their original zero values. Two-phase PMUGRF trial state also distinguishes a
+prepared-but-unentered candidate from a candidate whose dangerous window was
+actually entered, preventing unrelated warm reboots from falsely condemning a
+voltage.
 
 #### Phase 10C2 — FlipOS Per-Device Voltage Characterization
 

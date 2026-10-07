@@ -2,6 +2,7 @@
 #include "flip_optimizer_calibration.h"
 #include "flip_optimizer_calibration_session.h"
 #include "flip_optimizer_guard.h"
+#include "flip_optimizer_panic_policy.h"
 #include "flip_optimizer_supervisor.h"
 #include "flip_optimizer_quiesce.h"
 
@@ -1338,6 +1339,7 @@ static int run_live_once(unsigned duration_seconds)
     int stress_ok = 0;
     int candidate_exercised = 0;
     flip_optimizer_quiesce_t quiesce = {0};
+    flip_optimizer_panic_policy_t panic_policy = {0};
     pid_t deadman_pid = -1;
 
     if (ensure_candidate_ready(&calibration) < 0) {
@@ -1488,6 +1490,18 @@ static int run_live_once(unsigned duration_seconds)
     printf(
         "OPTIMIZER_CANDIDATE: storage quiesced writers=%zu\n",
         quiesce.count);
+    fflush(stdout);
+
+    if (flip_optimizer_panic_policy_begin(
+            &panic_policy) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to arm kernel recovery policy\n");
+        goto fail;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: kernel recovery policy armed\n");
     fflush(stdout);
 
     unsigned deadman_timeout =
@@ -1657,6 +1671,14 @@ fail:
         emergency_reboot();
     }
 
+    if (flip_optimizer_panic_policy_end(
+            &panic_policy) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to restore kernel recovery policy; rebooting\n");
+        emergency_reboot();
+    }
+
     if (disarm_deadman(&deadman_pid) < 0) {
         fprintf(
             stderr,
@@ -1811,11 +1833,136 @@ static int run_quiesce_probe(unsigned seconds)
     return 0;
 }
 
+static int run_kernel_recovery_probe(unsigned seconds)
+{
+    if (geteuid() != 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: root required\n");
+        return -1;
+    }
+
+    if (seconds == 0 || seconds > 30) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: kernel recovery probe duration must be 1-30 seconds\n");
+        return -1;
+    }
+
+    flip_optimizer_panic_policy_t policy = {0};
+
+    if (flip_optimizer_panic_policy_begin(
+            &policy) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: kernel recovery probe begin failed\n");
+        return -1;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: KERNEL_RECOVERY_PROBE_BEGIN "
+        "seconds=%u original_panic=%d original_oops=%d "
+        "original_warn=%d original_rcu=%d\n",
+        seconds,
+        policy.panic_seconds,
+        policy.panic_on_oops,
+        policy.panic_on_warn,
+        policy.panic_on_rcu_stall);
+    fflush(stdout);
+
+    struct timespec remaining = {
+        .tv_sec = (time_t)seconds,
+        .tv_nsec = 0,
+    };
+
+    while (nanosleep(&remaining, &remaining) < 0) {
+        if (errno == EINTR)
+            continue;
+
+        (void)flip_optimizer_panic_policy_end(
+            &policy);
+        return -1;
+    }
+
+    if (flip_optimizer_panic_policy_end(
+            &policy) < 0)
+        return -1;
+
+    printf(
+        "OPTIMIZER_CANDIDATE: KERNEL_RECOVERY_PROBE_OK seconds=%u\n",
+        seconds);
+    return 0;
+}
+
+static int run_kernel_recovery_crash_test(void)
+{
+    if (geteuid() != 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: root required\n");
+        return -1;
+    }
+
+    flip_optimizer_quiesce_t quiesce = {0};
+    flip_optimizer_panic_policy_t policy = {0};
+
+    if (flip_optimizer_quiesce_begin(
+            &quiesce) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: crash-test quiesce failed\n");
+        return -1;
+    }
+
+    if (flip_optimizer_panic_policy_begin(
+            &policy) < 0) {
+        (void)flip_optimizer_quiesce_end(&quiesce);
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: crash-test recovery policy failed\n");
+        return -1;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: KERNEL_RECOVERY_CRASH_TEST_ARMED "
+        "writers=%zu reboot_after_s=10 voltage_written=0\n",
+        quiesce.count);
+    fflush(stdout);
+
+    FILE *trigger = fopen("/proc/sysrq-trigger", "w");
+    if (!trigger) {
+        (void)flip_optimizer_panic_policy_end(&policy);
+        (void)flip_optimizer_quiesce_end(&quiesce);
+        return -1;
+    }
+
+    int failed =
+        fputs("c\n", trigger) == EOF ||
+        fflush(trigger) != 0;
+
+    if (failed || fclose(trigger) != 0) {
+        (void)flip_optimizer_panic_policy_end(&policy);
+        (void)flip_optimizer_quiesce_end(&quiesce);
+        return -1;
+    }
+
+    /*
+     * A successful SysRq crash never returns. If it does, restore everything
+     * and fail rather than leaving the normal OS in test policy.
+     */
+    (void)flip_optimizer_panic_policy_end(&policy);
+    (void)flip_optimizer_quiesce_end(&quiesce);
+    fprintf(
+        stderr,
+        "OPTIMIZER_CANDIDATE: crash trigger unexpectedly returned\n");
+    return -1;
+}
+
 static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | live-once SECONDS\n",
+        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | live-once SECONDS\n",
         program);
 }
 
@@ -1848,6 +1995,28 @@ int main(int argc, char **argv)
         }
 
         return run_quiesce_probe(seconds) == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+    }
+
+    if (argc == 2 &&
+        strcmp(argv[1], "kernel-recovery-crash-test") == 0)
+        return run_kernel_recovery_crash_test() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+
+    if (argc == 3 &&
+        strcmp(argv[1], "kernel-recovery-probe") == 0) {
+        unsigned seconds = 0;
+
+        if (parse_unsigned_text(
+                argv[2],
+                &seconds) < 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+
+        return run_kernel_recovery_probe(seconds) == 0
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
     }
