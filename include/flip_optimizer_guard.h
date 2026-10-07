@@ -22,7 +22,8 @@ typedef enum {
     FLIP_OPTIMIZER_GUARD_BOOT_CLEAN = 0,
     FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED = 1,
     FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT = 2,
-    FLIP_OPTIMIZER_GUARD_BOOT_IO_ERROR = 3
+    FLIP_OPTIMIZER_GUARD_BOOT_IO_ERROR = 3,
+    FLIP_OPTIMIZER_GUARD_BOOT_PREPARED = 4
 } flip_optimizer_guard_boot_state_t;
 
 typedef struct {
@@ -42,6 +43,7 @@ typedef struct {
 } flip_optimizer_guard_status_t;
 
 int flip_optimizer_guard_arm(const char *trial_id, unsigned epoch);
+int flip_optimizer_guard_mark_entering(const char *trial_id);
 int flip_optimizer_guard_confirm(const char *trial_id, unsigned epoch);
 int flip_optimizer_guard_fail(const char *trial_id, unsigned epoch);
 int flip_optimizer_guard_cancel(const char *trial_id, unsigned epoch);

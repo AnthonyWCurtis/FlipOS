@@ -30,6 +30,11 @@ int flip_optimizer_calibration_session_cancel_unapplied(
 int flip_optimizer_calibration_session_reconcile(
     flip_optimizer_calibration_t *calibration);
 
+int flip_optimizer_calibration_session_recover_boot(
+    flip_optimizer_calibration_t *calibration,
+    int *reconcile_result,
+    int *stock_only_released);
+
 int flip_optimizer_calibration_session_clear_stock_only(
     const flip_optimizer_calibration_t *calibration);
 

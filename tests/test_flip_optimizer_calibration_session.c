@@ -162,6 +162,9 @@ static void test_reboot_rollback_marks_candidate_unstable(void)
         FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
     strcpy(trial, calibration.pending_trial_id);
 
+    assert(flip_optimizer_guard_mark_entering(
+               trial) == 0);
+
     char rolled[
         FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
     assert(flip_optimizer_guard_boot_check(
@@ -240,6 +243,92 @@ static void test_orphaned_prearm_candidate_is_cancelled(void)
     assert(calibration.opps[2].tests_run == 0);
 }
 
+static void test_boot_recovery_releases_exact_rollback(void)
+{
+    reset_roots();
+    flip_optimizer_calibration_t calibration =
+        make_calibration();
+
+    assert(flip_optimizer_calibration_session_prepare(
+               &calibration,
+               NULL,
+               NULL) == 1);
+
+    char trial[
+        FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
+    strcpy(trial, calibration.pending_trial_id);
+
+    assert(flip_optimizer_guard_mark_entering(
+               trial) == 0);
+
+    char rolled[
+        FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    assert(flip_optimizer_guard_boot_check(
+               700,
+               rolled,
+               sizeof(rolled)) == 1);
+    assert(strcmp(rolled, trial) == 0);
+
+    int reconcile = -1;
+    int released = 0;
+    assert(flip_optimizer_calibration_session_recover_boot(
+               &calibration,
+               &reconcile,
+               &released) == 0);
+    assert(reconcile ==
+           FLIP_OPTIMIZER_RECONCILE_ROLLED_BACK);
+    assert(released == 1);
+    assert(calibration.pending == 0);
+
+    flip_optimizer_guard_status_t guard;
+    assert(flip_optimizer_guard_status(&guard) == 0);
+    assert(guard.active == 0);
+    assert(guard.stock_only == 0);
+    assert(strcmp(
+               guard.last_trial_id,
+               trial) == 0);
+}
+
+static void test_boot_recovery_keeps_ambiguous_quarantine(void)
+{
+    reset_roots();
+    flip_optimizer_calibration_t calibration =
+        make_calibration();
+
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration,
+               NULL,
+               NULL) == 1);
+    assert(flip_optimizer_calibration_save(
+               &calibration) == 0);
+
+    assert(flip_optimizer_guard_arm(
+               "different-trial",
+               710) == 0);
+
+    char rolled[
+        FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    assert(flip_optimizer_guard_boot_check(
+               711,
+               rolled,
+               sizeof(rolled)) == 1);
+    assert(strcmp(rolled, "different-trial") == 0);
+
+    int reconcile = -1;
+    int released = 0;
+    assert(flip_optimizer_calibration_session_recover_boot(
+               &calibration,
+               &reconcile,
+               &released) == 0);
+    assert(reconcile ==
+           FLIP_OPTIMIZER_RECONCILE_ORPHANED);
+    assert(released == 0);
+
+    flip_optimizer_guard_status_t guard;
+    assert(flip_optimizer_guard_status(&guard) == 0);
+    assert(guard.stock_only == 1);
+}
+
 int main(void)
 {
     test_prepare_arms_matching_guard();
@@ -249,6 +338,8 @@ int main(void)
     test_reboot_rollback_marks_candidate_unstable();
     test_confirm_event_recovers_pending_state();
     test_orphaned_prearm_candidate_is_cancelled();
+    test_boot_recovery_releases_exact_rollback();
+    test_boot_recovery_keeps_ambiguous_quarantine();
 
     printf("flip_optimizer_calibration_session tests passed\n");
     return EXIT_SUCCESS;

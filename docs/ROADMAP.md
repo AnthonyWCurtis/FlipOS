@@ -386,9 +386,9 @@ reset the RK3566 without requiring manual ADB intervention or trusting the
 unstable userspace test process to write a final result.
 
 - [x] Build a native FlipOS recovery supervisor independent of the emulator/frontend
-- [ ] Arm the recovery path before every voltage write and verify it before entering the candidate OPP
-- [ ] Keep dangerous-phase coordination in RAM; avoid SD/FAT writes while silicon is intentionally unstable
-  - [ ] Quiesce playtest/frontend SD writers before synthetic live candidate entry and restore them after stock voltage returns
+- [x] Arm the recovery path before every voltage write and verify it before entering the candidate OPP
+- [x] Keep dangerous-phase coordination in RAM; avoid SD/FAT writes while silicon is intentionally unstable
+  - [x] Quiesce playtest/frontend SD writers before synthetic live candidate entry and restore them after stock voltage returns
 - [x] Persist only the minimum pre-trial durable record before the test, sync it once, then stop writing until stock voltage is restored
 - [x] On reboot, treat an armed-but-unconfirmed trial as failed and restore stock-only operation before normal FlipOS startup
 - [x] Distinguish clean pass, controlled failure, watchdog/reset, power loss and corrupt/incomplete trial state

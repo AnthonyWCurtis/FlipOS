@@ -138,10 +138,20 @@ static void test_pmu_token_recovers_when_fat_records_corrupt(void)
                700) == 0);
 
     char pmu_trial[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
-    assert(flip_optimizer_pmu_token_read_trial(
+    flip_optimizer_pmu_phase_t phase;
+    assert(flip_optimizer_pmu_token_read_trial_phase(
                pmu_trial,
-               sizeof(pmu_trial)) == 1);
+               sizeof(pmu_trial),
+               &phase) == 1);
     assert(strcmp(pmu_trial, trial) == 0);
+    assert(phase == FLIP_OPTIMIZER_PMU_PHASE_PREPARED);
+
+    assert(flip_optimizer_guard_mark_entering(trial) == 0);
+    assert(flip_optimizer_pmu_token_read_trial_phase(
+               pmu_trial,
+               sizeof(pmu_trial),
+               &phase) == 1);
+    assert(phase == FLIP_OPTIMIZER_PMU_PHASE_ENTERING);
 
     FILE *active = fopen(
         FLIP_OPTIMIZER_GUARD_ACTIVE_FILE,
@@ -174,6 +184,52 @@ static void test_pmu_token_recovers_when_fat_records_corrupt(void)
     assert(status.active == 0);
     assert(status.stock_only == 1);
     assert(strcmp(status.last_action, "rollback_corrupt") == 0);
+    assert(strcmp(status.last_trial_id, trial) == 0);
+
+    assert(flip_optimizer_pmu_token_read_trial(
+               pmu_trial,
+               sizeof(pmu_trial)) == 0);
+}
+
+static void test_prepared_cpu_trial_is_cancelled_on_boot(void)
+{
+    reset_root();
+
+    const char *trial = "cpu-1416000-912500-1";
+    assert(flip_optimizer_guard_arm(
+               trial,
+               720) == 0);
+
+    char pmu_trial[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    flip_optimizer_pmu_phase_t phase;
+    assert(flip_optimizer_pmu_token_read_trial_phase(
+               pmu_trial,
+               sizeof(pmu_trial),
+               &phase) == 1);
+    assert(strcmp(pmu_trial, trial) == 0);
+    assert(phase == FLIP_OPTIMIZER_PMU_PHASE_PREPARED);
+
+    flip_optimizer_guard_boot_inspection_t inspection;
+    assert(flip_optimizer_guard_boot_inspect(
+               &inspection) == 0);
+    assert(inspection.state ==
+           FLIP_OPTIMIZER_GUARD_BOOT_PREPARED);
+    assert(strcmp(inspection.trial_id, trial) == 0);
+
+    char settled[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    assert(flip_optimizer_guard_boot_check(
+               721,
+               settled,
+               sizeof(settled)) == 0);
+    assert(strcmp(settled, trial) == 0);
+
+    flip_optimizer_guard_status_t status;
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 0);
+    assert(strcmp(
+               status.last_action,
+               "cancelled_unentered") == 0);
     assert(strcmp(status.last_trial_id, trial) == 0);
 
     assert(flip_optimizer_pmu_token_read_trial(
@@ -250,6 +306,7 @@ int main(void)
     test_fail_matching_trial();
     test_corrupt_active_recovers_armed_trial_id();
     test_pmu_token_recovers_when_fat_records_corrupt();
+    test_prepared_cpu_trial_is_cancelled_on_boot();
     test_boot_rolls_back_unconfirmed_trial();
     test_corrupt_trial_fails_safe();
     test_trial_id_validation();

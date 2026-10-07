@@ -83,7 +83,7 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
 
     if [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
        [ -f "$ROOT/state/optimizer/cpu-calibration" ]; then
-        if ! "$ROOT/bin/flip-optimizer-calibration" reconcile >> "$LOG_TARGET" 2>&1; then
+        if ! "$ROOT/bin/flip-optimizer-calibration" recover-boot >> "$LOG_TARGET" 2>&1; then
             echo "OPTIMIZER_CALIBRATION: boot reconcile failed; calibration paused" >> "$LOG_TARGET"
             printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
         fi

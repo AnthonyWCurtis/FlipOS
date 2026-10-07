@@ -430,7 +430,7 @@ static void usage(const char *program)
     fprintf(
         stderr,
         "usage: %s probe | init | status | prepare | ready | "
-        "reconcile | confirm-stable | clear-stock-only\n",
+        "reconcile | recover-boot | confirm-stable | clear-stock-only\n",
         program);
 }
 
@@ -540,6 +540,25 @@ int main(int argc, char **argv)
         return EXIT_SUCCESS;
     }
 
+    if (strcmp(argv[1], "recover-boot") == 0) {
+        flip_optimizer_calibration_t calibration;
+        int reconcile = -1;
+        int released = 0;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0 ||
+            flip_optimizer_calibration_session_recover_boot(
+                &calibration,
+                &reconcile,
+                &released) < 0)
+            return EXIT_FAILURE;
+
+        printf("reconcile=%d\n", reconcile);
+        printf(
+            "stock_only_released=%d\n",
+            released);
+        return EXIT_SUCCESS;
+    }
     if (strcmp(argv[1], "confirm-stable") == 0) {
         flip_optimizer_calibration_t calibration;
 

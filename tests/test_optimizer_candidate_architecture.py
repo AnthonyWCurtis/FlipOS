@@ -12,6 +12,8 @@ required = [
     'strcmp(argv[1], "live-once") == 0',
     "flip_optimizer_calibration_session_ready_for_apply",
     "flip_optimizer_supervisor_runtime_stock_safe",
+    "flip_optimizer_guard_mark_entering",
+    "PMU_ENTERING",
     "runtime stock-safe latch active",
     "module_apply_table(",
     "module_restore_table()",
@@ -66,6 +68,8 @@ live_ready = live.find(
     "flip_optimizer_calibration_session_ready_for_apply"
 )
 live_apply = live.find("module_apply_table(")
+live_deadman = live.find("arm_deadman(")
+live_mark_entering = live.find("flip_optimizer_guard_mark_entering(")
 live_enter = live.find("enter_candidate_frequency(")
 live_integrity_first = live.find("run_integrity_check(")
 live_stress = live.find("run_stress_window(")
@@ -83,6 +87,8 @@ live_confirm = live.find(
 positions = [
     live_ready,
     live_apply,
+    live_deadman,
+    live_mark_entering,
     live_enter,
     live_integrity_first,
     live_stress,
@@ -97,8 +103,8 @@ if min(positions) < 0:
     pass
 elif positions != sorted(positions):
     errors.append(
-        "live runner safety order must be guard, apply, enter, integrity, "
-        "stress, integrity, park, restore table, restore policy, confirm"
+        "live runner safety order must be guard, apply, deadman, PMU entering, "
+        "enter, integrity, stress, integrity, park, restore table, restore policy, confirm"
     )
 
 if "candidate_uv < FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC" in source:

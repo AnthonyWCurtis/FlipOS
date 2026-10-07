@@ -1,6 +1,7 @@
 #include "flip_cpu_policy.h"
 #include "flip_optimizer_calibration.h"
 #include "flip_optimizer_calibration_session.h"
+#include "flip_optimizer_guard.h"
 #include "flip_optimizer_supervisor.h"
 #include "flip_optimizer_quiesce.h"
 
@@ -1506,6 +1507,19 @@ static int run_live_once(unsigned duration_seconds)
         "OPTIMIZER_CANDIDATE: deadman armed timeout_s=%u pid=%ld\n",
         deadman_timeout,
         (long)deadman_pid);
+    fflush(stdout);
+
+    if (flip_optimizer_guard_mark_entering(
+            calibration.pending_trial_id) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to mark PMU entering phase\n");
+        goto fail;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: PMU_ENTERING trial=%s\n",
+        calibration.pending_trial_id);
     fflush(stdout);
 
     if (enter_candidate_frequency(

@@ -374,6 +374,29 @@ int flip_optimizer_guard_arm(
     return 0;
 }
 
+int flip_optimizer_guard_mark_entering(
+    const char *trial_id)
+{
+    if (!valid_trial_id(trial_id))
+        return -1;
+
+    active_trial_t active;
+    int rc = read_active(&active);
+
+    if (rc != 1 ||
+        strcmp(active.trial_id, trial_id) != 0)
+        return -1;
+
+    if (strncmp(trial_id, "cpu-", 4) != 0)
+        return 0;
+
+    return flip_optimizer_pmu_token_write_trial_phase(
+               trial_id,
+               FLIP_OPTIMIZER_PMU_PHASE_ENTERING) == 1
+        ? 0
+        : -1;
+}
+
 int flip_optimizer_guard_confirm(
     const char *trial_id,
     unsigned epoch)
@@ -502,9 +525,12 @@ int flip_optimizer_guard_boot_inspect(
     memset(inspection, 0, sizeof(*inspection));
 
     char pmu_trial[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
-    int pmu_rc = flip_optimizer_pmu_token_read_trial(
+    flip_optimizer_pmu_phase_t pmu_phase =
+        FLIP_OPTIMIZER_PMU_PHASE_PREPARED;
+    int pmu_rc = flip_optimizer_pmu_token_read_trial_phase(
         pmu_trial,
-        sizeof(pmu_trial));
+        sizeof(pmu_trial),
+        &pmu_phase);
 
     if (pmu_rc == -1) {
         inspection->state =
@@ -522,11 +548,23 @@ int flip_optimizer_guard_boot_inspect(
     int rc = read_active(&active);
 
     if (pmu_rc == 1) {
-        inspection->state =
+        int active_matches =
             rc == 1 &&
-            strcmp(active.trial_id, pmu_trial) == 0
-                ? FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED
-                : FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT;
+            strcmp(active.trial_id, pmu_trial) == 0;
+
+        if (pmu_phase ==
+            FLIP_OPTIMIZER_PMU_PHASE_PREPARED) {
+            inspection->state =
+                active_matches
+                    ? FLIP_OPTIMIZER_GUARD_BOOT_PREPARED
+                    : FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT;
+        } else {
+            inspection->state =
+                active_matches
+                    ? FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED
+                    : FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT;
+        }
+
         strcpy(inspection->trial_id, pmu_trial);
         inspection->armed_epoch =
             rc == 1 ? active.epoch : 0;
@@ -573,15 +611,60 @@ int flip_optimizer_guard_boot_check(
         rolled_back_trial[0] = '\0';
 
     char pmu_trial[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
-    int pmu_rc = flip_optimizer_pmu_token_read_trial(
+    flip_optimizer_pmu_phase_t pmu_phase =
+        FLIP_OPTIMIZER_PMU_PHASE_PREPARED;
+    int pmu_rc = flip_optimizer_pmu_token_read_trial_phase(
         pmu_trial,
-        sizeof(pmu_trial));
+        sizeof(pmu_trial),
+        &pmu_phase);
 
     active_trial_t active;
     int rc = read_active(&active);
 
     if (rc == 0 && pmu_rc == 0)
         return 0;
+
+    if (pmu_rc == 1 &&
+        pmu_phase == FLIP_OPTIMIZER_PMU_PHASE_PREPARED) {
+        int conflicting_active =
+            rc == 1 &&
+            strcmp(active.trial_id, pmu_trial) != 0;
+
+        if (rc == -1)
+            return -1;
+
+        if (!conflicting_active) {
+            if (write_event(
+                    "cancelled_unentered",
+                    pmu_trial,
+                    epoch) < 0)
+                return -1;
+
+            if (unlink(
+                    FLIP_OPTIMIZER_GUARD_ACTIVE_FILE) != 0 &&
+                errno != ENOENT)
+                return -1;
+
+            if (fsync_root() < 0 ||
+                flip_optimizer_pmu_token_clear() < 0)
+                return -1;
+
+            if (rolled_back_trial &&
+                rolled_back_trial_size) {
+                int n = snprintf(
+                    rolled_back_trial,
+                    rolled_back_trial_size,
+                    "%s",
+                    pmu_trial);
+                if (n < 0 ||
+                    (size_t)n >=
+                        rolled_back_trial_size)
+                    return -1;
+            }
+
+            return 0;
+        }
+    }
 
     active_trial_t recovered;
     int recovered_rc =

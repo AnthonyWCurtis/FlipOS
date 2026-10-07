@@ -52,6 +52,59 @@ static void test_all_opps(void)
     }
 }
 
+static void test_phase_round_trip(void)
+{
+    const char *trial = "cpu-1800000-1037500-1";
+    uint32_t token = 0;
+    char decoded[128];
+    flip_optimizer_pmu_phase_t phase;
+
+    assert(flip_optimizer_pmu_token_encode_trial_phase(
+               trial,
+               FLIP_OPTIMIZER_PMU_PHASE_PREPARED,
+               &token) == 1);
+    assert(flip_optimizer_pmu_token_decode_trial_phase(
+               token,
+               decoded,
+               sizeof(decoded),
+               &phase) == 1);
+    assert(strcmp(decoded, trial) == 0);
+    assert(phase == FLIP_OPTIMIZER_PMU_PHASE_PREPARED);
+
+    assert(flip_optimizer_pmu_token_encode_trial_phase(
+               trial,
+               FLIP_OPTIMIZER_PMU_PHASE_ENTERING,
+               &token) == 1);
+    assert(flip_optimizer_pmu_token_decode_trial_phase(
+               token,
+               decoded,
+               sizeof(decoded),
+               &phase) == 1);
+    assert(strcmp(decoded, trial) == 0);
+    assert(phase == FLIP_OPTIMIZER_PMU_PHASE_ENTERING);
+}
+
+static void test_legacy_v1_decodes_as_entering(void)
+{
+    /*
+     * V1 token for cpu-1800000-1037500-1. V1 had no explicit phase,
+     * so backward-compatible recovery must treat it conservatively as entered.
+     */
+    const uint32_t legacy = 0xf175304cU;
+    char decoded[128];
+    flip_optimizer_pmu_phase_t phase;
+
+    assert(flip_optimizer_pmu_token_decode_trial_phase(
+               legacy,
+               decoded,
+               sizeof(decoded),
+               &phase) == 1);
+    assert(strcmp(
+               decoded,
+               "cpu-1800000-1037500-1") == 0);
+    assert(phase == FLIP_OPTIMIZER_PMU_PHASE_ENTERING);
+}
+
 static void test_rejects_bad_tokens(void)
 {
     uint32_t token = 0;
@@ -80,6 +133,8 @@ int main(void)
 {
     test_round_trip();
     test_all_opps();
+    test_phase_round_trip();
+    test_legacy_v1_decodes_as_entering();
     test_rejects_bad_tokens();
 
     printf("flip_optimizer_pmu_token tests passed\n");

@@ -245,6 +245,72 @@ int flip_optimizer_calibration_session_reconcile(
     return FLIP_OPTIMIZER_RECONCILE_ORPHANED;
 }
 
+int flip_optimizer_calibration_session_recover_boot(
+    flip_optimizer_calibration_t *calibration,
+    int *reconcile_result,
+    int *stock_only_released)
+{
+    if (!calibration ||
+        flip_optimizer_calibration_validate(calibration) < 0)
+        return -1;
+
+    if (reconcile_result)
+        *reconcile_result = FLIP_OPTIMIZER_RECONCILE_NONE;
+    if (stock_only_released)
+        *stock_only_released = 0;
+
+    char pending_trial[
+        FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
+    pending_trial[0] = '\0';
+
+    if (calibration->pending)
+        strcpy(
+            pending_trial,
+            calibration->pending_trial_id);
+
+    int rc =
+        flip_optimizer_calibration_session_reconcile(
+            calibration);
+    if (rc < 0)
+        return -1;
+
+    if (reconcile_result)
+        *reconcile_result = rc;
+
+    if (rc != FLIP_OPTIMIZER_RECONCILE_ROLLED_BACK ||
+        !pending_trial[0])
+        return 0;
+
+    flip_optimizer_guard_status_t guard;
+    if (flip_optimizer_guard_status(&guard) < 0)
+        return -1;
+
+    if (!guard.stock_only)
+        return 0;
+
+    if (guard.active ||
+        strcmp(
+            guard.last_trial_id,
+            pending_trial) != 0)
+        return 0;
+
+    if (strcmp(
+            guard.last_action,
+            "rolled_back") != 0 &&
+        strcmp(
+            guard.last_action,
+            "rollback_corrupt") != 0)
+        return 0;
+
+    if (flip_optimizer_guard_clear_stock_only() < 0)
+        return -1;
+
+    if (stock_only_released)
+        *stock_only_released = 1;
+
+    return 0;
+}
+
 int flip_optimizer_calibration_session_clear_stock_only(
     const flip_optimizer_calibration_t *calibration)
 {

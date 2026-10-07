@@ -11,7 +11,8 @@
 #endif
 
 #define TOKEN_MAGIC 0xf1U
-#define TOKEN_VERSION 1U
+#define TOKEN_VERSION_LEGACY 1U
+#define TOKEN_VERSION_CURRENT 2U
 
 static const unsigned frequencies_khz[] = {
     408000U,
@@ -33,11 +34,14 @@ static unsigned token_checksum(uint32_t body)
     return value & 0x3fU;
 }
 
-int flip_optimizer_pmu_token_encode_trial(
+int flip_optimizer_pmu_token_encode_trial_phase(
     const char *trial_id,
+    flip_optimizer_pmu_phase_t phase,
     uint32_t *token)
 {
-    if (!trial_id || !token)
+    if (!trial_id || !token ||
+        (phase != FLIP_OPTIMIZER_PMU_PHASE_PREPARED &&
+         phase != FLIP_OPTIMIZER_PMU_PHASE_ENTERING))
         return -1;
 
     unsigned frequency_khz = 0;
@@ -71,39 +75,61 @@ int flip_optimizer_pmu_token_encode_trial(
             sizeof(frequencies_khz) / sizeof(frequencies_khz[0]) ||
         candidate_uv % 12500U != 0 ||
         trial_number == 0 ||
-        trial_number > 63U)
+        trial_number > 31U)
         return 0;
 
     unsigned uv_code = candidate_uv / 12500U;
     if (uv_code > 127U)
         return 0;
 
+    unsigned phase_bit =
+        phase == FLIP_OPTIMIZER_PMU_PHASE_ENTERING
+            ? 1U
+            : 0U;
+
     uint32_t body =
         (TOKEN_MAGIC << 24) |
-        (TOKEN_VERSION << 22) |
+        (TOKEN_VERSION_CURRENT << 22) |
         ((frequency_index & 0x7U) << 19) |
         ((uv_code & 0x7fU) << 12) |
-        ((trial_number & 0x3fU) << 6);
+        ((phase_bit & 0x1U) << 11) |
+        ((trial_number & 0x1fU) << 6);
 
     *token = body | token_checksum(body);
     return 1;
 }
 
-int flip_optimizer_pmu_token_decode_trial(
+int flip_optimizer_pmu_token_encode_trial(
+    const char *trial_id,
+    uint32_t *token)
+{
+    return flip_optimizer_pmu_token_encode_trial_phase(
+        trial_id,
+        FLIP_OPTIMIZER_PMU_PHASE_PREPARED,
+        token);
+}
+
+int flip_optimizer_pmu_token_decode_trial_phase(
     uint32_t token,
     char *trial_id,
-    size_t trial_id_size)
+    size_t trial_id_size,
+    flip_optimizer_pmu_phase_t *phase)
 {
-    if (!trial_id || trial_id_size == 0)
+    if (!trial_id || trial_id_size == 0 || !phase)
         return -1;
 
     trial_id[0] = '\0';
+    *phase = FLIP_OPTIMIZER_PMU_PHASE_PREPARED;
 
     if (token == 0)
         return 0;
 
-    if ((token >> 24) != TOKEN_MAGIC ||
-        ((token >> 22) & 0x3U) != TOKEN_VERSION)
+    if ((token >> 24) != TOKEN_MAGIC)
+        return -2;
+
+    unsigned version = (token >> 22) & 0x3U;
+    if (version != TOKEN_VERSION_LEGACY &&
+        version != TOKEN_VERSION_CURRENT)
         return -2;
 
     uint32_t body = token & ~0x3fU;
@@ -112,7 +138,18 @@ int flip_optimizer_pmu_token_decode_trial(
 
     unsigned frequency_index = (token >> 19) & 0x7U;
     unsigned uv_code = (token >> 12) & 0x7fU;
-    unsigned trial_number = (token >> 6) & 0x3fU;
+    unsigned trial_number = 0;
+
+    if (version == TOKEN_VERSION_LEGACY) {
+        trial_number = (token >> 6) & 0x3fU;
+        *phase = FLIP_OPTIMIZER_PMU_PHASE_ENTERING;
+    } else {
+        trial_number = (token >> 6) & 0x1fU;
+        *phase =
+            ((token >> 11) & 0x1U)
+                ? FLIP_OPTIMIZER_PMU_PHASE_ENTERING
+                : FLIP_OPTIMIZER_PMU_PHASE_PREPARED;
+    }
 
     if (frequency_index >=
             sizeof(frequencies_khz) / sizeof(frequencies_khz[0]) ||
@@ -136,6 +173,19 @@ int flip_optimizer_pmu_token_decode_trial(
     }
 
     return 1;
+}
+
+int flip_optimizer_pmu_token_decode_trial(
+    uint32_t token,
+    char *trial_id,
+    size_t trial_id_size)
+{
+    flip_optimizer_pmu_phase_t phase;
+    return flip_optimizer_pmu_token_decode_trial_phase(
+        token,
+        trial_id,
+        trial_id_size,
+        &phase);
 }
 
 #ifdef FLIP_OPTIMIZER_PMU_TOKEN_TEST_FILE
@@ -286,12 +336,14 @@ static int backend_write(uint32_t value)
 
 #endif
 
-int flip_optimizer_pmu_token_write_trial(
-    const char *trial_id)
+int flip_optimizer_pmu_token_write_trial_phase(
+    const char *trial_id,
+    flip_optimizer_pmu_phase_t phase)
 {
     uint32_t token = 0;
-    int rc = flip_optimizer_pmu_token_encode_trial(
+    int rc = flip_optimizer_pmu_token_encode_trial_phase(
         trial_id,
+        phase,
         &token);
 
     if (rc <= 0)
@@ -300,19 +352,40 @@ int flip_optimizer_pmu_token_write_trial(
     return backend_write(token) == 0 ? 1 : -1;
 }
 
-int flip_optimizer_pmu_token_read_trial(
+int flip_optimizer_pmu_token_read_trial_phase(
     char *trial_id,
-    size_t trial_id_size)
+    size_t trial_id_size,
+    flip_optimizer_pmu_phase_t *phase)
 {
     uint32_t token = 0;
 
     if (backend_read(&token) < 0)
         return -1;
 
-    return flip_optimizer_pmu_token_decode_trial(
+    return flip_optimizer_pmu_token_decode_trial_phase(
         token,
         trial_id,
-        trial_id_size);
+        trial_id_size,
+        phase);
+}
+
+int flip_optimizer_pmu_token_write_trial(
+    const char *trial_id)
+{
+    return flip_optimizer_pmu_token_write_trial_phase(
+        trial_id,
+        FLIP_OPTIMIZER_PMU_PHASE_PREPARED);
+}
+
+int flip_optimizer_pmu_token_read_trial(
+    char *trial_id,
+    size_t trial_id_size)
+{
+    flip_optimizer_pmu_phase_t phase;
+    return flip_optimizer_pmu_token_read_trial_phase(
+        trial_id,
+        trial_id_size,
+        &phase);
 }
 
 int flip_optimizer_pmu_token_clear(void)

@@ -15,7 +15,7 @@ required = [
     'LOG_TARGET="$RAM_LOG"',
     'SD read-only; durable settlement deferred',
     '"$ROOT/bin/flip-optimizer-guard" boot-check',
-    '"$ROOT/bin/flip-optimizer-calibration" reconcile',
+    '"$ROOT/bin/flip-optimizer-calibration" recover-boot',
     'post-settlement enforcement',
     'runtime stock-safe remains authoritative',
     'if [ "$SD_WRITABLE" -eq 1 ] &&',
@@ -37,7 +37,7 @@ first_sd_write_candidates = [
 ]
 first_sd_write = min(first_sd_write_candidates) if first_sd_write_candidates else -1
 guard_pos = wrapper.find('"$ROOT/bin/flip-optimizer-guard" boot-check')
-reconcile_pos = wrapper.find('"$ROOT/bin/flip-optimizer-calibration" reconcile')
+reconcile_pos = wrapper.find('"$ROOT/bin/flip-optimizer-calibration" recover-boot')
 frontend_pos = wrapper.find('"$ROOT/bin/flip-frontend" >> "$LOG_TARGET" 2>&1')
 
 if min(supervisor_pos, first_sd_write, guard_pos, reconcile_pos, frontend_pos) < 0:

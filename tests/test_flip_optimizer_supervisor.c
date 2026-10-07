@@ -121,6 +121,8 @@ static void test_unconfirmed_trial_forces_stock(void)
 {
     reset_root();
     assert(flip_optimizer_guard_arm("cpu-1992000-850000-20", 100) == 0);
+    assert(flip_optimizer_guard_mark_entering(
+               "cpu-1992000-850000-20") == 0);
 
     flip_optimizer_supervisor_boot_decision_t decision;
     assert(flip_optimizer_supervisor_boot_decide(&decision) == 0);
@@ -129,6 +131,25 @@ static void test_unconfirmed_trial_forces_stock(void)
     assert(decision.reason ==
            FLIP_OPTIMIZER_SUPERVISOR_REASON_UNCONFIRMED);
     assert(strcmp(decision.trial_id, "cpu-1992000-850000-20") == 0);
+}
+
+static void test_prepared_cpu_trial_needs_settlement_not_quarantine(void)
+{
+    reset_root();
+    assert(flip_optimizer_guard_arm(
+               "cpu-1800000-1037500-1",
+               105) == 0);
+
+    flip_optimizer_supervisor_boot_decision_t decision;
+    assert(flip_optimizer_supervisor_boot_decide(
+               &decision) == 0);
+    assert(decision.stock_safe_required == 0);
+    assert(decision.durable_settlement_required == 1);
+    assert(decision.reason ==
+           FLIP_OPTIMIZER_SUPERVISOR_REASON_PREPARED);
+    assert(strcmp(
+               decision.trial_id,
+               "cpu-1800000-1037500-1") == 0);
 }
 
 static void test_corrupt_trial_forces_stock(void)
@@ -206,6 +227,7 @@ int main(void)
     test_stock_only_forces_runtime_quarantine();
     test_clean_boot();
     test_unconfirmed_trial_forces_stock();
+    test_prepared_cpu_trial_needs_settlement_not_quarantine();
     test_corrupt_trial_forces_stock();
     test_read_only_state_still_makes_safe_decision();
     test_unreadable_active_path_fails_safe();

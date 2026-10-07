@@ -79,6 +79,8 @@ const char *flip_optimizer_supervisor_reason_name(
         return "unreadable";
     case FLIP_OPTIMIZER_SUPERVISOR_REASON_STOCK_ONLY:
         return "stock_only";
+    case FLIP_OPTIMIZER_SUPERVISOR_REASON_PREPARED:
+        return "prepared";
     }
 
     return "unreadable";
@@ -128,6 +130,14 @@ int flip_optimizer_supervisor_boot_decide(
             FLIP_OPTIMIZER_SUPERVISOR_REASON_CLEAN;
         return 0;
     }
+
+    case FLIP_OPTIMIZER_GUARD_BOOT_PREPARED:
+        decision->stock_safe_required = 0;
+        decision->durable_settlement_required = 1;
+        decision->reason =
+            FLIP_OPTIMIZER_SUPERVISOR_REASON_PREPARED;
+        strcpy(decision->trial_id, inspection.trial_id);
+        return 0;
 
     case FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED:
         decision->stock_safe_required = 1;

@@ -8,7 +8,7 @@ static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s status | arm TRIAL_ID | confirm TRIAL_ID | fail TRIAL_ID | cancel TRIAL_ID | "
+        "usage: %s status | arm TRIAL_ID | enter TRIAL_ID | confirm TRIAL_ID | fail TRIAL_ID | cancel TRIAL_ID | "
         "boot-check | clear-stock-only\n",
         program);
 }
@@ -50,6 +50,13 @@ int main(int argc, char **argv)
         return EXIT_SUCCESS;
     }
 
+    if (argc == 3 && strcmp(argv[1], "enter") == 0) {
+        if (flip_optimizer_guard_mark_entering(argv[2]) < 0)
+            return EXIT_FAILURE;
+
+        printf("OPTIMIZER_GUARD: entering trial=%s\n", argv[2]);
+        return EXIT_SUCCESS;
+    }
     if (argc == 3 && strcmp(argv[1], "confirm") == 0) {
         if (flip_optimizer_guard_confirm(argv[2], 0) < 0)
             return EXIT_FAILURE;
