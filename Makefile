@@ -387,6 +387,7 @@ test-architecture:
 	python3 tests/test_optimizer_candidate_architecture.py
 	python3 tests/test_opp_voltage_module_architecture.py
 	python3 tests/test_tsadc_recovery_module_architecture.py
+	python3 tests/test_optimizer_hw_watchdog_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -903,7 +904,7 @@ $(BUILD)/flip-optimizer-calibration: src/hwtest/flip_optimizer_calibration_tool.
 		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer.c \
 		-static -lm -o $@
 
-$(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c src/runtime/flip_cpu_policy.c src/runtime/flip_optimizer_calibration_session.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer_quiesce.c src/runtime/flip_optimizer_panic_policy.c src/runtime/flip_optimizer.c include/flip_cpu_policy.h include/flip_optimizer_calibration_session.h include/flip_optimizer_calibration.h include/flip_optimizer_supervisor.h include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h include/flip_optimizer_quiesce.h include/flip_optimizer_panic_policy.h include/flip_optimizer.h | $(BUILD)
+$(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c src/runtime/flip_cpu_policy.c src/runtime/flip_optimizer_calibration_session.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer_quiesce.c src/runtime/flip_optimizer_panic_policy.c src/runtime/flip_optimizer_hw_watchdog.c src/runtime/flip_optimizer.c include/flip_cpu_policy.h include/flip_optimizer_calibration_session.h include/flip_optimizer_calibration.h include/flip_optimizer_supervisor.h include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h include/flip_optimizer_quiesce.h include/flip_optimizer_panic_policy.h include/flip_optimizer.h | $(BUILD)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Iinclude \
 		src/hwtest/flip_optimizer_candidate_tool.c \
@@ -913,7 +914,7 @@ $(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c sr
 		src/runtime/flip_optimizer_supervisor.c \
 		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c \
 		src/runtime/flip_optimizer_quiesce.c src/runtime/flip_optimizer_panic_policy.c \
-		src/runtime/flip_optimizer.c \
+		src/runtime/flip_optimizer_hw_watchdog.c src/runtime/flip_optimizer.c \
 		-static -pthread -lm -o $@
 
 $(BUILD)/flip_opp_voltage.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile | $(BUILD)

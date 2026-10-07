@@ -2,6 +2,7 @@
 #include "flip_optimizer_calibration.h"
 #include "flip_optimizer_calibration_session.h"
 #include "flip_optimizer_guard.h"
+#include "flip_optimizer_hw_watchdog.h"
 #include "flip_optimizer_panic_policy.h"
 #include "flip_optimizer_supervisor.h"
 #include "flip_optimizer_quiesce.h"
@@ -47,6 +48,7 @@
 #define FLIP_OPTIMIZER_DEADMAN_PATH \
     "/mnt/SDCARD/flipos-dev/bin/flip-optimizer-deadman"
 #define FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 20U
+#define FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS 8U
 #define FLIP_OPTIMIZER_MODULE_CONTROL \
     "/sys/module/flip_opp_voltage/parameters/control"
 
@@ -670,6 +672,7 @@ static int run_stress_window(
     unsigned duration_seconds,
     unsigned target_khz,
     unsigned candidate_uv,
+    flip_optimizer_hw_watchdog_t *hw_watchdog,
     unsigned *max_temp_mc,
     unsigned *sample_count)
 {
@@ -743,7 +746,9 @@ static int run_stress_window(
         unsigned rail_uv = 0;
         unsigned temp_mc = 0;
 
-        if (flip_cpu_policy_get_current(&current_khz) < 0 ||
+        if (flip_optimizer_hw_watchdog_ping(
+                hw_watchdog) < 0 ||
+            flip_cpu_policy_get_current(&current_khz) < 0 ||
             current_khz != target_khz ||
             read_cpu_rail_uv(&rail_uv) < 0 ||
             rail_uv != candidate_uv ||
@@ -1052,6 +1057,102 @@ static void emergency_reboot(void)
 {
     reboot(RB_AUTOBOOT);
     _exit(EXIT_FAILURE);
+}
+
+static void settle_hw_watchdog_trial_and_reboot(
+    flip_optimizer_hw_watchdog_t *hw_watchdog,
+    flip_optimizer_calibration_t *calibration,
+    int transaction_ready,
+    int candidate_exercised,
+    int stress_ok,
+    unsigned target_khz,
+    unsigned candidate_uv)
+{
+    if (!hw_watchdog ||
+        !hw_watchdog->touched ||
+        !calibration ||
+        !transaction_ready)
+        emergency_reboot();
+
+    if (hw_watchdog->armed &&
+        flip_optimizer_hw_watchdog_ping(
+            hw_watchdog) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: hardware watchdog heartbeat failed during settlement\n");
+        emergency_reboot();
+    }
+
+    if (!stress_ok) {
+        if (!candidate_exercised) {
+            if (flip_optimizer_calibration_session_cancel_unapplied(
+                    calibration) < 0) {
+                fprintf(
+                    stderr,
+                    "OPTIMIZER_CANDIDATE: watchdog-era unapplied cancel failed\n");
+                emergency_reboot();
+            }
+
+            printf(
+                "OPTIMIZER_CANDIDATE: WATCHDOG_ABORTED_UNAPPLIED "
+                "target_khz=%u candidate_uv=%u\n",
+                target_khz,
+                candidate_uv);
+        } else {
+            if (flip_optimizer_calibration_session_confirm_unstable(
+                    calibration) < 0) {
+                fprintf(
+                    stderr,
+                    "OPTIMIZER_CANDIDATE: watchdog-era unstable commit failed\n");
+                emergency_reboot();
+            }
+
+            printf(
+                "OPTIMIZER_CANDIDATE: LIVE_UNSTABLE "
+                "target_khz=%u candidate_uv=%u\n",
+                target_khz,
+                candidate_uv);
+        }
+    } else {
+        if (flip_optimizer_calibration_session_confirm_stable(
+                calibration) < 0) {
+            fprintf(
+                stderr,
+                "OPTIMIZER_CANDIDATE: watchdog-era stable commit failed\n");
+            emergency_reboot();
+        }
+
+        printf(
+            "OPTIMIZER_CANDIDATE: LIVE_ONCE_OK "
+            "target_khz=%u candidate_uv=%u reboot_required=1\n",
+            target_khz,
+            candidate_uv);
+    }
+
+    fflush(stdout);
+
+    if (hw_watchdog->armed &&
+        flip_optimizer_hw_watchdog_ping(
+            hw_watchdog) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: final hardware watchdog heartbeat failed\n");
+        emergency_reboot();
+    }
+
+    /*
+     * Stock CPU state has already been restored and background SD writers are
+     * still quiesced. Flush only the durable trial settlement, then reboot
+     * while TSADC remains routed to RK817. If reboot stalls, watchdog pings
+     * stop and the hardware recovery path takes over.
+     */
+    sync();
+
+    printf(
+        "OPTIMIZER_CANDIDATE: WATCHDOG_SETTLED_REBOOT\n");
+    fflush(stdout);
+
+    emergency_reboot();
 }
 
 static int ensure_candidate_ready(
@@ -1396,6 +1497,9 @@ static int run_live_once(unsigned duration_seconds)
     flip_optimizer_quiesce_t quiesce = {0};
     flip_optimizer_panic_policy_t panic_policy = {0};
     pid_t deadman_pid = -1;
+    flip_optimizer_hw_watchdog_t hw_watchdog = {
+        .fd = -1,
+    };
 
     if (ensure_candidate_ready(&calibration) < 0) {
         fprintf(
@@ -1579,6 +1683,21 @@ static int run_live_once(unsigned duration_seconds)
         "OPTIMIZER_CANDIDATE: TSADC PMIC recovery route armed\n");
     fflush(stdout);
 
+    if (flip_optimizer_hw_watchdog_arm(
+            &hw_watchdog,
+            FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: hardware watchdog arm failed touched=%d\n",
+            hw_watchdog.touched);
+        goto fail;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: hardware watchdog armed timeout_s=%u\n",
+        hw_watchdog.timeout_seconds);
+    fflush(stdout);
+
     unsigned deadman_timeout =
         duration_seconds +
         FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS;
@@ -1661,6 +1780,7 @@ static int run_live_once(unsigned duration_seconds)
             duration_seconds,
             target_khz,
             candidate_uv,
+            &hw_watchdog,
             &max_temp_mc,
             &samples) < 0) {
         fprintf(
@@ -1751,6 +1871,17 @@ fail:
             stderr,
             "OPTIMIZER_CANDIDATE: recovery deadman disarm failed; rebooting\n");
         emergency_reboot();
+    }
+
+    if (hw_watchdog.touched) {
+        settle_hw_watchdog_trial_and_reboot(
+            &hw_watchdog,
+            &calibration,
+            transaction_ready,
+            candidate_exercised,
+            stress_ok,
+            target_khz,
+            candidate_uv);
     }
 
     if (tsadc_recovery_armed) {
