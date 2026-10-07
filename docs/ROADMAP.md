@@ -393,7 +393,9 @@ unstable userspace test process to write a final result.
 - [x] On reboot, treat an armed-but-unconfirmed trial as failed and restore stock-only operation before normal FlipOS startup
 - [x] Distinguish clean pass, controlled failure, watchdog/reset, power loss and corrupt/incomplete trial state
 - [x] Prove recovery still works if the SD card remounts read-only after a hard crash
-- [x] Investigate and validate an RK3566 full-board reset path; use hardware watchdog only if it can autonomously return this board to boot
+- [x] Investigate the RK3566 DesignWare hardware watchdog and reject it as the sole recovery path after hardware proof that expiry does not autonomously return this Miyoo board to boot
+- [ ] Prove consumer-safe autonomous full-board recovery from a deep undervolt wedge with no ADB and no power-button intervention before exposing Optimize CPU in the UI
+- [ ] Capture the live Miyoo Flip device tree and validate the RK817 PMIC reset pin/function path on this exact board
 - [x] Add a RAM-resident high-priority deadman fallback using direct reboot/reset primitives where the kernel permits
 - [x] Add kernel panic/oops/stall auto-reboot policy only after hardware validation on this exact Flip
 - [x] Resume calibration automatically at the correct candidate after a recovered failure
