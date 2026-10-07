@@ -2059,6 +2059,108 @@ static int run_quiesce_probe(unsigned seconds)
     return 0;
 }
 
+static int run_watchdog_reboot_probe(void)
+{
+    if (geteuid() != 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: root required\n");
+        return -1;
+    }
+
+    flip_optimizer_quiesce_t quiesce = {0};
+    flip_optimizer_hw_watchdog_t hw_watchdog = {
+        .fd = -1,
+    };
+    int tsadc_loaded = 0;
+    int tsadc_armed = 0;
+
+    if (flip_optimizer_quiesce_begin(
+            &quiesce) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: watchdog reboot probe quiesce failed\n");
+        return -1;
+    }
+
+    if (tsadc_recovery_load() < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: watchdog reboot probe TSADC load failed\n");
+        goto fail_before_watchdog;
+    }
+    tsadc_loaded = 1;
+
+    if (tsadc_recovery_set(1) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: watchdog reboot probe TSADC arm failed\n");
+        goto fail_before_watchdog;
+    }
+    tsadc_armed = 1;
+
+    if (flip_optimizer_hw_watchdog_arm(
+            &hw_watchdog,
+            FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: watchdog reboot probe arm failed touched=%d\n",
+            hw_watchdog.touched);
+
+        if (hw_watchdog.touched)
+            emergency_reboot();
+
+        goto fail_before_watchdog;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: WATCHDOG_REBOOT_PROBE_ARMED "
+        "timeout_s=%u writers=%zu voltage_written=0\n",
+        hw_watchdog.timeout_seconds,
+        quiesce.count);
+    fflush(stdout);
+
+    for (unsigned i = 0; i < 10; ++i) {
+        const struct timespec delay = {
+            .tv_sec = 0,
+            .tv_nsec = 200 * 1000 * 1000,
+        };
+
+        if (flip_optimizer_hw_watchdog_ping(
+                &hw_watchdog) < 0)
+            emergency_reboot();
+
+        if (nanosleep(&delay, NULL) < 0 &&
+            errno != EINTR)
+            emergency_reboot();
+    }
+
+    if (flip_optimizer_hw_watchdog_ping(
+            &hw_watchdog) < 0)
+        emergency_reboot();
+
+    sync();
+
+    printf(
+        "OPTIMIZER_CANDIDATE: WATCHDOG_REBOOT_PROBE_REBOOTING\n");
+    fflush(stdout);
+
+    /*
+     * Do not restore TSADC or close the hardware watchdog. The acceptance
+     * condition is that normal reboot succeeds while the fallback remains
+     * armed; if reboot stalls, missing watchdog heartbeats provide fallback.
+     */
+    emergency_reboot();
+
+fail_before_watchdog:
+    if (tsadc_armed)
+        (void)tsadc_recovery_set(0);
+    if (tsadc_loaded)
+        (void)tsadc_recovery_unload();
+    (void)flip_optimizer_quiesce_end(&quiesce);
+    return -1;
+}
+
 static int run_kernel_recovery_probe(unsigned seconds)
 {
     if (geteuid() != 0) {
@@ -2188,7 +2290,7 @@ static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | live-once SECONDS\n",
+        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | watchdog-reboot-probe | live-once SECONDS\n",
         program);
 }
 
@@ -2224,6 +2326,12 @@ int main(int argc, char **argv)
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
     }
+
+    if (argc == 2 &&
+        strcmp(argv[1], "watchdog-reboot-probe") == 0)
+        return run_watchdog_reboot_probe() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
 
     if (argc == 2 &&
         strcmp(argv[1], "kernel-recovery-crash-test") == 0)

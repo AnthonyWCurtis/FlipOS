@@ -88,6 +88,34 @@ for token in [
     if token not in settle:
         errors.append(f"watchdog settlement missing: {token}")
 
+
+probe_start = candidate.find("static int run_watchdog_reboot_probe")
+probe_end = candidate.find("static int run_kernel_recovery_probe", probe_start)
+probe = candidate[probe_start:probe_end]
+
+for token in [
+    "flip_optimizer_quiesce_begin",
+    "tsadc_recovery_set(1)",
+    "flip_optimizer_hw_watchdog_arm",
+    "flip_optimizer_hw_watchdog_ping",
+    "WATCHDOG_REBOOT_PROBE_ARMED",
+    "voltage_written=0",
+    "WATCHDOG_REBOOT_PROBE_REBOOTING",
+    "emergency_reboot();",
+]:
+    if token not in probe:
+        errors.append(f"watchdog reboot probe missing: {token}")
+
+for forbidden in [
+    "module_apply_table(",
+    "enter_candidate_frequency(",
+    "flip_optimizer_calibration_session_confirm_stable",
+    "flip_optimizer_calibration_session_confirm_unstable",
+    "read_cpu_rail_uv(",
+]:
+    if forbidden in probe:
+        errors.append(f"stock watchdog reboot probe must be voltage-neutral: {forbidden}")
+
 if errors:
     for error in errors:
         print(error)
