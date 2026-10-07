@@ -67,6 +67,7 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     [ ! -f "$ROOT/bin/flip-perf-capture" ] || chmod 755 "$ROOT/bin/flip-perf-capture"
     [ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
     [ ! -f "$ROOT/bin/flip-optimizer-supervisor" ] || chmod 755 "$ROOT/bin/flip-optimizer-supervisor"
+    [ ! -f "$ROOT/bin/flip-optimizer-deadman" ] || chmod 755 "$ROOT/bin/flip-optimizer-deadman"
     [ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
     [ ! -f "$ROOT/bin/flip-optimizer-calibration" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration"
 fi

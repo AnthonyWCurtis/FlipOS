@@ -117,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-calibration-tool optimizer-candidate-tool opp-voltage-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool opp-voltage-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -138,6 +138,8 @@ cpu-policy-tool: $(BUILD)/flip-cpu-policy
 optimizer-guard-tool: $(BUILD)/flip-optimizer-guard
 
 optimizer-supervisor-tool: $(BUILD)/flip-optimizer-supervisor
+
+optimizer-deadman-tool: $(BUILD)/flip-optimizer-deadman
 
 optimizer-calibration-tool: $(BUILD)/flip-optimizer-calibration
 
@@ -166,6 +168,7 @@ verify:
 		$(MAKE) test-optimizer-calibration && \
 		$(MAKE) test-optimizer-calibration-session && \
 		$(MAKE) optimizer-candidate-tool && \
+		$(MAKE) optimizer-deadman-tool && \
 		$(MAKE) test-bios && \
 		$(MAKE) test-settings && \
 		$(MAKE) test-osd && \
@@ -844,6 +847,12 @@ $(BUILD)/flip-optimizer-supervisor: src/hwtest/flip_optimizer_supervisor_tool.c 
 		src/hwtest/flip_optimizer_supervisor_tool.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c \
 		-static -o $@
 
+$(BUILD)/flip-optimizer-deadman: src/hwtest/flip_optimizer_deadman.c | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L \
+		src/hwtest/flip_optimizer_deadman.c \
+		-static -o $@
+
 $(BUILD)/flip-optimizer-calibration: src/hwtest/flip_optimizer_calibration_tool.c src/runtime/flip_optimizer_calibration_session.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer.c include/flip_optimizer_calibration_session.h include/flip_optimizer_calibration.h include/flip_optimizer_guard.h include/flip_optimizer.h | $(BUILD)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_POSIX_C_SOURCE=200809L -Iinclude \
@@ -948,6 +957,7 @@ clean:
 		$(BUILD)/flip-cpu-policy \
 		$(BUILD)/flip-optimizer-guard \
 		$(BUILD)/flip-optimizer-supervisor \
+		$(BUILD)/flip-optimizer-deadman \
 		$(BUILD)/flip-optimizer-calibration \
 		$(BUILD)/flip-optimizer-candidate \
 		$(BUILD)/flip_opp_voltage.ko \

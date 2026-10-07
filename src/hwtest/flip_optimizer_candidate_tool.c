@@ -8,6 +8,9 @@
 #include <fcntl.h>
 #include <linux/reboot.h>
 #include <pthread.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <poll.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -33,6 +36,9 @@
 #endif
 
 #define FLIP_OPTIMIZER_MODULE_NAME "flip_opp_voltage"
+#define FLIP_OPTIMIZER_DEADMAN_PATH \
+    "/mnt/SDCARD/flipos-dev/bin/flip-optimizer-deadman"
+#define FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 20U
 #define FLIP_OPTIMIZER_MODULE_CONTROL \
     "/sys/module/flip_opp_voltage/parameters/control"
 
@@ -887,9 +893,107 @@ static int module_restore_table(void)
         "restore");
 }
 
+static int arm_deadman(
+    unsigned timeout_seconds,
+    pid_t *pid_out)
+{
+    if (!pid_out ||
+        timeout_seconds < FLIP_OPTIMIZER_STRESS_MIN_SECONDS ||
+        timeout_seconds >
+            FLIP_OPTIMIZER_STRESS_MAX_SECONDS +
+            FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS)
+        return -1;
+
+    int ready_pipe[2];
+    if (pipe(ready_pipe) < 0)
+        return -1;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(ready_pipe[0]);
+        close(ready_pipe[1]);
+        return -1;
+    }
+
+    if (pid == 0) {
+        close(ready_pipe[0]);
+
+        char seconds_text[32];
+        char fd_text[32];
+        snprintf(
+            seconds_text,
+            sizeof(seconds_text),
+            "%u",
+            timeout_seconds);
+        snprintf(
+            fd_text,
+            sizeof(fd_text),
+            "%d",
+            ready_pipe[1]);
+
+        execl(
+            FLIP_OPTIMIZER_DEADMAN_PATH,
+            FLIP_OPTIMIZER_DEADMAN_PATH,
+            "arm",
+            seconds_text,
+            fd_text,
+            (char *)NULL);
+        _exit(127);
+    }
+
+    close(ready_pipe[1]);
+
+    struct pollfd pfd = {
+        .fd = ready_pipe[0],
+        .events = POLLIN,
+    };
+
+    int poll_rc = poll(&pfd, 1, 3000);
+    char ready = 0;
+    ssize_t read_rc =
+        poll_rc > 0
+            ? read(ready_pipe[0], &ready, 1)
+            : -1;
+    close(ready_pipe[0]);
+
+    if (poll_rc <= 0 ||
+        read_rc != 1 ||
+        ready != 'R') {
+        kill(pid, SIGKILL);
+        (void)waitpid(pid, NULL, 0);
+        return -1;
+    }
+
+    *pid_out = pid;
+    return 0;
+}
+
+static int disarm_deadman(pid_t *pid)
+{
+    if (!pid || *pid <= 0)
+        return 0;
+
+    pid_t target = *pid;
+    *pid = -1;
+
+    if (kill(target, SIGTERM) < 0 && errno != ESRCH)
+        return -1;
+
+    int status = 0;
+    for (;;) {
+        pid_t waited = waitpid(target, &status, 0);
+        if (waited == target)
+            return 0;
+        if (waited < 0 && errno == EINTR)
+            continue;
+        if (waited < 0 && errno == ECHILD)
+            return 0;
+        return -1;
+    }
+}
+
 static void emergency_reboot(void)
 {
-    sync();
     reboot(RB_AUTOBOOT);
     _exit(EXIT_FAILURE);
 }
@@ -1230,6 +1334,7 @@ static int run_live_once(unsigned duration_seconds)
     int voltage_entered = 0;
     int cleanup_ok = 1;
     int stress_ok = 0;
+    pid_t deadman_pid = -1;
 
     if (ensure_candidate_ready(&calibration) < 0) {
         fprintf(
@@ -1368,6 +1473,25 @@ static int run_live_once(unsigned duration_seconds)
         goto fail;
     }
 
+    unsigned deadman_timeout =
+        duration_seconds +
+        FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS;
+
+    if (arm_deadman(
+            deadman_timeout,
+            &deadman_pid) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to arm recovery deadman\n");
+        goto fail;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: deadman armed timeout_s=%u pid=%ld\n",
+        deadman_timeout,
+        (long)deadman_pid);
+    fflush(stdout);
+
     if (enter_candidate_frequency(
             &original,
             target_khz,
@@ -1499,6 +1623,13 @@ fail:
         fprintf(
             stderr,
             "OPTIMIZER_CANDIDATE: CPU policy restore failed; rebooting\n");
+        emergency_reboot();
+    }
+
+    if (disarm_deadman(&deadman_pid) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: recovery deadman disarm failed; rebooting\n");
         emergency_reboot();
     }
 
