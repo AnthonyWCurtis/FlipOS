@@ -385,7 +385,7 @@ must own the complete failure/recovery loop so a marginal voltage can freeze or
 reset the RK3566 without requiring manual ADB intervention or trusting the
 unstable userspace test process to write a final result.
 
-- [ ] Build a native FlipOS recovery supervisor independent of the emulator/frontend
+- [x] Build a native FlipOS recovery supervisor independent of the emulator/frontend
 - [ ] Arm the recovery path before every voltage write and verify it before entering the candidate OPP
 - [ ] Keep dangerous-phase coordination in RAM; avoid SD/FAT writes while silicon is intentionally unstable
 - [ ] Persist only the minimum pre-trial durable record before the test, sync it once, then stop writing until stock voltage is restored
@@ -393,10 +393,32 @@ unstable userspace test process to write a final result.
 - [ ] Distinguish clean pass, controlled failure, watchdog/reset, power loss and corrupt/incomplete trial state
 - [ ] Prove recovery still works if the SD card remounts read-only after a hard crash
 - [ ] Investigate and validate an RK3566 full-board reset path; use hardware watchdog only if it can autonomously return this board to boot
-- [ ] Add a RAM-resident high-priority deadman fallback using direct reboot/reset primitives where the kernel permits
+- [x] Add a RAM-resident high-priority deadman fallback using direct reboot/reset primitives where the kernel permits
 - [ ] Add kernel panic/oops/stall auto-reboot policy only after hardware validation on this exact Flip
 - [ ] Resume calibration automatically at the correct candidate after a recovered failure
 - [ ] Never publish or persist an optimized profile unless every accepted OPP has completed the full validation matrix
+
+Implementation progress on 2026-10-07: the native `flip-optimizer-supervisor`
+now performs the boot safety decision before any SD-card write, enforces
+stock-safe quarantine through a `/tmp` RAM latch, and allows durable rollback
+settlement to be deferred when FAT is read-only. The live candidate runner
+refuses voltage work while that RAM latch is present. A separate
+`flip-optimizer-deadman` is loaded and armed before candidate voltage entry,
+locks itself into RAM, raises itself to real-time SCHED_FIFO priority and uses
+a storage-free direct restart syscall if its deadline expires. Controlled
+candidate failures that successfully return to stock voltage are now committed
+as unstable without rebooting; attempts that fail before candidate voltage was
+actually entered are cancelled rather than misclassified as silicon failures.
+
+The RK3566 kernel also exposes `/sys/kernel/boot_mode` through its existing
+syscon-reboot-mode driver. This physical Flip reported `coldboot` after the
+manual power-cycle recovery. The supervisor now classifies coldboot, normal,
+panic and watchdog reset modes. The deadman requests `RESTART2("watchdog")`,
+allowing the Rockchip PMUGRF reboot-mode register to tag a future deadman reset
+without writing to FAT. These paths are host-tested and build-clean but the
+deadman reset tag, read-only boot recovery and unattended reboot behavior still
+require explicit real-hardware acceptance before the remaining safety
+checkboxes can close.
 
 #### Phase 10C2 — FlipOS Per-Device Voltage Characterization
 

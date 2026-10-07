@@ -118,4 +118,86 @@ manual power-cycle always restores the stock kernel OPP table. A hard hang may
 require that manual power-cycle.
 
 No persistent undervolt profile may be enabled on the strength of this
-watchdog test.\n
+watchdog test.
+
+## Self-healing supervisor architecture — 2026-10-07
+
+The first live undervolt sweep exposed a second failure mode that the original
+guard did not cover: after a hard crash and manual power-cycle, Linux mounted
+the FAT SD partition read-only (`errors=remount-ro`). The original boot wrapper
+attempted SD logging and durable guard settlement before making its safety
+decision, so a read-only filesystem could prevent recovery bookkeeping from
+running at all.
+
+`flip-optimizer-supervisor` now separates the safety decision from durable
+bookkeeping. Its boot inspection is read-only. Before any mkdir, chmod, log
+redirect or optimizer-state write, the playtest boot wrapper runs
+`boot-enforce`. Any active, corrupt or unreadable trial forces a RAM-only
+`/tmp/flipos-optimizer-stock-safe` latch. The live candidate runner refuses to
+apply a voltage candidate while this latch exists. If FAT is read-only, logs
+move to `/tmp` and durable guard/calibration settlement is deferred until a
+later writable boot. Safe behavior therefore no longer depends on the SD card
+accepting a write.
+
+### Real-time deadman
+
+A separate `flip-optimizer-deadman` executable is loaded and armed before the
+CPU enters a candidate voltage. The candidate waits for an explicit readiness
+handshake after the deadman has:
+
+- touched its working memory;
+- called `mlockall(MCL_CURRENT | MCL_FUTURE)`;
+- raised itself to maximum `SCHED_FIFO` priority; and
+- established a monotonic absolute deadline.
+
+No SD I/O is required after that handshake. On timeout the deadman performs a
+direct `SYS_reboot` using `LINUX_REBOOT_CMD_RESTART2` with the command
+`watchdog`. It intentionally does not call `sync()`, execute a shell, or spawn
+another process. The Rockchip syscon reboot-mode notifier can therefore tag the
+restart as `BOOT_WATCHDOG` in PMUGRF before the platform restart occurs.
+
+The candidate keeps the deadman armed while experimental voltage is active and
+through stock-table/policy restoration. It disarms the process only after the
+dangerous phase is over. Failure to disarm is itself treated as unsafe and
+forces an emergency restart.
+
+### Controlled versus uncontrolled failure
+
+A bounded test failure is no longer automatically converted into a reboot.
+
+If the candidate voltage was genuinely entered, the test reports failure, and
+FlipOS successfully restores the parking frequency, stock OPP table, module
+state and original CPU policy, the guard records a `failed` event and the
+calibration commits that candidate as unstable. No reboot is needed.
+
+If the run aborts before candidate voltage is entered, the pending trial is
+cancelled and does not count as instability evidence.
+
+If execution is lost while candidate voltage is active, no completion event is
+written. The still-armed durable trial plus the next boot's reset cause become
+the evidence used by boot recovery.
+
+### RK3566 reset-cause classification
+
+The stock Rockchip 5.10 kernel already exposes `/sys/kernel/boot_mode` through
+`syscon-reboot-mode`. The RK3568/RK3566 device tree defines normal, panic and
+watchdog reboot magic values in the PMUGRF syscon at offset `0x200`.
+
+On this physical Flip, the manual power-cycle following the hard calibration
+crash produced:
+
+- `/sys/kernel/boot_mode`: `coldboot`
+- PMUGRF reboot-mode register after boot: `0x00000000`
+
+The supervisor now reads this interface without modifying it and classifies
+`coldboot`, `normal`, `panic`, `watchdog`, unknown and other modes. This
+allows an unfinished optimizer trial to be paired with platform reset evidence
+rather than treating every incomplete run as the same event.
+
+The kernel also has ramoops/pstore enabled with reserved persistent RAM. Its
+pstore directory was empty after the manual power-cycle, but it remains a
+candidate secondary source for later panic/oops evidence.
+
+Hardware acceptance for the new deadman restart tag and read-only-SD boot path
+is still pending. No new undervolt sweep may start until that acceptance is
+complete.
