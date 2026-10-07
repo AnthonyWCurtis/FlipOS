@@ -81,6 +81,51 @@ static void test_fail_matching_trial(void)
     assert(status.last_epoch == 172);
 }
 
+static void test_corrupt_active_recovers_armed_trial_id(void)
+{
+    reset_root();
+
+    assert(flip_optimizer_guard_arm(
+               "journal-recovery-trial",
+               600) == 0);
+
+    FILE *file = fopen(
+        FLIP_OPTIMIZER_GUARD_ACTIVE_FILE,
+        "w");
+    assert(file != NULL);
+    assert(fclose(file) == 0);
+
+    flip_optimizer_guard_boot_inspection_t inspection;
+    assert(flip_optimizer_guard_boot_inspect(
+               &inspection) == 0);
+    assert(inspection.state ==
+           FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT);
+    assert(strcmp(
+               inspection.trial_id,
+               "journal-recovery-trial") == 0);
+    assert(inspection.armed_epoch == 600);
+
+    char rolled[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    assert(flip_optimizer_guard_boot_check(
+               601,
+               rolled,
+               sizeof(rolled)) == 1);
+    assert(strcmp(
+               rolled,
+               "journal-recovery-trial") == 0);
+
+    flip_optimizer_guard_status_t status;
+    assert(flip_optimizer_guard_status(&status) == 0);
+    assert(status.active == 0);
+    assert(status.stock_only == 1);
+    assert(strcmp(
+               status.last_action,
+               "rollback_corrupt") == 0);
+    assert(strcmp(
+               status.last_trial_id,
+               "journal-recovery-trial") == 0);
+}
+
 static void test_boot_rolls_back_unconfirmed_trial(void)
 {
     reset_root();
@@ -148,6 +193,7 @@ int main(void)
     test_arm_and_confirm();
     test_cancel_matching_trial();
     test_fail_matching_trial();
+    test_corrupt_active_recovers_armed_trial_id();
     test_boot_rolls_back_unconfirmed_trial();
     test_corrupt_trial_fails_safe();
     test_trial_id_validation();

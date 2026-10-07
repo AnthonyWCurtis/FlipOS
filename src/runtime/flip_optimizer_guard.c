@@ -441,6 +441,34 @@ int flip_optimizer_guard_cancel(
     return fsync_root();
 }
 
+static int recover_armed_event_trial(
+    active_trial_t *trial)
+{
+    if (!trial)
+        return -1;
+
+    char action[64];
+    char trial_id[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    unsigned epoch = 0;
+
+    int rc = read_event(
+        action,
+        sizeof(action),
+        trial_id,
+        sizeof(trial_id),
+        &epoch);
+
+    if (rc != 1 ||
+        strcmp(action, "armed") != 0 ||
+        !valid_trial_id(trial_id))
+        return 0;
+
+    memset(trial, 0, sizeof(*trial));
+    strcpy(trial->trial_id, trial_id);
+    trial->epoch = epoch;
+    return 1;
+}
+
 int flip_optimizer_guard_boot_inspect(
     flip_optimizer_guard_boot_inspection_t *inspection)
 {
@@ -465,6 +493,17 @@ int flip_optimizer_guard_boot_inspect(
         return 0;
     }
 
+    if (rc == -2) {
+        active_trial_t recovered;
+        if (recover_armed_event_trial(&recovered) == 1) {
+            inspection->state =
+                FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT;
+            strcpy(inspection->trial_id, recovered.trial_id);
+            inspection->armed_epoch = recovered.epoch;
+            return 0;
+        }
+    }
+
     inspection->state =
         rc == -2
             ? FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT
@@ -486,10 +525,22 @@ int flip_optimizer_guard_boot_check(
     if (rc == 0)
         return 0;
 
+    active_trial_t recovered;
+    int recovered_rc =
+        rc == -2
+            ? recover_armed_event_trial(&recovered)
+            : 0;
+
     const char *trial_id =
-        rc == 1 ? active.trial_id : "unknown";
+        rc == 1
+            ? active.trial_id
+            : recovered_rc == 1
+                ? recovered.trial_id
+                : "unknown";
     const char *action =
-        rc == 1 ? "rolled_back" : "rollback_corrupt";
+        rc == 1
+            ? "rolled_back"
+            : "rollback_corrupt";
 
     if (write_stock_only(trial_id, epoch) < 0 ||
         write_event(action, trial_id, epoch) < 0)

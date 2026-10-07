@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ADB="${ADB:-/mnt/c/Users/Anthony/Desktop/platform-tools/adb.exe}"
+ROOT=/mnt/SDCARD/flipos-dev
+BOOT_UPDATER=/mnt/SDCARD/.tmp_update/updater
+
+required=(
+    build/flip-optimizer-supervisor
+    build/flip-optimizer-deadman
+    build/flip-optimizer-guard
+    build/flip-optimizer-calibration
+    build/flip-optimizer-candidate
+    tools/device/updater-playtest
+)
+
+for path in "${required[@]}"; do
+    if [[ ! -f "$path" ]]; then
+        echo "DEPLOY_PLAYTEST: missing $path" >&2
+        exit 1
+    fi
+done
+
+"$ADB" get-state >/dev/null
+"$ADB" shell "mkdir -p /mnt/SDCARD/.tmp_update '$ROOT/bin'"
+
+"$ADB" shell "if [ -f '$BOOT_UPDATER' ]; then cp '$BOOT_UPDATER' '$BOOT_UPDATER.previous'; fi"
+
+"$ADB" push build/flip-optimizer-supervisor "$ROOT/bin/flip-optimizer-supervisor" >/dev/null
+"$ADB" push build/flip-optimizer-deadman "$ROOT/bin/flip-optimizer-deadman" >/dev/null
+"$ADB" push build/flip-optimizer-guard "$ROOT/bin/flip-optimizer-guard" >/dev/null
+"$ADB" push build/flip-optimizer-calibration "$ROOT/bin/flip-optimizer-calibration" >/dev/null
+"$ADB" push build/flip-optimizer-candidate "$ROOT/bin/flip-optimizer-candidate" >/dev/null
+
+"$ADB" push tools/device/updater-playtest "$ROOT/updater-playtest" >/dev/null
+"$ADB" push tools/device/updater-playtest "$BOOT_UPDATER" >/dev/null
+
+"$ADB" shell "
+    chmod 755 \
+        '$BOOT_UPDATER' \
+        '$ROOT/updater-playtest' \
+        '$ROOT/bin/flip-optimizer-supervisor' \
+        '$ROOT/bin/flip-optimizer-deadman' \
+        '$ROOT/bin/flip-optimizer-guard' \
+        '$ROOT/bin/flip-optimizer-calibration' \
+        '$ROOT/bin/flip-optimizer-candidate'
+    sync
+    echo DEPLOY_PLAYTEST_OK
+    sha256sum '$BOOT_UPDATER' '$ROOT/updater-playtest'
+"

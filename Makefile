@@ -163,6 +163,7 @@ verify:
 		$(MAKE) test-cpu-profile && \
 		$(MAKE) test-cpu-dynamic && \
 		$(MAKE) test-optimizer && \
+		$(MAKE) test-playtest-deploy && \
 		$(MAKE) test-optimizer-guard && \
 		$(MAKE) test-optimizer-supervisor && \
 		$(MAKE) test-optimizer-calibration && \
@@ -245,6 +246,9 @@ test-cpu-dynamic: $(BUILD)/test-flip-cpu-dynamic
 
 test-optimizer: $(BUILD)/test-flip-optimizer
 	$(BUILD)/test-flip-optimizer
+
+test-playtest-deploy:
+	python3 tests/test_playtest_deploy_architecture.py
 
 test-optimizer-guard: $(BUILD)/test-flip-optimizer-guard
 	$(BUILD)/test-flip-optimizer-guard
