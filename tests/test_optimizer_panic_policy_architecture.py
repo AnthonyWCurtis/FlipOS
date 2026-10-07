@@ -35,6 +35,8 @@ enter = live.find("enter_candidate_frequency(")
 cpu_restore = live.find("flip_cpu_policy_restore(&original)")
 policy_end = live.find("flip_optimizer_panic_policy_end(")
 deadman_end = live.find("disarm_deadman(")
+tsadc_restore = live.find("tsadc_recovery_set(0)")
+tsadc_unload = live.find("tsadc_recovery_unload()")
 quiesce_end = live.find("flip_optimizer_quiesce_end(")
 
 positions = [
@@ -44,8 +46,10 @@ positions = [
     mark_entering,
     enter,
     cpu_restore,
-    policy_end,
     deadman_end,
+    tsadc_restore,
+    tsadc_unload,
+    policy_end,
     quiesce_end,
 ]
 
@@ -66,13 +70,15 @@ else:
 
     if not (
         cpu_restore
-        < policy_end
         < deadman_end
+        < tsadc_restore
+        < tsadc_unload
+        < policy_end
         < quiesce_end
     ):
         errors.append(
-            "candidate must restore CPU, restore kernel policy, disarm "
-            "deadman, then resume writers"
+            "candidate must restore CPU, disarm deadman, restore TSADC, "
+            "restore kernel policy, then resume writers"
         )
 
 if errors:

@@ -39,6 +39,11 @@
 #endif
 
 #define FLIP_OPTIMIZER_MODULE_NAME "flip_opp_voltage"
+#define FLIP_OPTIMIZER_TSADC_MODULE_PATH \
+    "/mnt/SDCARD/flipos-dev/lib/flip_tsadc_recovery.ko"
+#define FLIP_OPTIMIZER_TSADC_MODULE_NAME "flip_tsadc_recovery"
+#define FLIP_OPTIMIZER_TSADC_CONTROL \
+    "/sys/module/flip_tsadc_recovery/parameters/recovery"
 #define FLIP_OPTIMIZER_DEADMAN_PATH \
     "/mnt/SDCARD/flipos-dev/bin/flip-optimizer-deadman"
 #define FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 20U
@@ -896,6 +901,54 @@ static int module_restore_table(void)
         "restore");
 }
 
+static int tsadc_recovery_is_loaded(void)
+{
+    struct stat st;
+    return stat(
+        "/sys/module/" FLIP_OPTIMIZER_TSADC_MODULE_NAME,
+        &st) == 0;
+}
+
+static int tsadc_recovery_load(void)
+{
+    if (tsadc_recovery_is_loaded())
+        return -1;
+
+    int fd = open(
+        FLIP_OPTIMIZER_TSADC_MODULE_PATH,
+        O_RDONLY | O_CLOEXEC);
+
+    if (fd < 0)
+        return -1;
+
+    long rc = syscall(SYS_finit_module, fd, "", 0);
+    int saved_errno = errno;
+    close(fd);
+    errno = saved_errno;
+
+    return rc == 0 ? 0 : -1;
+}
+
+static int tsadc_recovery_set(int enabled)
+{
+    return write_text_path(
+        FLIP_OPTIMIZER_TSADC_CONTROL,
+        enabled ? "1" : "0");
+}
+
+static int tsadc_recovery_unload(void)
+{
+    if (!tsadc_recovery_is_loaded())
+        return 0;
+
+    long rc = syscall(
+        SYS_delete_module,
+        FLIP_OPTIMIZER_TSADC_MODULE_NAME,
+        O_NONBLOCK);
+
+    return rc == 0 ? 0 : -1;
+}
+
 static int arm_deadman(
     unsigned timeout_seconds,
     pid_t *pid_out)
@@ -1338,6 +1391,8 @@ static int run_live_once(unsigned duration_seconds)
     int cleanup_ok = 1;
     int stress_ok = 0;
     int candidate_exercised = 0;
+    int tsadc_module_loaded = 0;
+    int tsadc_recovery_armed = 0;
     flip_optimizer_quiesce_t quiesce = {0};
     flip_optimizer_panic_policy_t panic_policy = {0};
     pid_t deadman_pid = -1;
@@ -1502,6 +1557,26 @@ static int run_live_once(unsigned duration_seconds)
 
     printf(
         "OPTIMIZER_CANDIDATE: kernel recovery policy armed\n");
+    fflush(stdout);
+
+    if (tsadc_recovery_load() < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to load TSADC recovery route\n");
+        goto fail;
+    }
+    tsadc_module_loaded = 1;
+
+    if (tsadc_recovery_set(1) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to arm TSADC PMIC recovery route\n");
+        goto fail;
+    }
+    tsadc_recovery_armed = 1;
+
+    printf(
+        "OPTIMIZER_CANDIDATE: TSADC PMIC recovery route armed\n");
     fflush(stdout);
 
     unsigned deadman_timeout =
@@ -1671,18 +1746,38 @@ fail:
         emergency_reboot();
     }
 
+    if (disarm_deadman(&deadman_pid) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: recovery deadman disarm failed; rebooting\n");
+        emergency_reboot();
+    }
+
+    if (tsadc_recovery_armed) {
+        if (tsadc_recovery_set(0) < 0) {
+            fprintf(
+                stderr,
+                "OPTIMIZER_CANDIDATE: failed to restore stock TSADC route; rebooting\n");
+            emergency_reboot();
+        }
+        tsadc_recovery_armed = 0;
+    }
+
+    if (tsadc_module_loaded) {
+        if (tsadc_recovery_unload() < 0) {
+            fprintf(
+                stderr,
+                "OPTIMIZER_CANDIDATE: failed to unload TSADC recovery module; rebooting\n");
+            emergency_reboot();
+        }
+        tsadc_module_loaded = 0;
+    }
+
     if (flip_optimizer_panic_policy_end(
             &panic_policy) < 0) {
         fprintf(
             stderr,
             "OPTIMIZER_CANDIDATE: failed to restore kernel recovery policy; rebooting\n");
-        emergency_reboot();
-    }
-
-    if (disarm_deadman(&deadman_pid) < 0) {
-        fprintf(
-            stderr,
-            "OPTIMIZER_CANDIDATE: recovery deadman disarm failed; rebooting\n");
         emergency_reboot();
     }
 

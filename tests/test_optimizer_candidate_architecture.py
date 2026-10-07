@@ -14,6 +14,10 @@ required = [
     "flip_optimizer_supervisor_runtime_stock_safe",
     "flip_optimizer_guard_mark_entering",
     "PMU_ENTERING",
+    "tsadc_recovery_load()",
+    "tsadc_recovery_set(1)",
+    "tsadc_recovery_set(0)",
+    "tsadc_recovery_unload()",
     "runtime stock-safe latch active",
     "module_apply_table(",
     "module_restore_table()",
@@ -68,6 +72,9 @@ live_ready = live.find(
     "flip_optimizer_calibration_session_ready_for_apply"
 )
 live_apply = live.find("module_apply_table(")
+live_quiesce = live.find("flip_optimizer_quiesce_begin(")
+live_panic = live.find("flip_optimizer_panic_policy_begin(")
+live_tsadc_arm = live.find("tsadc_recovery_set(1)")
 live_deadman = live.find("arm_deadman(")
 live_mark_entering = live.find("flip_optimizer_guard_mark_entering(")
 live_enter = live.find("enter_candidate_frequency(")
@@ -80,6 +87,10 @@ live_integrity_second = live.find(
 live_park = live.find("return_to_parking_frequency(")
 live_restore = live.find("module_restore_table()")
 live_policy_restore = live.find("flip_cpu_policy_restore(&original)")
+live_deadman_disarm = live.find("disarm_deadman(&deadman_pid)")
+live_tsadc_restore = live.find("tsadc_recovery_set(0)")
+live_tsadc_unload = live.find("tsadc_recovery_unload()")
+live_quiesce_end = live.find("flip_optimizer_quiesce_end(&quiesce)")
 live_confirm = live.find(
     "flip_optimizer_calibration_session_confirm_stable"
 )
@@ -87,6 +98,9 @@ live_confirm = live.find(
 positions = [
     live_ready,
     live_apply,
+    live_quiesce,
+    live_panic,
+    live_tsadc_arm,
     live_deadman,
     live_mark_entering,
     live_enter,
@@ -96,6 +110,10 @@ positions = [
     live_park,
     live_restore,
     live_policy_restore,
+    live_deadman_disarm,
+    live_tsadc_restore,
+    live_tsadc_unload,
+    live_quiesce_end,
     live_confirm,
 ]
 
@@ -103,8 +121,9 @@ if min(positions) < 0:
     pass
 elif positions != sorted(positions):
     errors.append(
-        "live runner safety order must be guard, apply, deadman, PMU entering, "
-        "enter, integrity, stress, integrity, park, restore table, restore policy, confirm"
+        "live runner safety order must be guard, apply, quiesce, panic, TSADC, "
+        "deadman, PMU entering, enter, integrity, stress, integrity, park, restore table, "
+        "restore policy, disarm deadman, restore TSADC, resume writers, confirm"
     )
 
 if "candidate_uv < FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC" in source:
