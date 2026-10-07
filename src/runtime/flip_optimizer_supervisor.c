@@ -77,6 +77,8 @@ const char *flip_optimizer_supervisor_reason_name(
         return "corrupt";
     case FLIP_OPTIMIZER_SUPERVISOR_REASON_UNREADABLE:
         return "unreadable";
+    case FLIP_OPTIMIZER_SUPERVISOR_REASON_STOCK_ONLY:
+        return "stock_only";
     }
 
     return "unreadable";
@@ -104,10 +106,28 @@ int flip_optimizer_supervisor_boot_decide(
     }
 
     switch (inspection.state) {
-    case FLIP_OPTIMIZER_GUARD_BOOT_CLEAN:
+    case FLIP_OPTIMIZER_GUARD_BOOT_CLEAN: {
+        flip_optimizer_guard_status_t guard;
+        if (flip_optimizer_guard_status(&guard) < 0) {
+            decision->stock_safe_required = 1;
+            decision->durable_settlement_required = 1;
+            decision->reason =
+                FLIP_OPTIMIZER_SUPERVISOR_REASON_UNREADABLE;
+            return 0;
+        }
+
+        if (guard.stock_only) {
+            decision->stock_safe_required = 1;
+            decision->durable_settlement_required = 0;
+            decision->reason =
+                FLIP_OPTIMIZER_SUPERVISOR_REASON_STOCK_ONLY;
+            return 0;
+        }
+
         decision->reason =
             FLIP_OPTIMIZER_SUPERVISOR_REASON_CLEAN;
         return 0;
+    }
 
     case FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED:
         decision->stock_safe_required = 1;

@@ -76,6 +76,35 @@ static void test_unconfirmed_trial_preserves_reset_cause(void)
     clear_boot_mode();
 }
 
+
+static void test_stock_only_forces_runtime_quarantine(void)
+{
+    reset_root();
+    unlink(FLIP_OPTIMIZER_SUPERVISOR_RAM_LATCH);
+
+    assert(flip_optimizer_guard_arm("stock-only-trial", 500) == 0);
+
+    char rolled[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    assert(flip_optimizer_guard_boot_check(
+               501,
+               rolled,
+               sizeof(rolled)) == 1);
+    assert(strcmp(rolled, "stock-only-trial") == 0);
+
+    flip_optimizer_supervisor_boot_decision_t decision;
+    assert(flip_optimizer_supervisor_boot_enforce(&decision) == 0);
+    assert(decision.stock_safe_required == 1);
+    assert(decision.durable_settlement_required == 0);
+    assert(decision.reason ==
+           FLIP_OPTIMIZER_SUPERVISOR_REASON_STOCK_ONLY);
+    assert(flip_optimizer_supervisor_runtime_stock_safe() == 1);
+
+    assert(flip_optimizer_guard_clear_stock_only() == 0);
+    assert(flip_optimizer_supervisor_boot_enforce(&decision) == 0);
+    assert(decision.stock_safe_required == 0);
+    assert(flip_optimizer_supervisor_runtime_stock_safe() == 0);
+}
+
 static void test_clean_boot(void)
 {
     reset_root();
@@ -174,6 +203,7 @@ int main(void)
 {
     test_boot_mode_classification();
     test_unconfirmed_trial_preserves_reset_cause();
+    test_stock_only_forces_runtime_quarantine();
     test_clean_boot();
     test_unconfirmed_trial_forces_stock();
     test_corrupt_trial_forces_stock();

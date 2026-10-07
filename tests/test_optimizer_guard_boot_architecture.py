@@ -16,6 +16,7 @@ required = [
     'SD read-only; durable settlement deferred',
     '"$ROOT/bin/flip-optimizer-guard" boot-check',
     '"$ROOT/bin/flip-optimizer-calibration" reconcile',
+    'post-settlement enforcement',
     'runtime stock-safe remains authoritative',
     'if [ "$SD_WRITABLE" -eq 1 ] &&',
     '"$ROOT/bin/flip-frontend" >> "$LOG_TARGET" 2>&1',

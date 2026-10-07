@@ -88,6 +88,14 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
             printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
         fi
     fi
+
+    # Re-evaluate after durable settlement. A rolled-back trial may now be
+    # represented by stock_only=1 rather than an active trial marker.
+    echo "OPTIMIZER_SUPERVISOR: post-settlement enforcement" >> "$LOG_TARGET"
+    if ! "$SUPERVISOR" boot-enforce >> "$LOG_TARGET" 2>&1; then
+        echo "OPTIMIZER_SUPERVISOR: post-settlement enforcement failed" >> "$LOG_TARGET"
+        printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+    fi
 fi
 
 if [ "$SD_WRITABLE" -eq 1 ] && \
