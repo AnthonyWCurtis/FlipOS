@@ -1,4 +1,5 @@
 #include "flip_optimizer_guard.h"
+#include "flip_optimizer_pmu_token.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -356,6 +357,20 @@ int flip_optimizer_guard_arm(
         return -1;
     }
 
+    int pmu_rc =
+        flip_optimizer_pmu_token_write_trial(trial_id);
+
+    if (strncmp(trial_id, "cpu-", 4) == 0 &&
+        pmu_rc != 1) {
+        unlink(FLIP_OPTIMIZER_GUARD_ACTIVE_FILE);
+        fsync_root();
+        (void)write_event(
+            "cancelled",
+            trial_id,
+            epoch);
+        return -1;
+    }
+
     return 0;
 }
 
@@ -388,7 +403,10 @@ int flip_optimizer_guard_confirm(
         errno != ENOENT)
         return -1;
 
-    return fsync_root();
+    if (fsync_root() < 0)
+        return -1;
+
+    return flip_optimizer_pmu_token_clear();
 }
 
 int flip_optimizer_guard_fail(
@@ -413,7 +431,10 @@ int flip_optimizer_guard_fail(
     if (unlink(FLIP_OPTIMIZER_GUARD_ACTIVE_FILE) != 0)
         return -1;
 
-    return fsync_root();
+    if (fsync_root() < 0)
+        return -1;
+
+    return flip_optimizer_pmu_token_clear();
 }
 
 int flip_optimizer_guard_cancel(
@@ -438,7 +459,10 @@ int flip_optimizer_guard_cancel(
     if (unlink(FLIP_OPTIMIZER_GUARD_ACTIVE_FILE) != 0)
         return -1;
 
-    return fsync_root();
+    if (fsync_root() < 0)
+        return -1;
+
+    return flip_optimizer_pmu_token_clear();
 }
 
 static int recover_armed_event_trial(
@@ -477,8 +501,37 @@ int flip_optimizer_guard_boot_inspect(
 
     memset(inspection, 0, sizeof(*inspection));
 
+    char pmu_trial[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    int pmu_rc = flip_optimizer_pmu_token_read_trial(
+        pmu_trial,
+        sizeof(pmu_trial));
+
+    if (pmu_rc == -1) {
+        inspection->state =
+            FLIP_OPTIMIZER_GUARD_BOOT_IO_ERROR;
+        return 0;
+    }
+
+    if (pmu_rc == -2) {
+        inspection->state =
+            FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT;
+        return 0;
+    }
+
     active_trial_t active;
     int rc = read_active(&active);
+
+    if (pmu_rc == 1) {
+        inspection->state =
+            rc == 1 &&
+            strcmp(active.trial_id, pmu_trial) == 0
+                ? FLIP_OPTIMIZER_GUARD_BOOT_UNCONFIRMED
+                : FLIP_OPTIMIZER_GUARD_BOOT_CORRUPT;
+        strcpy(inspection->trial_id, pmu_trial);
+        inspection->armed_epoch =
+            rc == 1 ? active.epoch : 0;
+        return 0;
+    }
 
     if (rc == 0) {
         inspection->state = FLIP_OPTIMIZER_GUARD_BOOT_CLEAN;
@@ -519,10 +572,15 @@ int flip_optimizer_guard_boot_check(
     if (rolled_back_trial && rolled_back_trial_size)
         rolled_back_trial[0] = '\0';
 
+    char pmu_trial[FLIP_OPTIMIZER_GUARD_TRIAL_ID_MAX + 1];
+    int pmu_rc = flip_optimizer_pmu_token_read_trial(
+        pmu_trial,
+        sizeof(pmu_trial));
+
     active_trial_t active;
     int rc = read_active(&active);
 
-    if (rc == 0)
+    if (rc == 0 && pmu_rc == 0)
         return 0;
 
     active_trial_t recovered;
@@ -531,16 +589,23 @@ int flip_optimizer_guard_boot_check(
             ? recover_armed_event_trial(&recovered)
             : 0;
 
-    const char *trial_id =
-        rc == 1
-            ? active.trial_id
-            : recovered_rc == 1
-                ? recovered.trial_id
-                : "unknown";
+    const char *trial_id = "unknown";
+    int corrupt = 1;
+
+    if (pmu_rc == 1) {
+        trial_id = pmu_trial;
+        corrupt =
+            !(rc == 1 &&
+              strcmp(active.trial_id, pmu_trial) == 0);
+    } else if (rc == 1) {
+        trial_id = active.trial_id;
+        corrupt = 0;
+    } else if (recovered_rc == 1) {
+        trial_id = recovered.trial_id;
+    }
+
     const char *action =
-        rc == 1
-            ? "rolled_back"
-            : "rollback_corrupt";
+        corrupt ? "rollback_corrupt" : "rolled_back";
 
     if (write_stock_only(trial_id, epoch) < 0 ||
         write_event(action, trial_id, epoch) < 0)
@@ -551,6 +616,9 @@ int flip_optimizer_guard_boot_check(
         return -1;
 
     if (fsync_root() < 0)
+        return -1;
+
+    if (flip_optimizer_pmu_token_clear() < 0)
         return -1;
 
     if (rolled_back_trial && rolled_back_trial_size) {

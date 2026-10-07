@@ -24,7 +24,7 @@ done
 "$ADB" get-state >/dev/null
 "$ADB" shell "mkdir -p /mnt/SDCARD/.tmp_update '$ROOT/bin'"
 
-"$ADB" shell "if [ -f '$BOOT_UPDATER' ]; then cp '$BOOT_UPDATER' '$BOOT_UPDATER.previous'; fi"
+"$ADB" shell "if [ -f '$BOOT_UPDATER' ]; then rm -f '$BOOT_UPDATER.previous'; cp '$BOOT_UPDATER' '$BOOT_UPDATER.previous'; fi"
 
 "$ADB" push build/flip-optimizer-supervisor "$ROOT/bin/flip-optimizer-supervisor" >/dev/null
 "$ADB" push build/flip-optimizer-deadman "$ROOT/bin/flip-optimizer-deadman" >/dev/null

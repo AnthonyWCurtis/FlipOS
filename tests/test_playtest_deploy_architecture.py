@@ -8,6 +8,7 @@ errors = []
 required = [
     "BOOT_UPDATER=/mnt/SDCARD/.tmp_update/updater",
     "$BOOT_UPDATER.previous",
+    "rm -f '$BOOT_UPDATER.previous'",
     "$ROOT/updater-playtest",
     "$BOOT_UPDATER",
     "flip-optimizer-supervisor",
