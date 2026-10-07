@@ -198,6 +198,48 @@ The kernel also has ramoops/pstore enabled with reserved persistent RAM. Its
 pstore directory was empty after the manual power-cycle, but it remains a
 candidate secondary source for later panic/oops evidence.
 
-Hardware acceptance for the new deadman restart tag and read-only-SD boot path
-is still pending. No new undervolt sweep may start until that acceptance is
-complete.
+Hardware acceptance for the deadman restart tag and read-only-SD recovery
+path completed on 2026-10-07. The RAM-locked SCHED_FIFO deadman autonomously
+rebooted the physical Flip, ADB returned without manual intervention and the
+next kernel reported `boot_mode=watchdog`. A fake unconfirmed optimizer trial
+was rolled back before normal startup, `stock_only=1` was asserted and the
+runtime stock-safe latch remained active.
+
+### PMUGRF recovery token
+
+Repeated forced resets demonstrated that FAT metadata can be damaged even when
+the optimizer uses temp-file + fsync + rename + directory-fsync semantics.
+Observed failures included a zero-byte `trial-active`, FAT
+`fat_free_clusters: deleting FAT entry beyond EOF`, automatic read-only
+remount and a dirty filesystem requiring `fsck.vfat`.
+
+FlipOS therefore no longer relies on FAT for crash-time CPU candidate identity.
+RK3566/RK3568 PMU_GRF_OS_REG1 at physical address `0xfdc20204` is used as a
+32-bit warm-reset recovery token. The token encodes the known CPU OPP, the
+12.5 mV candidate voltage step and deterministic trial number with
+magic/version/check bits. FAT remains the durable human-readable calibration
+journal, but PMUGRF is the crash-survival source of truth for an armed CPU
+candidate.
+
+Hardware acceptance proved:
+
+- OS_REG1 was initially zero, accepted a temporary test value and retained it
+  exactly across a normal warm reboot;
+- the temporary value was then cleared back to zero;
+- arming CPU-format trial `cpu-1416000-912500-63` produced a non-zero PMU
+  token and a watchdog reboot recovered that exact trial before FAT settlement;
+- durable rollback recorded the exact trial ID, asserted stock-only quarantine
+  and cleared OS_REG1 only after settlement completed;
+- with trial `cpu-1608000-987500-63` armed, the SD was deliberately remounted
+  read-only; the supervisor still recovered the exact trial from PMUGRF and
+  asserted the RAM quarantine;
+- guard settlement correctly deferred while FAT was read-only and the PMU token
+  remained intact;
+- after remounting read-write, durable rollback completed for the exact trial
+  and only then cleared OS_REG1.
+
+The forced-reset tests also showed that concurrent frontend/playtest logging can
+leave FAT dirty even though optimizer state itself is not written during the
+dangerous window. Before the next live undervolt sweep, FlipOS must explicitly
+quiesce SD-writing telemetry/frontend activity during synthetic candidate
+testing and restore it only after stock voltage is confirmed.

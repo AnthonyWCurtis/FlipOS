@@ -2,6 +2,7 @@
 #include "flip_optimizer_calibration.h"
 #include "flip_optimizer_calibration_session.h"
 #include "flip_optimizer_supervisor.h"
+#include "flip_optimizer_quiesce.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -1335,6 +1336,7 @@ static int run_live_once(unsigned duration_seconds)
     int cleanup_ok = 1;
     int stress_ok = 0;
     int candidate_exercised = 0;
+    flip_optimizer_quiesce_t quiesce = {0};
     pid_t deadman_pid = -1;
 
     if (ensure_candidate_ready(&calibration) < 0) {
@@ -1473,6 +1475,19 @@ static int run_live_once(unsigned duration_seconds)
             "OPTIMIZER_CANDIDATE: adjusted-table verification failed\n");
         goto fail;
     }
+
+    if (flip_optimizer_quiesce_begin(
+            &quiesce) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to quiesce SD writers\n");
+        goto fail;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: storage quiesced writers=%zu\n",
+        quiesce.count);
+    fflush(stdout);
 
     unsigned deadman_timeout =
         duration_seconds +
@@ -1635,6 +1650,17 @@ fail:
         emergency_reboot();
     }
 
+    if (flip_optimizer_quiesce_end(&quiesce) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: failed to resume SD writers; rebooting\n");
+        emergency_reboot();
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: storage writers resumed\n");
+    fflush(stdout);
+
     if (!stress_ok) {
         if (!transaction_ready)
             return -1;
@@ -1714,11 +1740,68 @@ fail:
     return 0;
 }
 
+static int run_quiesce_probe(unsigned seconds)
+{
+    if (geteuid() != 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: root required\n");
+        return -1;
+    }
+
+    if (seconds == 0 || seconds > 30) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: quiesce probe duration must be 1-30 seconds\n");
+        return -1;
+    }
+
+    flip_optimizer_quiesce_t quiesce = {0};
+
+    if (flip_optimizer_quiesce_begin(&quiesce) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: quiesce probe begin failed\n");
+        return -1;
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: QUIESCE_PROBE_BEGIN writers=%zu",
+        quiesce.count);
+
+    for (size_t i = 0; i < quiesce.count; ++i)
+        printf(" pid%zu=%ld", i, (long)quiesce.pids[i]);
+
+    printf("\n");
+    fflush(stdout);
+
+    struct timespec remaining = {
+        .tv_sec = (time_t)seconds,
+        .tv_nsec = 0,
+    };
+
+    while (nanosleep(&remaining, &remaining) < 0) {
+        if (errno == EINTR)
+            continue;
+
+        (void)flip_optimizer_quiesce_end(&quiesce);
+        return -1;
+    }
+
+    if (flip_optimizer_quiesce_end(&quiesce) < 0)
+        return -1;
+
+    printf(
+        "OPTIMIZER_CANDIDATE: QUIESCE_PROBE_OK seconds=%u\n",
+        seconds);
+    return 0;
+}
+
 static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s table-only | live-once SECONDS\n",
+        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | live-once SECONDS\n",
         program);
 }
 
@@ -1738,6 +1821,22 @@ int main(int argc, char **argv)
         return run_table_only() == 0
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
+
+    if (argc == 3 &&
+        strcmp(argv[1], "quiesce-probe") == 0) {
+        unsigned seconds = 0;
+
+        if (parse_unsigned_text(
+                argv[2],
+                &seconds) < 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+
+        return run_quiesce_probe(seconds) == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+    }
 
     if (argc == 3 &&
         strcmp(argv[1], "live-once") == 0) {

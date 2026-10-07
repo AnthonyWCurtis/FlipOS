@@ -117,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool opp-voltage-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool opp-voltage-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -164,6 +164,7 @@ verify:
 		$(MAKE) test-cpu-dynamic && \
 		$(MAKE) test-optimizer && \
 		$(MAKE) test-optimizer-pmu-token && \
+		$(MAKE) test-optimizer-quiesce && \
 		$(MAKE) test-playtest-deploy && \
 		$(MAKE) test-optimizer-guard && \
 		$(MAKE) test-optimizer-supervisor && \
@@ -250,6 +251,10 @@ test-optimizer: $(BUILD)/test-flip-optimizer
 
 test-optimizer-pmu-token: $(BUILD)/test-flip-optimizer-pmu-token
 	$(BUILD)/test-flip-optimizer-pmu-token
+
+test-optimizer-quiesce: $(BUILD)/test-flip-optimizer-quiesce
+	$(BUILD)/test-flip-optimizer-quiesce
+	python3 tests/test_optimizer_quiesce_architecture.py
 
 test-playtest-deploy:
 	python3 tests/test_playtest_deploy_architecture.py
@@ -435,6 +440,12 @@ $(BUILD)/test-flip-optimizer: tests/test_flip_optimizer.c src/runtime/flip_optim
 
 $(BUILD)/test-flip-optimizer-pmu-token: tests/test_flip_optimizer_pmu_token.c src/runtime/flip_optimizer_pmu_token.c include/flip_optimizer_pmu_token.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L 		-DFLIP_OPTIMIZER_PMU_TOKEN_TEST_FILE='"/tmp/flipos-pmu-token-unit-test"' -Iinclude 		tests/test_flip_optimizer_pmu_token.c src/runtime/flip_optimizer_pmu_token.c 		-o $@
+
+$(BUILD)/test-flip-optimizer-quiesce: tests/test_flip_optimizer_quiesce.c src/runtime/flip_optimizer_quiesce.c include/flip_optimizer_quiesce.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L -Iinclude \
+		tests/test_flip_optimizer_quiesce.c src/runtime/flip_optimizer_quiesce.c \
+		-o $@
 
 $(BUILD)/test-flip-optimizer-guard: tests/test_flip_optimizer_guard.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
@@ -877,7 +888,7 @@ $(BUILD)/flip-optimizer-calibration: src/hwtest/flip_optimizer_calibration_tool.
 		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer.c \
 		-static -lm -o $@
 
-$(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c src/runtime/flip_cpu_policy.c src/runtime/flip_optimizer_calibration_session.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer.c include/flip_cpu_policy.h include/flip_optimizer_calibration_session.h include/flip_optimizer_calibration.h include/flip_optimizer_supervisor.h include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h include/flip_optimizer.h | $(BUILD)
+$(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c src/runtime/flip_cpu_policy.c src/runtime/flip_optimizer_calibration_session.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer_quiesce.c src/runtime/flip_optimizer.c include/flip_cpu_policy.h include/flip_optimizer_calibration_session.h include/flip_optimizer_calibration.h include/flip_optimizer_supervisor.h include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h include/flip_optimizer_quiesce.h include/flip_optimizer.h | $(BUILD)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Iinclude \
 		src/hwtest/flip_optimizer_candidate_tool.c \
@@ -885,7 +896,8 @@ $(BUILD)/flip-optimizer-candidate: src/hwtest/flip_optimizer_candidate_tool.c sr
 		src/runtime/flip_optimizer_calibration_session.c \
 		src/runtime/flip_optimizer_calibration.c \
 		src/runtime/flip_optimizer_supervisor.c \
-		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer.c \
+		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c \
+		src/runtime/flip_optimizer_quiesce.c src/runtime/flip_optimizer.c \
 		-static -pthread -lm -o $@
 
 $(BUILD)/flip_opp_voltage.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile | $(BUILD)
@@ -991,6 +1003,8 @@ clean:
 		$(BUILD)/test-flip-cpu-profile \
 		$(BUILD)/test-flip-cpu-dynamic \
 		$(BUILD)/test-flip-optimizer \
+		$(BUILD)/test-flip-optimizer-pmu-token \
+		$(BUILD)/test-flip-optimizer-quiesce \
 		$(BUILD)/test-flip-optimizer-guard \
 		$(BUILD)/test-flip-optimizer-supervisor \
 		$(BUILD)/test-flip-optimizer-calibration \

@@ -388,11 +388,12 @@ unstable userspace test process to write a final result.
 - [x] Build a native FlipOS recovery supervisor independent of the emulator/frontend
 - [ ] Arm the recovery path before every voltage write and verify it before entering the candidate OPP
 - [ ] Keep dangerous-phase coordination in RAM; avoid SD/FAT writes while silicon is intentionally unstable
-- [ ] Persist only the minimum pre-trial durable record before the test, sync it once, then stop writing until stock voltage is restored
-- [ ] On reboot, treat an armed-but-unconfirmed trial as failed and restore stock-only operation before normal FlipOS startup
-- [ ] Distinguish clean pass, controlled failure, watchdog/reset, power loss and corrupt/incomplete trial state
-- [ ] Prove recovery still works if the SD card remounts read-only after a hard crash
-- [ ] Investigate and validate an RK3566 full-board reset path; use hardware watchdog only if it can autonomously return this board to boot
+  - [ ] Quiesce playtest/frontend SD writers before synthetic live candidate entry and restore them after stock voltage returns
+- [x] Persist only the minimum pre-trial durable record before the test, sync it once, then stop writing until stock voltage is restored
+- [x] On reboot, treat an armed-but-unconfirmed trial as failed and restore stock-only operation before normal FlipOS startup
+- [x] Distinguish clean pass, controlled failure, watchdog/reset, power loss and corrupt/incomplete trial state
+- [x] Prove recovery still works if the SD card remounts read-only after a hard crash
+- [x] Investigate and validate an RK3566 full-board reset path; use hardware watchdog only if it can autonomously return this board to boot
 - [x] Add a RAM-resident high-priority deadman fallback using direct reboot/reset primitives where the kernel permits
 - [ ] Add kernel panic/oops/stall auto-reboot policy only after hardware validation on this exact Flip
 - [ ] Resume calibration automatically at the correct candidate after a recovered failure
