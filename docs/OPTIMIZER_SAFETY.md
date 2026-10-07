@@ -100,25 +100,49 @@ then discarded and the clean plan reinitialized. No voltage was written.
 
 ## Hardware watchdog limitation
 
-The RK3566 DesignWare watchdog at /dev/watchdog0 was tested on real hardware
-before live undervolting. With an eight-second timeout, stopping the userspace
-feeder caused the hardware watchdog to fire and ADB/USB to disappear. However,
-the Miyoo Flip did not return to a normal autonomous boot/USB state afterward.
-A manual power-cycle was required.
+The RK3566 DesignWare watchdog at `/dev/watchdog0` was tested on real
+hardware. No process owned it before the experiment. The live driver identified
+itself as `Synopsys DesignWare Watchdog` and advertised keepalive,
+set-timeout and magic-close support. Its default timeout was 44 seconds; an
+8-second request rounded to an 11-second hardware timeout.
 
-The durable optimizer trial survived that event. On the following manual boot,
-optimizer-guard ran before telemetry/frontend, recorded the unconfirmed
-watchdog proof trial as rolled back, set stock-only, and the kernel returned to
-its stock device-tree CPU OPP table and 408-1992 MHz ondemand policy.
+The live watchdog device-tree node has no reset-control property. In this
+DesignWare driver that means the hardware timer cannot actually be stopped once
+started. A magic-close therefore only releases userspace ownership: the Linux
+watchdog core sees `WDOG_HW_RUNNING` and automatically continues pinging the
+physical timer while no userspace owner is active. The earlier
+`DISARMED_OK` probe proved the close/ownership path, not a physical watchdog
+disable.
 
-Therefore the DesignWare watchdog is useful as a hang detector but is not
-accepted as an unattended full-board recovery mechanism on this Miyoo hardware.
-Initial real voltage candidates remain runtime-only and non-persistent, so a
-manual power-cycle always restores the stock kernel OPP table. A hard hang may
-require that manual power-cycle.
+A stock-voltage expiry test deliberately opened the watchdog, selected the
+11-second timeout and stopped feeding it. The attached ADB session died after
+about 12 seconds, proving that the watchdog can break a failure independently
+of the optimizer process and scheduler. The Miyoo Flip did not subsequently
+return to a normal boot or USB enumeration state, however. Windows no longer
+saw the device and physical power intervention was required.
 
-No persistent undervolt profile may be enabled on the strength of this
-watchdog test.
+The durable optimizer trial survives this class of event and a later physical
+boot restores the stock device-tree CPU OPP table before calibration can
+continue. The DesignWare watchdog is therefore useful as a last-resort SoC hang
+breaker, but it is explicitly rejected as the sole unattended recovery path for
+the consumer Optimize CPU feature.
+
+MinUI Zero was inspected only as a reference. Its TG5040 calibration combines
+a hardware watchdog with an mlocked max-priority SCHED_FIFO deadman and
+temporary panic/RCU-stall recovery policy. That platform can rely on watchdog
+reset returning the handheld to boot. FlipOS cannot inherit that assumption:
+the same class of watchdog reset does not autonomously return this RK3566/RK817
+Miyoo board.
+
+The next hardware path under investigation is RK817-assisted reset. The live
+Flip reports an RK817 system-power-controller with `pmic-reset-func = <0>`.
+Rockchip's driver and datasheet define reset function 0 as a complete PMIC
+restart that also causes SoC NPOR reset. Consumer calibration remains gated
+until this exact board can autonomously recover from a deep undervolt wedge
+without ADB or a power-button intervention.
+
+No persistent undervolt profile may be enabled on the strength of the
+DesignWare watchdog test.
 
 ## Self-healing supervisor architecture — 2026-10-07
 
