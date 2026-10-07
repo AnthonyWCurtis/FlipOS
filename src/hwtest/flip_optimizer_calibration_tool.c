@@ -430,7 +430,7 @@ static void usage(const char *program)
     fprintf(
         stderr,
         "usage: %s probe | init | status | prepare | ready | "
-        "reconcile | recover-boot | confirm-stable | clear-stock-only\n",
+        "reconcile | recover-boot | cancel-unapplied | confirm-stable | clear-stock-only\n",
         program);
 }
 
@@ -557,6 +557,18 @@ int main(int argc, char **argv)
         printf(
             "stock_only_released=%d\n",
             released);
+        return EXIT_SUCCESS;
+    }
+    if (strcmp(argv[1], "cancel-unapplied") == 0) {
+        flip_optimizer_calibration_t calibration;
+
+        if (flip_optimizer_calibration_load(
+                &calibration) < 0 ||
+            flip_optimizer_calibration_session_cancel_unapplied(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        printf("cancelled_unapplied=1\n");
         return EXIT_SUCCESS;
     }
     if (strcmp(argv[1], "confirm-stable") == 0) {
