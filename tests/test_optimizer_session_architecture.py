@@ -23,6 +23,11 @@ for token in [
     '"candidate-exec"',
     '"pending-after-recovery"',
     '"runtime-stock-safe"',
+    '"/ui-return"',
+    '"/sys/class/power_supply/usb/online"',
+    '"/sys/class/power_supply/ac/online"',
+    "external_power_online()",
+    "CHARGER_CANCELLED boot_resume=0 frontend=normal",
 ]:
     if token not in src:
         errors.append(f"optimizer session controller missing: {token}")

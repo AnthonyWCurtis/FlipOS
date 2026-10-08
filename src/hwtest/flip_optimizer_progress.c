@@ -201,7 +201,7 @@ int main(void)
         centred_text_x(
             "KEEP CHARGER CONNECTED",
             2),
-        365,
+        354,
         "KEEP CHARGER CONNECTED",
         2,
         FG);
@@ -209,9 +209,19 @@ int main(void)
     flip_draw_text(
         &drm,
         centred_text_x(
+            "UNPLUG CHARGER TO CANCEL SAFELY",
+            1),
+        397,
+        "UNPLUG CHARGER TO CANCEL SAFELY",
+        1,
+        FG);
+
+    flip_draw_text(
+        &drm,
+        centred_text_x(
             "OPTIMIZATION WILL RESUME AUTOMATICALLY",
             1),
-        415,
+        425,
         "OPTIMIZATION WILL RESUME AUTOMATICALLY",
         1,
         DIM);

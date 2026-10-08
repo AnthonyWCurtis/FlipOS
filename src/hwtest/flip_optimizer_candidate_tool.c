@@ -52,6 +52,16 @@
 #define FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS 8U
 #define FLIP_OPTIMIZER_MODULE_CONTROL \
     "/sys/module/flip_opp_voltage/parameters/control"
+#define FLIP_OPTIMIZER_UI_RETURN_FILE \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/ui-return"
+#define FLIP_OPTIMIZER_AUTO_SESSION_FILE \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/auto-session"
+#define FLIP_OPTIMIZER_AUTO_SESSION_TMP \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/auto-session.tmp"
+#define FLIP_OPTIMIZER_USB_ONLINE \
+    "/sys/class/power_supply/usb/online"
+#define FLIP_OPTIMIZER_AC_ONLINE \
+    "/sys/class/power_supply/ac/online"
 
 #define FLIP_OPTIMIZER_SOC_THERMAL_TYPE \
     "/sys/class/thermal/thermal_zone0/type"
@@ -145,6 +155,58 @@ static int write_text_path(
     if (!failed && fflush(f) != 0)
         failed = 1;
     if (fclose(f) != 0)
+        failed = 1;
+
+    return failed ? -1 : 0;
+}
+
+static int optimizer_external_power_online(void)
+{
+    unsigned usb = 0;
+    unsigned ac = 0;
+    int usb_ok =
+        read_unsigned_path(
+            FLIP_OPTIMIZER_USB_ONLINE,
+            &usb) == 0;
+    int ac_ok =
+        read_unsigned_path(
+            FLIP_OPTIMIZER_AC_ONLINE,
+            &ac) == 0;
+
+    if ((usb_ok && usb > 0) ||
+        (ac_ok && ac > 0))
+        return 1;
+
+    if (usb_ok || ac_ok)
+        return 0;
+
+    return -1;
+}
+
+static int optimizer_ui_power_interlock_active(void)
+{
+    return access(
+        FLIP_OPTIMIZER_UI_RETURN_FILE,
+        F_OK) == 0;
+}
+
+static int clear_ui_optimizer_session_files(void)
+{
+    int failed = 0;
+
+    if (unlink(
+            FLIP_OPTIMIZER_AUTO_SESSION_FILE) < 0 &&
+        errno != ENOENT)
+        failed = 1;
+
+    if (unlink(
+            FLIP_OPTIMIZER_AUTO_SESSION_TMP) < 0 &&
+        errno != ENOENT)
+        failed = 1;
+
+    if (unlink(
+            FLIP_OPTIMIZER_UI_RETURN_FILE) < 0 &&
+        errno != ENOENT)
         failed = 1;
 
     return failed ? -1 : 0;
@@ -674,6 +736,8 @@ static int run_stress_window(
     unsigned target_khz,
     unsigned candidate_uv,
     flip_optimizer_hw_watchdog_t *hw_watchdog,
+    int require_external_power,
+    int *power_cancelled,
     unsigned *max_temp_mc,
     unsigned *sample_count)
 {
@@ -684,6 +748,9 @@ static int run_stress_window(
         !target_khz ||
         !candidate_uv)
         return -1;
+
+    if (power_cancelled)
+        *power_cancelled = 0;
 
     pthread_t threads[FLIP_OPTIMIZER_STRESS_WORKERS];
     flip_stress_worker_t
@@ -746,6 +813,21 @@ static int run_stress_window(
         unsigned current_khz = 0;
         unsigned rail_uv = 0;
         unsigned temp_mc = 0;
+
+        if (require_external_power) {
+            int power_online =
+                optimizer_external_power_online();
+
+            if (power_online <= 0) {
+                if (power_cancelled)
+                    *power_cancelled = 1;
+
+                fprintf(
+                    stderr,
+                    "OPTIMIZER_CANDIDATE: CHARGER_REMOVED cancel=1\n");
+                break;
+            }
+        }
 
         if (flip_optimizer_hw_watchdog_ping(
                 hw_watchdog) < 0 ||
@@ -1156,6 +1238,55 @@ static void settle_hw_watchdog_trial_and_reboot(
     emergency_reboot();
 }
 
+static void settle_hw_watchdog_power_cancel_and_reboot(
+    flip_optimizer_hw_watchdog_t *hw_watchdog,
+    flip_optimizer_calibration_t *calibration,
+    int transaction_ready,
+    unsigned target_khz,
+    unsigned candidate_uv)
+{
+    if (!hw_watchdog ||
+        !hw_watchdog->touched ||
+        !calibration ||
+        !transaction_ready)
+        emergency_reboot();
+
+    if (hw_watchdog->armed &&
+        flip_optimizer_hw_watchdog_ping(
+            hw_watchdog) < 0)
+        emergency_reboot();
+
+    if (flip_optimizer_calibration_session_cancel_unapplied(
+            calibration) < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: charger-cancel trial cancellation failed\n");
+        emergency_reboot();
+    }
+
+    if (clear_ui_optimizer_session_files() < 0) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: charger-cancel session cleanup failed\n");
+        emergency_reboot();
+    }
+
+    printf(
+        "OPTIMIZER_CANDIDATE: CHARGER_CANCELLED "
+        "target_khz=%u candidate_uv=%u reboot_to_frontend=1\n",
+        target_khz,
+        candidate_uv);
+    fflush(stdout);
+
+    if (hw_watchdog->armed &&
+        flip_optimizer_hw_watchdog_ping(
+            hw_watchdog) < 0)
+        emergency_reboot();
+
+    sync();
+    emergency_reboot();
+}
+
 static int ensure_candidate_ready(
     flip_optimizer_calibration_t *calibration)
 {
@@ -1493,6 +1624,9 @@ static int run_live_once(unsigned duration_seconds)
     int cleanup_ok = 1;
     int stress_ok = 0;
     int candidate_exercised = 0;
+    int power_cancelled = 0;
+    int require_external_power =
+        optimizer_ui_power_interlock_active();
     int tsadc_module_loaded = 0;
     int tsadc_recovery_armed = 0;
     flip_optimizer_quiesce_t quiesce = {0};
@@ -1782,11 +1916,20 @@ static int run_live_once(unsigned duration_seconds)
             target_khz,
             candidate_uv,
             &hw_watchdog,
+            require_external_power,
+            &power_cancelled,
             &max_temp_mc,
             &samples) < 0) {
         fprintf(
             stderr,
             "OPTIMIZER_CANDIDATE: live stress failed\n");
+        goto fail;
+    }
+
+    if (power_cancelled) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: charger removal detected during live trial\n");
         goto fail;
     }
 
@@ -1874,7 +2017,20 @@ fail:
         emergency_reboot();
     }
 
+    if (require_external_power &&
+        optimizer_external_power_online() <= 0)
+        power_cancelled = 1;
+
     if (hw_watchdog.touched) {
+        if (power_cancelled) {
+            settle_hw_watchdog_power_cancel_and_reboot(
+                &hw_watchdog,
+                &calibration,
+                transaction_ready,
+                target_khz,
+                candidate_uv);
+        }
+
         settle_hw_watchdog_trial_and_reboot(
             &hw_watchdog,
             &calibration,

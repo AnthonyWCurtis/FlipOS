@@ -1700,9 +1700,18 @@ static void draw_optimizer(
         flip_draw_text(
             drm,
             centred_text_x(
+                "UNPLUG CHARGER LATER TO CANCEL SAFELY",
+                1),
+            414,
+            "UNPLUG CHARGER LATER TO CANCEL SAFELY",
+            1,
+            DIM);
+        flip_draw_text(
+            drm,
+            centred_text_x(
                 "A CONFIRM   B CANCEL",
                 1),
-            421,
+            431,
             "A CONFIRM   B CANCEL",
             1,
             FG);

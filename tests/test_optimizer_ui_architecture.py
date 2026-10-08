@@ -28,6 +28,7 @@ for token in [
     "DO NOT POWER OFF",
     "KEEP CHARGER CONNECTED",
     "OPTIMIZATION WILL RESUME AUTOMATICALLY",
+    "UNPLUG CHARGER TO CANCEL SAFELY",
     "read_progress(&completed, &total);",
     "while (running)\n        pause();",
 ]:

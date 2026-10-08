@@ -31,6 +31,12 @@ required = [
     "LIVE_INTEGRITY_OK phase=pre",
     "LIVE_INTEGRITY_OK phase=post",
     "run_stress_window(",
+    "optimizer_ui_power_interlock_active()",
+    "optimizer_external_power_online()",
+    "CHARGER_REMOVED cancel=1",
+    "CHARGER_CANCELLED",
+    "settle_hw_watchdog_power_cancel_and_reboot(",
+    "clear_ui_optimizer_session_files()",
     "return_to_parking_frequency(",
     "read_cpu_rail_uv(",
     "read_soc_temp_mc(",
@@ -124,6 +130,36 @@ elif positions != sorted(positions):
         "live runner safety order must be guard, apply, quiesce, panic, TSADC, "
         "deadman, PMU entering, enter, integrity, stress, integrity, park, restore table, "
         "restore policy, disarm deadman, restore TSADC, resume writers, confirm"
+    )
+
+
+power_settle_start = source.find(
+    "static void settle_hw_watchdog_power_cancel_and_reboot"
+)
+power_settle_end = source.find(
+    "static int ensure_candidate_ready",
+    power_settle_start,
+)
+power_settle = source[power_settle_start:power_settle_end]
+
+power_cancel_pos = power_settle.find(
+    "flip_optimizer_calibration_session_cancel_unapplied"
+)
+power_session_clear = power_settle.find(
+    "clear_ui_optimizer_session_files()"
+)
+power_reboot = power_settle.rfind("emergency_reboot();")
+
+if min(power_cancel_pos, power_session_clear, power_reboot) < 0:
+    errors.append("charger-cancel settlement is incomplete")
+elif not (power_cancel_pos < power_session_clear < power_reboot):
+    errors.append(
+        "charger-cancel must cancel trial, clear session, then reboot"
+    )
+
+if "confirm_stable" in power_settle or "confirm_unstable" in power_settle:
+    errors.append(
+        "charger cancellation must never classify voltage stable/unstable"
     )
 
 if "candidate_uv < FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC" in source:
