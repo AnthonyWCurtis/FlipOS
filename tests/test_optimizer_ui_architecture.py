@@ -22,6 +22,11 @@ for token in [
     '"snapshot"',
     '"reset-for-rerun"',
     '"restore-snapshot"',
+    "STRESS TEST PROFILE",
+    "OPTIMIZER_VALIDATION_REQUEST_PATH",
+    "OPTIMIZER_VALIDATION_RESULT_PATH",
+    "optimizer_start_validation()",
+    "STRESS TEST OPTIMIZED PROFILE?",
 ]:
     if token not in frontend:
         errors.append(f"frontend optimizer UX missing: {token}")

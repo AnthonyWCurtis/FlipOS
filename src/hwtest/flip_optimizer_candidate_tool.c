@@ -62,6 +62,16 @@
     "/sys/class/power_supply/usb/online"
 #define FLIP_OPTIMIZER_AC_ONLINE \
     "/sys/class/power_supply/ac/online"
+#define FLIP_OPTIMIZER_RUNTIME_TOOL \
+    "/mnt/SDCARD/flipos-dev/bin/flip-optimizer-runtime"
+#define FLIP_OPTIMIZER_VALIDATION_REQUEST \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-request"
+#define FLIP_OPTIMIZER_VALIDATION_ACTIVE \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-active"
+#define FLIP_OPTIMIZER_VALIDATION_RESULT \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-result"
+#define FLIP_OPTIMIZER_VALIDATION_RETURN \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-return"
 
 #define FLIP_OPTIMIZER_SOC_THERMAL_TYPE \
     "/sys/class/thermal/thermal_zone0/type"
@@ -2574,11 +2584,383 @@ static int run_kernel_recovery_crash_test(void)
     return -1;
 }
 
+static int run_child_tool(const char *tool, const char *arg)
+{
+    pid_t pid = fork();
+    if (pid < 0)
+        return -1;
+
+    if (pid == 0) {
+        execl(tool, tool, arg, (char *)NULL);
+        _exit(127);
+    }
+
+    int status = 0;
+    for (;;) {
+        if (waitpid(pid, &status, 0) >= 0)
+            break;
+        if (errno != EINTR)
+            return -1;
+    }
+
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+}
+
+static int write_validation_state_file(
+    const char *path,
+    const char *status,
+    const flip_optimizer_result_t *result,
+    unsigned tested_opps,
+    unsigned seconds_per_opp,
+    unsigned max_temp_mc)
+{
+    if (!path || !status || !result)
+        return -1;
+
+    char temp[512];
+    int n = snprintf(temp, sizeof(temp), "%s.tmp", path);
+    if (n < 0 || (size_t)n >= sizeof(temp))
+        return -1;
+
+    FILE *f = fopen(temp, "w");
+    if (!f)
+        return -1;
+
+    time_t now = time(NULL);
+    unsigned epoch =
+        now > 0 && (unsigned long long)now <= 0xffffffffULL
+            ? (unsigned)now
+            : 0;
+
+    int failed = fprintf(
+        f,
+        "version=1\nstatus=%s\ndevice_id=%s\ncalibrated_epoch=%u\n"
+        "tested_epoch=%u\ntested_opps=%u\nseconds_per_opp=%u\nmax_temp_mc=%u\n",
+        status,
+        result->device_id,
+        result->calibrated_epoch,
+        epoch,
+        tested_opps,
+        seconds_per_opp,
+        max_temp_mc) < 0;
+
+    if (!failed && fflush(f) != 0)
+        failed = 1;
+    if (!failed && fsync(fileno(f)) != 0)
+        failed = 1;
+    if (fclose(f) != 0)
+        failed = 1;
+
+    if (failed || rename(temp, path) < 0) {
+        (void)unlink(temp);
+        return -1;
+    }
+
+    sync();
+    return 0;
+}
+
+static int validation_preconditions(
+    flip_optimizer_result_t *result,
+    unsigned *testable_opps)
+{
+    flip_optimizer_guard_status_t guard;
+
+    if (!result || !testable_opps ||
+        geteuid() != 0 ||
+        optimizer_external_power_online() <= 0 ||
+        access(FLIP_OPTIMIZER_VALIDATION_REQUEST, F_OK) != 0 ||
+        access(FLIP_OPTIMIZER_UI_RETURN_FILE, F_OK) == 0 ||
+        access(FLIP_OPTIMIZER_AUTO_SESSION_FILE, F_OK) == 0 ||
+        flip_optimizer_guard_status(&guard) < 0 ||
+        guard.active || guard.stock_only ||
+        flip_optimizer_load(result) < 0)
+        return -1;
+
+    unsigned count = 0;
+    for (size_t i = 0; i < result->opp_count; ++i) {
+        const flip_optimizer_opp_t *opp = &result->opps[i];
+        if (opp->frequency_khz >=
+                FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ &&
+            opp->optimized_uv <= opp->stock_uv)
+            count++;
+    }
+
+    if (!count)
+        return -1;
+
+    *testable_opps = count;
+    return 0;
+}
+
+static int run_validate_profile(unsigned seconds_per_opp)
+{
+    if (seconds_per_opp < 10 || seconds_per_opp > 300)
+        return -1;
+
+    flip_optimizer_result_t result;
+    unsigned total_opps = 0;
+
+    if (validation_preconditions(&result, &total_opps) < 0) {
+        fprintf(stderr, "OPTIMIZER_VALIDATION: preconditions failed\n");
+        return -1;
+    }
+
+    if (write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "running",
+            &result,
+            0,
+            seconds_per_opp,
+            0) < 0)
+        return -1;
+
+    if (run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply") < 0) {
+        (void)write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_RESULT,
+            "start-failed",
+            &result,
+            0,
+            seconds_per_opp,
+            0);
+        (void)unlink(FLIP_OPTIMIZER_VALIDATION_ACTIVE);
+        (void)unlink(FLIP_OPTIMIZER_VALIDATION_REQUEST);
+        sync();
+        return -1;
+    }
+
+    flip_cpu_policy_snapshot_t original;
+    int original_valid =
+        flip_cpu_policy_snapshot(&original) == 0;
+    flip_optimizer_quiesce_t quiesce = {0};
+    flip_optimizer_panic_policy_t panic_policy = {0};
+    flip_optimizer_hw_watchdog_t hw_watchdog = {.fd = -1};
+    pid_t deadman_pid = -1;
+    int quiesced = 0;
+    int panic_armed = 0;
+    int tsadc_loaded = 0;
+    int tsadc_armed = 0;
+    int power_cancelled = 0;
+    int failed = 0;
+    unsigned tested_opps = 0;
+    unsigned global_max_temp = 0;
+
+    if (!original_valid ||
+        flip_optimizer_quiesce_begin(&quiesce) < 0)
+        failed = 1;
+    else
+        quiesced = 1;
+
+    if (!failed && flip_optimizer_panic_policy_begin(&panic_policy) < 0)
+        failed = 1;
+    else if (!failed)
+        panic_armed = 1;
+
+    if (!failed && tsadc_recovery_load() < 0)
+        failed = 1;
+    else if (!failed)
+        tsadc_loaded = 1;
+
+    if (!failed && tsadc_recovery_set(1) < 0)
+        failed = 1;
+    else if (!failed)
+        tsadc_armed = 1;
+
+    if (failed)
+        goto validation_abort_before_watchdog;
+
+    if (flip_optimizer_hw_watchdog_arm(
+            &hw_watchdog,
+            FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS) < 0) {
+        if (hw_watchdog.touched)
+            emergency_reboot();
+        failed = 1;
+        goto validation_abort_before_watchdog;
+    }
+
+    unsigned total_seconds = seconds_per_opp * total_opps;
+    if (arm_deadman(
+            total_seconds + FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS,
+            &deadman_pid) < 0)
+        emergency_reboot();
+
+    printf(
+        "OPTIMIZER_VALIDATION: BEGIN opps=%u seconds_per_opp=%u\n",
+        total_opps,
+        seconds_per_opp);
+    fflush(stdout);
+
+    for (size_t reverse = result.opp_count;
+         !failed && reverse > 0;
+         --reverse) {
+        const flip_optimizer_opp_t *opp = &result.opps[reverse - 1];
+
+        if (opp->frequency_khz <
+                FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ)
+            continue;
+
+        if (optimizer_external_power_online() <= 0) {
+            power_cancelled = 1;
+            break;
+        }
+
+        if (flip_cpu_policy_set_limits(
+                opp->frequency_khz,
+                opp->frequency_khz) < 0) {
+            failed = 1;
+            break;
+        }
+
+        unsigned current = 0;
+        unsigned rail_uv = 0;
+        if (flip_cpu_policy_get_current(&current) < 0 ||
+            current != opp->frequency_khz ||
+            read_cpu_rail_uv(&rail_uv) < 0 ||
+            rail_uv != opp->optimized_uv) {
+            fprintf(
+                stderr,
+                "OPTIMIZER_VALIDATION: entry verification failed "
+                "freq=%u/%u rail_uv=%u/%u\n",
+                current,
+                opp->frequency_khz,
+                rail_uv,
+                opp->optimized_uv);
+            failed = 1;
+            break;
+        }
+
+        if (run_integrity_check() < 0) {
+            failed = 1;
+            break;
+        }
+
+        unsigned max_temp_mc = 0;
+        unsigned samples = 0;
+        int cancelled = 0;
+
+        printf(
+            "OPTIMIZER_VALIDATION: OPP_BEGIN frequency_khz=%u voltage_uv=%u\n",
+            opp->frequency_khz,
+            opp->optimized_uv);
+        fflush(stdout);
+
+        if (run_stress_window(
+                seconds_per_opp,
+                opp->frequency_khz,
+                opp->optimized_uv,
+                &hw_watchdog,
+                1,
+                &cancelled,
+                &max_temp_mc,
+                &samples) < 0) {
+            failed = 1;
+            break;
+        }
+
+        if (cancelled) {
+            power_cancelled = 1;
+            break;
+        }
+
+        if (run_integrity_check() < 0) {
+            failed = 1;
+            break;
+        }
+
+        if (max_temp_mc > global_max_temp)
+            global_max_temp = max_temp_mc;
+
+        tested_opps++;
+        printf(
+            "OPTIMIZER_VALIDATION: OPP_PASS frequency_khz=%u "
+            "samples=%u max_temp_mc=%u progress=%u/%u\n",
+            opp->frequency_khz,
+            samples,
+            max_temp_mc,
+            tested_opps,
+            total_opps);
+        fflush(stdout);
+    }
+
+    if (original_valid && flip_cpu_policy_restore(&original) < 0)
+        failed = 1;
+
+    if (disarm_deadman(&deadman_pid) < 0)
+        failed = 1;
+
+    if (quiesced && flip_optimizer_quiesce_end(&quiesce) < 0)
+        failed = 1;
+    quiesced = 0;
+
+    if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
+        emergency_reboot();
+
+    if (run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore") < 0)
+        emergency_reboot();
+
+    const char *status =
+        power_cancelled ? "cancelled" :
+        failed ? "failed" :
+        "passed";
+
+    if (write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_RESULT,
+            status,
+            &result,
+            tested_opps,
+            seconds_per_opp,
+            global_max_temp) < 0)
+        emergency_reboot();
+
+    (void)unlink(FLIP_OPTIMIZER_VALIDATION_ACTIVE);
+    (void)unlink(FLIP_OPTIMIZER_VALIDATION_REQUEST);
+    sync();
+
+    printf(
+        "OPTIMIZER_VALIDATION: COMPLETE status=%s tested=%u/%u max_temp_mc=%u reboot=1\n",
+        status,
+        tested_opps,
+        total_opps,
+        global_max_temp);
+    fflush(stdout);
+
+    /*
+     * /dev/watchdog0 cannot be stopped once opened on this platform. Keep the
+     * recovery route armed and reboot deliberately after all result/state data
+     * is durable. The runtime profile has already been restored to stock.
+     */
+    emergency_reboot();
+
+validation_abort_before_watchdog:
+    if (tsadc_armed)
+        (void)tsadc_recovery_set(0);
+    if (tsadc_loaded)
+        (void)tsadc_recovery_unload();
+    if (panic_armed)
+        (void)flip_optimizer_panic_policy_end(&panic_policy);
+    if (quiesced)
+        (void)flip_optimizer_quiesce_end(&quiesce);
+    if (original_valid)
+        (void)flip_cpu_policy_restore(&original);
+    (void)run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore");
+    (void)write_validation_state_file(
+        FLIP_OPTIMIZER_VALIDATION_RESULT,
+        "start-failed",
+        &result,
+        0,
+        seconds_per_opp,
+        0);
+    (void)unlink(FLIP_OPTIMIZER_VALIDATION_ACTIVE);
+    (void)unlink(FLIP_OPTIMIZER_VALIDATION_REQUEST);
+    sync();
+    return -1;
+}
+
 static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | watchdog-reboot-probe | watchdog-button-expiry-probe | live-once SECONDS\n",
+        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | watchdog-reboot-probe | watchdog-button-expiry-probe | live-once SECONDS | validate-profile SECONDS_PER_OPP\n",
         program);
 }
 
@@ -2645,6 +3027,22 @@ int main(int argc, char **argv)
         }
 
         return run_kernel_recovery_probe(seconds) == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+    }
+
+    if (argc == 3 &&
+        strcmp(argv[1], "validate-profile") == 0) {
+        unsigned seconds = 0;
+
+        if (parse_unsigned_text(
+                argv[2],
+                &seconds) < 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+
+        return run_validate_profile(seconds) == 0
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
     }

@@ -154,6 +154,10 @@ fi
 
 RUNTIME_ACTIVE_MARKER="$ROOT/state/optimizer/runtime-profile-active"
 RUNTIME_QUARANTINE_MARKER="$ROOT/state/optimizer/runtime-profile-quarantined"
+VALIDATION_REQUEST="$ROOT/state/optimizer/validation-request"
+VALIDATION_ACTIVE="$ROOT/state/optimizer/validation-active"
+VALIDATION_RESULT="$ROOT/state/optimizer/validation-result"
+VALIDATION_RETURN="$ROOT/state/optimizer/validation-return"
 
 # The runtime voltage module disappears on reboot, so a surviving active marker
 # means the previous gameplay session ended without a clean restore. Quarantine
@@ -162,6 +166,55 @@ if [ "$SD_WRITABLE" -eq 1 ] && [ -f "$RUNTIME_ACTIVE_MARKER" ]; then
     mv -f "$RUNTIME_ACTIVE_MARKER" "$RUNTIME_QUARANTINE_MARKER"
     sync
     echo "OPTIMIZER_RUNTIME: stale active marker quarantined; gameplay will use stock voltages" >> "$LOG_TARGET"
+fi
+
+# A validator that reboots unexpectedly leaves both validation-active and the
+# runtime active marker. The runtime marker above becomes quarantine; convert
+# that combination into an explicit hard-recovery validation failure.
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ -f "$VALIDATION_ACTIVE" ] && \
+   [ -f "$RUNTIME_QUARANTINE_MARKER" ]; then
+    CAL_EPOCH=$(sed -n 's/^calibrated_epoch=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    [ -n "$CAL_EPOCH" ] || CAL_EPOCH=0
+    NOW_EPOCH=$(date +%s 2>/dev/null || echo 0)
+    cat > "$VALIDATION_RESULT.tmp" <<EOF
+version=1
+status=failed-hard-recovery
+calibrated_epoch=$CAL_EPOCH
+tested_epoch=$NOW_EPOCH
+tested_opps=0
+seconds_per_opp=0
+max_temp_mc=0
+EOF
+    mv -f "$VALIDATION_RESULT.tmp" "$VALIDATION_RESULT"
+    rm -f "$VALIDATION_ACTIVE" "$VALIDATION_REQUEST"
+    sync
+    echo "OPTIMIZER_VALIDATION: hard recovery detected; profile quarantined" >> "$LOG_TARGET"
+fi
+
+# UI-requested profile validation runs before the interactive frontend so the
+# existing storage-quiesce and watchdog safety model remains authoritative.
+# A normal validation completion deliberately reboots and never returns here.
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ -f "$VALIDATION_REQUEST" ] && \
+   [ ! -f "$RUNTIME_QUARANTINE_MARKER" ] && \
+   [ -x "$ROOT/bin/flip-optimizer-candidate" ]; then
+    VALIDATION_PROGRESS_PID=""
+    if [ -x "$ROOT/bin/flip-optimizer-validation-progress" ]; then
+        "$ROOT/bin/flip-optimizer-validation-progress" >/dev/null 2>&1 &
+        VALIDATION_PROGRESS_PID=$!
+        echo "OPTIMIZER_VALIDATION: progress splash pid=$VALIDATION_PROGRESS_PID" >> "$LOG_TARGET"
+    fi
+
+    echo "OPTIMIZER_VALIDATION: launching profile stress validation" >> "$LOG_TARGET"
+    if ! "$ROOT/bin/flip-optimizer-candidate" validate-profile 60 >> "$LOG_TARGET" 2>&1; then
+        echo "OPTIMIZER_VALIDATION: validator returned without reboot" >> "$LOG_TARGET"
+    fi
+
+    if [ -n "$VALIDATION_PROGRESS_PID" ]; then
+        kill "$VALIDATION_PROGRESS_PID" 2>/dev/null || true
+        wait "$VALIDATION_PROGRESS_PID" 2>/dev/null || true
+    fi
 fi
 
 OPTIMIZER_PROGRESS_PID=""
@@ -190,7 +243,9 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
          "$ROOT/bin/flip-optimizer-calibration" status 2>/dev/null | grep -q '^complete_opps=8$'; then
         if "$ROOT/bin/flip-optimizer-calibration" publish >> "$LOG_TARGET" 2>&1; then
             "$ROOT/bin/flip-optimizer-calibration" discard-snapshot >> "$LOG_TARGET" 2>&1 || true
-            rm -f "$ROOT/state/optimizer/runtime-profile-quarantined" "$ROOT/state/optimizer/runtime-profile-active"
+            rm -f "$ROOT/state/optimizer/runtime-profile-quarantined" "$ROOT/state/optimizer/runtime-profile-active" \
+                "$ROOT/state/optimizer/validation-result" "$ROOT/state/optimizer/validation-active" \
+                "$ROOT/state/optimizer/validation-request"
             sync
             echo "OPTIMIZER_SESSION: completed profile published; previous snapshot discarded; runtime quarantine cleared" >> "$LOG_TARGET"
         else

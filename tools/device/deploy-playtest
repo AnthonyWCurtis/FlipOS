@@ -17,6 +17,7 @@ required=(
     build/flip-optimizer-candidate
     build/flip-optimizer-session
     build/flip-optimizer-progress
+    build/flip-optimizer-validation-progress
     build/flip-optimizer-runtime
     tools/device/updater-playtest
 )
@@ -44,6 +45,7 @@ done
 "$ADB" push build/flip-optimizer-candidate "$ROOT/bin/flip-optimizer-candidate" >/dev/null
 "$ADB" push build/flip-optimizer-session "$ROOT/bin/flip-optimizer-session" >/dev/null
 "$ADB" push build/flip-optimizer-progress "$ROOT/bin/flip-optimizer-progress" >/dev/null
+"$ADB" push build/flip-optimizer-validation-progress "$ROOT/bin/flip-optimizer-validation-progress" >/dev/null
 "$ADB" push build/flip-optimizer-runtime "$ROOT/bin/flip-optimizer-runtime" >/dev/null
 
 "$ADB" push tools/device/updater-playtest "$ROOT/updater-playtest" >/dev/null
@@ -60,6 +62,7 @@ done
         '$ROOT/bin/flip-optimizer-candidate' \
         '$ROOT/bin/flip-optimizer-session' \
         '$ROOT/bin/flip-optimizer-progress' \
+        '$ROOT/bin/flip-optimizer-validation-progress' \
         '$ROOT/bin/flip-optimizer-runtime'
     chmod 644 \
         '$ROOT/lib/flip_opp_voltage.ko' \

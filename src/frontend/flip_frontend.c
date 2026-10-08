@@ -125,6 +125,7 @@ static const char *settings_items[] = {
 static const char *optimizer_actions[] = {
     "OPTIMIZE CPU",
     "VIEW RESULTS",
+    "STRESS TEST PROFILE",
     "RESET OPTIMIZATION",
     "BACK"
 };
@@ -142,6 +143,14 @@ static const char *optimizer_actions[] = {
     FLIP_BIN_ROOT "/flip-optimizer-session"
 #define OPTIMIZER_RUNTIME_TOOL \
     FLIP_BIN_ROOT "/flip-optimizer-runtime"
+#define OPTIMIZER_VALIDATION_REQUEST_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/validation-request"
+#define OPTIMIZER_VALIDATION_RESULT_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/validation-result"
+#define OPTIMIZER_VALIDATION_RETURN_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/validation-return"
+#define OPTIMIZER_RUNTIME_QUARANTINE_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/runtime-profile-quarantined"
 
 static void stop_handler(int sig)
 {
@@ -1280,6 +1289,110 @@ static int optimizer_run_tool(
     return 0;
 }
 
+typedef struct {
+    char status[48];
+    unsigned calibrated_epoch;
+    unsigned tested_opps;
+    unsigned max_temp_mc;
+} optimizer_validation_result_t;
+
+static int optimizer_validation_load(
+    const flip_optimizer_result_t *profile,
+    optimizer_validation_result_t *validation)
+{
+    if (!profile || !validation)
+        return 0;
+
+    memset(validation, 0, sizeof(*validation));
+    FILE *f = fopen(OPTIMIZER_VALIDATION_RESULT_PATH, "r");
+    if (!f)
+        return 0;
+
+    char line[160];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "status=", 7) == 0) {
+            char *value = line + 7;
+            char *end = strpbrk(value, "\r\n");
+            if (end) *end = '\0';
+            (void)copy_string(
+                validation->status,
+                sizeof(validation->status),
+                value);
+        } else if (sscanf(
+                       line,
+                       "calibrated_epoch=%u",
+                       &validation->calibrated_epoch) == 1) {
+        } else if (sscanf(
+                       line,
+                       "tested_opps=%u",
+                       &validation->tested_opps) == 1) {
+        } else {
+            (void)sscanf(
+                line,
+                "max_temp_mc=%u",
+                &validation->max_temp_mc);
+        }
+    }
+
+    fclose(f);
+    return validation->status[0] &&
+        validation->calibrated_epoch == profile->calibrated_epoch;
+}
+
+static int optimizer_write_simple_marker(
+    const char *path,
+    const char *text)
+{
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return -1;
+
+    int failed = fprintf(f, "%s\n", text) < 0;
+    if (!failed && fflush(f) != 0)
+        failed = 1;
+    if (!failed && fsync(fileno(f)) != 0)
+        failed = 1;
+    if (fclose(f) != 0)
+        failed = 1;
+    return failed ? -1 : 0;
+}
+
+static int optimizer_start_validation(void)
+{
+    flip_optimizer_result_t result;
+    int battery = optimizer_battery_percent();
+
+    if (!optimizer_result_load(&result))
+        return 2;
+    if (access(OPTIMIZER_RUNTIME_QUARANTINE_PATH, F_OK) == 0)
+        return 3;
+    if (!optimizer_external_power_online() || battery < 30)
+        return 1;
+
+    (void)unlink(OPTIMIZER_VALIDATION_RESULT_PATH);
+
+    char marker[128];
+    snprintf(
+        marker,
+        sizeof(marker),
+        "calibrated_epoch=%u",
+        result.calibrated_epoch);
+
+    if (optimizer_write_simple_marker(
+            OPTIMIZER_VALIDATION_REQUEST_PATH,
+            marker) < 0 ||
+        optimizer_write_simple_marker(
+            OPTIMIZER_VALIDATION_RETURN_PATH,
+            marker) < 0) {
+        (void)unlink(OPTIMIZER_VALIDATION_REQUEST_PATH);
+        (void)unlink(OPTIMIZER_VALIDATION_RETURN_PATH);
+        return -1;
+    }
+
+    sync();
+    return 0;
+}
+
 static int optimizer_write_return_marker(void)
 {
     FILE *f = fopen(
@@ -1385,6 +1498,10 @@ static int optimizer_reset_all(void)
 
     (void)unlink(
         OPTIMIZER_UI_RETURN_PATH);
+    (void)unlink(OPTIMIZER_VALIDATION_REQUEST_PATH);
+    (void)unlink(OPTIMIZER_VALIDATION_RESULT_PATH);
+    (void)unlink(OPTIMIZER_VALIDATION_RETURN_PATH);
+    (void)unlink(OPTIMIZER_RUNTIME_QUARANTINE_PATH);
 
     sync();
     return 0;
@@ -1590,6 +1707,27 @@ static void draw_optimizer(
             "816 / 600 / 408 MHz kept at stock",
             1,
             DIM);
+
+        optimizer_validation_result_t validation;
+        const char *validation_text = "VALIDATION: NOT TESTED";
+        if (optimizer_validation_load(&result, &validation)) {
+            if (strcmp(validation.status, "passed") == 0)
+                validation_text = "VALIDATION: PASSED";
+            else if (strcmp(validation.status, "cancelled") == 0)
+                validation_text = "VALIDATION: CANCELLED";
+            else
+                validation_text = "VALIDATION: FAILED";
+        } else if (access(OPTIMIZER_RUNTIME_QUARANTINE_PATH, F_OK) == 0) {
+            validation_text = "VALIDATION: FAILED / QUARANTINED";
+        }
+
+        flip_draw_text(
+            drm,
+            centred_text_x(validation_text, 1),
+            258,
+            validation_text,
+            1,
+            FG);
     } else {
         flip_draw_text(
             drm,
@@ -1634,8 +1772,10 @@ static void draw_optimizer(
 
         if (i == 1 && !have_result)
             label = "VIEW RESULTS (NONE)";
+        if (i == 2 && !have_result)
+            label = "STRESS TEST (NO PROFILE)";
 
-        int y = 282 + i * 36;
+        int y = 278 + i * 29;
 
         if (i == selected) {
             flip_draw_rect(
@@ -1690,12 +1830,16 @@ static void draw_optimizer(
         const char *confirm =
             confirm_action == 1
                 ? "START CPU OPTIMIZATION?"
-                : "RESET CPU OPTIMIZATION?";
+                : confirm_action == 3
+                    ? "STRESS TEST OPTIMIZED PROFILE?"
+                    : "RESET CPU OPTIMIZATION?";
 
         const char *detail =
             confirm_action == 1
                 ? "KEEP CHARGER CONNECTED"
-                : "STOCK VOLTAGES WILL BE USED";
+                : confirm_action == 3
+                    ? "ABOUT 5 MINUTES - KEEP CHARGER CONNECTED"
+                    : "STOCK VOLTAGES WILL BE USED";
 
         flip_draw_rect(
             drm,
@@ -2792,6 +2936,38 @@ int main(void)
     load_suspended_session();
 
     if (access(
+            OPTIMIZER_VALIDATION_RETURN_PATH,
+            F_OK) == 0) {
+        screen = SCREEN_OPTIMIZER;
+        (void)unlink(OPTIMIZER_VALIDATION_RETURN_PATH);
+
+        flip_optimizer_result_t profile;
+        optimizer_validation_result_t validation;
+        if (optimizer_result_load(&profile) &&
+            optimizer_validation_load(&profile, &validation)) {
+            snprintf(
+                optimizer_message,
+                sizeof(optimizer_message),
+                "STRESS TEST: %s",
+                strcmp(validation.status, "passed") == 0
+                    ? "PASSED"
+                    : strcmp(validation.status, "cancelled") == 0
+                        ? "CANCELLED"
+                        : "FAILED");
+        } else {
+            snprintf(
+                optimizer_message,
+                sizeof(optimizer_message),
+                "STRESS TEST FINISHED");
+        }
+
+        draw_optimizer(
+            &drm,
+            optimizer_selected,
+            optimizer_confirm,
+            optimizer_message,
+            0.0);
+    } else if (access(
             OPTIMIZER_UI_RETURN_PATH,
             F_OK) == 0) {
         screen = SCREEN_OPTIMIZER;
@@ -3284,6 +3460,37 @@ int main(void)
                     reboot(RB_AUTOBOOT);
                 }
 
+            } else if (action == 3) {
+                int start_rc = optimizer_start_validation();
+
+                if (start_rc == 1) {
+                    snprintf(optimizer_message, sizeof(optimizer_message),
+                        "CONNECT CHARGER - BATTERY 30%%+");
+                    redraw = 1;
+                } else if (start_rc == 2) {
+                    snprintf(optimizer_message, sizeof(optimizer_message),
+                        "NO OPTIMIZED PROFILE");
+                    redraw = 1;
+                } else if (start_rc == 3) {
+                    snprintf(optimizer_message, sizeof(optimizer_message),
+                        "PROFILE QUARANTINED - REOPTIMIZE");
+                    redraw = 1;
+                } else if (start_rc < 0) {
+                    snprintf(optimizer_message, sizeof(optimizer_message),
+                        "STRESS TEST START FAILED");
+                    redraw = 1;
+                } else {
+                    snprintf(optimizer_message, sizeof(optimizer_message),
+                        "STARTING STRESS TEST...");
+                    draw_optimizer(&drm, optimizer_selected, 0,
+                        optimizer_message, 0.0);
+                    fprintf(stderr,
+                        "FRONTEND_OPTIMIZER validation requested charger=1\n");
+                    fflush(stderr);
+                    sync();
+                    reboot(RB_AUTOBOOT);
+                }
+
             } else if (action == 2) {
                 if (optimizer_reset_all() < 0) {
                     snprintf(
@@ -3606,6 +3813,18 @@ int main(void)
 
                 } else if (
                     optimizer_selected == 2) {
+
+                    flip_optimizer_result_t result;
+                    if (optimizer_result_load(&result)) {
+                        optimizer_confirm = 3;
+                        optimizer_message[0] = '\0';
+                    } else {
+                        snprintf(optimizer_message, sizeof(optimizer_message),
+                            "NO PROFILE TO STRESS TEST");
+                    }
+
+                } else if (
+                    optimizer_selected == 3) {
 
                     flip_optimizer_result_t result;
 

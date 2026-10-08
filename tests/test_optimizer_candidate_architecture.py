@@ -169,6 +169,35 @@ if 'unlink(\n            FLIP_OPTIMIZER_UI_RETURN_FILE)' in source[source.find("
 if "candidate_uv < FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC" in source:
     errors.append("temperature and voltage limits are mixed up")
 
+for token in [
+    'strcmp(argv[1], "validate-profile")',
+    'FLIP_OPTIMIZER_VALIDATION_ACTIVE',
+    'FLIP_OPTIMIZER_VALIDATION_RESULT',
+    'FLIP_OPTIMIZER_RUNTIME_TOOL',
+    'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply")',
+    'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore")',
+    'opp->optimized_uv',
+    'OPTIMIZER_VALIDATION: OPP_PASS',
+    'OPTIMIZER_VALIDATION: COMPLETE',
+]:
+    if token not in source:
+        errors.append(f"profile validation safety missing: {token}")
+
+validation_start = source.find("static int run_validate_profile")
+validation_end = source.find("static void usage", validation_start)
+validation = source[validation_start:validation_end]
+if validation_start < 0 or validation_end < 0:
+    errors.append("profile validation implementation missing")
+else:
+    if "candidate_uv" in validation:
+        errors.append("profile validator must not use experimental candidate voltages")
+    if "flip_optimizer_calibration_session_prepare" in validation:
+        errors.append("profile validator must not modify calibration search evidence")
+    if "FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS" not in validation:
+        errors.append("profile validator must retain hardware watchdog recovery")
+    if "optimizer_external_power_online()" not in validation:
+        errors.append("profile validator must monitor external power")
+
 if errors:
     for error in errors:
         print(error)
