@@ -122,6 +122,11 @@ reset_block = caltool[reset_start:reset_end]
 if "OPTIMIZER_HISTORY_FILE" in reset_block:
     errors.append("ordinary optimizer reset must not erase hard-failure history")
 
+# A fresh optimization after explicit Reset Optimization has no calibration
+# to snapshot. Snapshot creation must accept that empty baseline.
+if 'if (have_calibration &&\n        (flip_optimizer_calibration_load(&calibration) < 0 ||' not in caltool:
+    errors.append("fresh-start snapshot must allow no existing calibration")
+
 if errors:
     for error in errors:
         print(error)

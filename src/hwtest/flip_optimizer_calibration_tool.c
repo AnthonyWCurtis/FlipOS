@@ -767,13 +767,16 @@ static int snapshot_optimizer_state(void)
     }
 
     if (flip_optimizer_guard_status(&guard) < 0 ||
-        guard.active || guard.stock_only ||
-        flip_optimizer_calibration_load(&calibration) < 0 ||
-        calibration.pending)
+        guard.active || guard.stock_only)
         return -1;
 
     int have_calibration =
         access(FLIP_OPTIMIZER_CALIBRATION_FILE, F_OK) == 0;
+
+    if (have_calibration &&
+        (flip_optimizer_calibration_load(&calibration) < 0 ||
+         calibration.pending))
+        return -1;
     int have_result =
         access(FLIP_OPTIMIZER_RESULT_FILE, F_OK) == 0;
     int have_report =
