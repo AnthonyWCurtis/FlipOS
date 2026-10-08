@@ -86,9 +86,41 @@ for token in [
     'strcmp(argv[1], "discard-snapshot")',
     'strcmp(argv[1], "reset-for-rerun")',
     "copy_file_durable(",
+    "OPTIMIZER_HISTORY_FILE",
+    "append_history_unstable(",
+    "append_history_boundary(",
+    "history_highest_unstable_uv(",
+    "apply_failure_history(",
+    "snapshot_preserved=1",
 ]:
     if token not in caltool:
         errors.append(f"calibration publish/reset safety missing: {token}")
+
+# Historical safety evidence is conservative: only prior unstable events may
+# seed a fresh search. Previous stable results are retained for diagnostics,
+# but must not be trusted as a reason to skip live validation.
+seed_start = caltool.find("static unsigned history_highest_unstable_uv")
+seed_end = caltool.find("static int apply_failure_history", seed_start)
+seed_block = caltool[seed_start:seed_end]
+if seed_start < 0 or seed_end < 0:
+    errors.append("failure-history seed parser missing")
+else:
+    if 'strcmp(event, "unstable") != 0' not in seed_block:
+        errors.append("fresh calibration history must only trust unstable events")
+    if 'strcmp(recorded_device, device_id) != 0' not in seed_block:
+        errors.append("failure history must be scoped to the physical device id")
+
+snapshot_start = caltool.find("static int snapshot_optimizer_state")
+snapshot_end = caltool.find("static int read_snapshot_marker(", snapshot_start + 1)
+snapshot_block = caltool[snapshot_start:snapshot_end]
+if snapshot_start < 0 or 'snapshot_preserved=1' not in snapshot_block:
+    errors.append("unresolved rollback snapshot must be preserved across reruns")
+
+reset_start = caltool.find("static int reset_calibration_state")
+reset_end = caltool.find("static void usage", reset_start)
+reset_block = caltool[reset_start:reset_end]
+if "OPTIMIZER_HISTORY_FILE" in reset_block:
+    errors.append("ordinary optimizer reset must not erase hard-failure history")
 
 if errors:
     for error in errors:

@@ -25,6 +25,8 @@
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-result.previous"
 #define SNAPSHOT_REPORT \
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-report.previous"
+#define OPTIMIZER_HISTORY_FILE \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-history"
 
 static int read_text(
     const char *path,
@@ -362,6 +364,173 @@ static void print_plan(
     }
 }
 
+static int append_history_line(const char *line)
+{
+    if (!line || !line[0])
+        return -1;
+
+    FILE *f = fopen(OPTIMIZER_HISTORY_FILE, "a");
+    if (!f)
+        return -1;
+
+    int failed = fprintf(f, "%s\n", line) < 0;
+    if (!failed && fflush(f) != 0)
+        failed = 1;
+    if (!failed && fsync(fileno(f)) != 0)
+        failed = 1;
+    if (fclose(f) != 0)
+        failed = 1;
+
+    return failed ? -1 : 0;
+}
+
+static int append_history_unstable(
+    const flip_optimizer_calibration_t *calibration,
+    size_t index,
+    unsigned voltage_uv,
+    const char *source)
+{
+    if (!calibration ||
+        index >= calibration->opp_count ||
+        !voltage_uv ||
+        !source || !source[0])
+        return -1;
+
+    time_t now = time(NULL);
+    unsigned epoch =
+        now > 0 && (unsigned long long)now <= 0xffffffffULL
+            ? (unsigned)now
+            : 0;
+
+    char line[512];
+    int n = snprintf(
+        line,
+        sizeof(line),
+        "event=unstable device_id=%s frequency_khz=%u voltage_uv=%u "
+        "epoch=%u source=%s",
+        calibration->device_id,
+        calibration->opps[index].frequency_khz,
+        voltage_uv,
+        epoch,
+        source);
+
+    if (n < 0 || (size_t)n >= sizeof(line))
+        return -1;
+
+    return append_history_line(line);
+}
+
+static int append_history_boundary(
+    const flip_optimizer_calibration_t *calibration,
+    size_t index,
+    unsigned epoch)
+{
+    if (!calibration || index >= calibration->opp_count)
+        return -1;
+
+    const flip_optimizer_calibration_opp_t *opp =
+        &calibration->opps[index];
+
+    char line[640];
+    int n = snprintf(
+        line,
+        sizeof(line),
+        "event=boundary device_id=%s frequency_khz=%u "
+        "lowest_stable_uv=%u highest_unstable_uv=%u raw_final_uv=%u "
+        "tests=%u epoch=%u",
+        calibration->device_id,
+        opp->frequency_khz,
+        opp->lowest_stable_uv,
+        opp->highest_unstable_uv,
+        opp->raw_final_uv,
+        opp->tests_run,
+        epoch);
+
+    if (n < 0 || (size_t)n >= sizeof(line))
+        return -1;
+
+    return append_history_line(line);
+}
+
+static unsigned history_highest_unstable_uv(
+    const char *device_id,
+    unsigned frequency_khz)
+{
+    FILE *f = fopen(OPTIMIZER_HISTORY_FILE, "r");
+    if (!f)
+        return 0;
+
+    unsigned highest = 0;
+    char line[768];
+
+    while (fgets(line, sizeof(line), f)) {
+        char event[32] = {0};
+        char recorded_device[FLIP_OPTIMIZER_DEVICE_ID_MAX] = {0};
+        unsigned recorded_khz = 0;
+        unsigned voltage_uv = 0;
+
+        if (sscanf(
+                line,
+                "event=%31s device_id=%63s frequency_khz=%u voltage_uv=%u",
+                event,
+                recorded_device,
+                &recorded_khz,
+                &voltage_uv) != 4)
+            continue;
+
+        if (strcmp(event, "unstable") != 0 ||
+            strcmp(recorded_device, device_id) != 0 ||
+            recorded_khz != frequency_khz)
+            continue;
+
+        if (voltage_uv > highest)
+            highest = voltage_uv;
+    }
+
+    fclose(f);
+    return highest;
+}
+
+static int apply_failure_history(
+    flip_optimizer_calibration_t *calibration)
+{
+    if (!calibration)
+        return -1;
+
+    for (size_t i = 0; i < calibration->opp_count; ++i) {
+        flip_optimizer_calibration_opp_t *opp =
+            &calibration->opps[i];
+
+        if (opp->complete)
+            continue;
+
+        unsigned known_failed_uv =
+            history_highest_unstable_uv(
+                calibration->device_id,
+                opp->frequency_khz);
+
+        if (!known_failed_uv ||
+            known_failed_uv < opp->floor_uv ||
+            known_failed_uv >= opp->stock_uv)
+            continue;
+
+        opp->highest_unstable_uv = known_failed_uv;
+
+        unsigned gap = opp->lowest_stable_uv - known_failed_uv;
+        if (gap <= calibration->voltage_step_uv) {
+            opp->raw_final_uv = opp->stock_uv;
+            opp->complete = 1;
+        }
+
+        printf(
+            "history_seeded frequency_khz=%u highest_unstable_uv=%u\n",
+            opp->frequency_khz,
+            known_failed_uv);
+    }
+
+    return flip_optimizer_calibration_validate(calibration);
+}
+
 static int make_live_calibration(
     flip_optimizer_calibration_t *calibration)
 {
@@ -522,10 +691,45 @@ static int copy_file_durable(
     return 0;
 }
 
+static int read_snapshot_marker(
+    int *have_calibration,
+    int *have_result,
+    int *have_report);
+
 static int snapshot_optimizer_state(void)
 {
     flip_optimizer_guard_status_t guard;
     flip_optimizer_calibration_t calibration;
+
+    /*
+     * Never replace an unresolved rollback snapshot. If a previous restore
+     * failed, that snapshot is still the last known-good state and must
+     * survive subsequent UI retries until it is restored or superseded by
+     * a fully completed/published optimization.
+     */
+    if (access(SNAPSHOT_MARKER, F_OK) == 0) {
+        int have_calibration = 0;
+        int have_result = 0;
+        int have_report = 0;
+
+        if (read_snapshot_marker(
+                &have_calibration,
+                &have_result,
+                &have_report) < 0)
+            return -1;
+
+        if ((have_calibration &&
+             access(SNAPSHOT_CALIBRATION, F_OK) != 0) ||
+            (have_result &&
+             access(SNAPSHOT_RESULT, F_OK) != 0) ||
+            (have_report &&
+             access(SNAPSHOT_REPORT, F_OK) != 0))
+            return -1;
+
+        printf("snapshot_preserved=1\n");
+        printf("snapshot_has_result=%d\n", have_result);
+        return 0;
+    }
 
     if (flip_optimizer_guard_status(&guard) < 0 ||
         guard.active || guard.stock_only ||
@@ -764,6 +968,17 @@ static int publish_completed_calibration(void)
     if (failed)
         return -1;
 
+    for (size_t i = 0; i < calibration.opp_count; ++i) {
+        if (append_history_boundary(
+                &calibration,
+                i,
+                result.calibrated_epoch) < 0)
+            fprintf(
+                stderr,
+                "optimizer history: boundary write failed frequency_khz=%u\n",
+                calibration.opps[i].frequency_khz);
+    }
+
     printf("published=1\n");
     printf("result=%s\n", FLIP_OPTIMIZER_RESULT_FILE);
     printf("report=%s\n", FLIP_OPTIMIZER_REPORT_FILE);
@@ -831,6 +1046,7 @@ int main(int argc, char **argv)
         flip_optimizer_calibration_t calibration;
 
         if (make_live_calibration(&calibration) < 0 ||
+            apply_failure_history(&calibration) < 0 ||
             flip_optimizer_calibration_save(
                 &calibration) < 0)
             return EXIT_FAILURE;
@@ -920,14 +1136,38 @@ int main(int argc, char **argv)
         flip_optimizer_calibration_t calibration;
         int reconcile = -1;
         int released = 0;
+        int had_pending = 0;
+        size_t pending_index = 0;
+        unsigned pending_uv = 0;
 
         if (flip_optimizer_calibration_load(
-                &calibration) < 0 ||
-            flip_optimizer_calibration_session_recover_boot(
+                &calibration) < 0)
+            return EXIT_FAILURE;
+
+        had_pending = calibration.pending;
+        if (had_pending) {
+            pending_index = calibration.pending_index;
+            pending_uv = calibration.pending_uv;
+        }
+
+        if (flip_optimizer_calibration_session_recover_boot(
                 &calibration,
                 &reconcile,
                 &released) < 0)
             return EXIT_FAILURE;
+
+        if (reconcile == FLIP_OPTIMIZER_RECONCILE_ROLLED_BACK &&
+            had_pending &&
+            append_history_unstable(
+                &calibration,
+                pending_index,
+                pending_uv,
+                "boot-rollback") < 0)
+            fprintf(
+                stderr,
+                "optimizer history: rollback write failed frequency_khz=%u voltage_uv=%u\n",
+                calibration.opps[pending_index].frequency_khz,
+                pending_uv);
 
         printf("reconcile=%d\n", reconcile);
         printf(
