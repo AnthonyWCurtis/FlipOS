@@ -5,6 +5,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -14,6 +16,15 @@
 #define MODEL_PATH "/proc/device-tree/model"
 #define REGULATOR_ROOT "/sys/class/regulator"
 #define CPU_OPP_ROOT "/sys/kernel/debug/opp/cpu0"
+
+#define SNAPSHOT_MARKER \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/rollback-snapshot"
+#define SNAPSHOT_CALIBRATION \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-calibration.previous"
+#define SNAPSHOT_RESULT \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-result.previous"
+#define SNAPSHOT_REPORT \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-report.previous"
 
 static int read_text(
     const char *path,
@@ -432,6 +443,253 @@ static int print_status(void)
     return 0;
 }
 
+static int copy_file_durable(
+    const char *source,
+    const char *destination)
+{
+    char temp[512];
+    int n = snprintf(
+        temp,
+        sizeof(temp),
+        "%s.tmp",
+        destination);
+    if (n < 0 || (size_t)n >= sizeof(temp))
+        return -1;
+
+    int in = open(source, O_RDONLY | O_CLOEXEC);
+    if (in < 0)
+        return -1;
+
+    int out = open(
+        temp,
+        O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+        0644);
+    if (out < 0) {
+        close(in);
+        return -1;
+    }
+
+    char buffer[4096];
+    int failed = 0;
+
+    for (;;) {
+        ssize_t got = read(in, buffer, sizeof(buffer));
+        if (got == 0)
+            break;
+        if (got < 0) {
+            if (errno == EINTR)
+                continue;
+            failed = 1;
+            break;
+        }
+
+        char *cursor = buffer;
+        ssize_t left = got;
+        while (left > 0) {
+            ssize_t wrote = write(out, cursor, (size_t)left);
+            if (wrote < 0) {
+                if (errno == EINTR)
+                    continue;
+                failed = 1;
+                break;
+            }
+            cursor += wrote;
+            left -= wrote;
+        }
+
+        if (failed)
+            break;
+    }
+
+    if (!failed && fsync(out) < 0)
+        failed = 1;
+
+    if (close(in) < 0)
+        failed = 1;
+    if (close(out) < 0)
+        failed = 1;
+
+    if (failed) {
+        (void)unlink(temp);
+        return -1;
+    }
+
+    if (rename(temp, destination) < 0) {
+        (void)unlink(temp);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int snapshot_optimizer_state(void)
+{
+    flip_optimizer_guard_status_t guard;
+    flip_optimizer_calibration_t calibration;
+
+    if (flip_optimizer_guard_status(&guard) < 0 ||
+        guard.active || guard.stock_only ||
+        flip_optimizer_calibration_load(&calibration) < 0 ||
+        calibration.pending)
+        return -1;
+
+    int have_calibration =
+        access(FLIP_OPTIMIZER_CALIBRATION_FILE, F_OK) == 0;
+    int have_result =
+        access(FLIP_OPTIMIZER_RESULT_FILE, F_OK) == 0;
+    int have_report =
+        access(FLIP_OPTIMIZER_REPORT_FILE, F_OK) == 0;
+
+    if (have_calibration &&
+        copy_file_durable(
+            FLIP_OPTIMIZER_CALIBRATION_FILE,
+            SNAPSHOT_CALIBRATION) < 0)
+        return -1;
+
+    if (have_result &&
+        copy_file_durable(
+            FLIP_OPTIMIZER_RESULT_FILE,
+            SNAPSHOT_RESULT) < 0)
+        return -1;
+
+    if (have_report &&
+        copy_file_durable(
+            FLIP_OPTIMIZER_REPORT_FILE,
+            SNAPSHOT_REPORT) < 0)
+        return -1;
+
+    FILE *marker_file = fopen(SNAPSHOT_MARKER ".tmp", "w");
+    if (!marker_file)
+        return -1;
+
+    int failed = fprintf(
+        marker_file,
+        "version=1\ncalibration=%d\nresult=%d\nreport=%d\n",
+        have_calibration,
+        have_result,
+        have_report) < 0;
+
+    if (fflush(marker_file) != 0 ||
+        fsync(fileno(marker_file)) != 0 ||
+        fclose(marker_file) != 0)
+        failed = 1;
+
+    if (failed ||
+        rename(SNAPSHOT_MARKER ".tmp", SNAPSHOT_MARKER) < 0) {
+        (void)unlink(SNAPSHOT_MARKER ".tmp");
+        return -1;
+    }
+
+    printf("snapshot_created=1\n");
+    printf("snapshot_has_result=%d\n", have_result);
+    return 0;
+}
+
+static int read_snapshot_marker(
+    int *have_calibration,
+    int *have_result,
+    int *have_report)
+{
+    FILE *f = fopen(SNAPSHOT_MARKER, "r");
+    if (!f)
+        return -1;
+
+    int version = 0;
+    int c = 0, r = 0, p = 0;
+    char line[128];
+
+    while (fgets(line, sizeof(line), f)) {
+        (void)sscanf(line, "version=%d", &version);
+        (void)sscanf(line, "calibration=%d", &c);
+        (void)sscanf(line, "result=%d", &r);
+        (void)sscanf(line, "report=%d", &p);
+    }
+
+    int failed = ferror(f);
+    fclose(f);
+
+    if (failed || version != 1 ||
+        (c != 0 && c != 1) ||
+        (r != 0 && r != 1) ||
+        (p != 0 && p != 1))
+        return -1;
+
+    *have_calibration = c;
+    *have_result = r;
+    *have_report = p;
+    return 0;
+}
+
+static int discard_optimizer_snapshot(void)
+{
+    const char *paths[] = {
+        SNAPSHOT_CALIBRATION,
+        SNAPSHOT_RESULT,
+        SNAPSHOT_REPORT,
+        SNAPSHOT_MARKER,
+    };
+
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i) {
+        if (unlink(paths[i]) < 0 && errno != ENOENT)
+            return -1;
+    }
+
+    return 0;
+}
+
+static int restore_optimizer_snapshot(void)
+{
+    flip_optimizer_guard_status_t guard;
+    int have_calibration = 0;
+    int have_result = 0;
+    int have_report = 0;
+
+    if (flip_optimizer_guard_status(&guard) < 0 ||
+        guard.active || guard.stock_only ||
+        read_snapshot_marker(
+            &have_calibration,
+            &have_result,
+            &have_report) < 0)
+        return -1;
+
+    if (have_calibration) {
+        if (copy_file_durable(
+                SNAPSHOT_CALIBRATION,
+                FLIP_OPTIMIZER_CALIBRATION_FILE) < 0)
+            return -1;
+    } else if (unlink(FLIP_OPTIMIZER_CALIBRATION_FILE) < 0 &&
+               errno != ENOENT) {
+        return -1;
+    }
+
+    if (have_result) {
+        if (copy_file_durable(
+                SNAPSHOT_RESULT,
+                FLIP_OPTIMIZER_RESULT_FILE) < 0)
+            return -1;
+    } else if (unlink(FLIP_OPTIMIZER_RESULT_FILE) < 0 &&
+               errno != ENOENT) {
+        return -1;
+    }
+
+    if (have_report) {
+        if (copy_file_durable(
+                SNAPSHOT_REPORT,
+                FLIP_OPTIMIZER_REPORT_FILE) < 0)
+            return -1;
+    } else if (unlink(FLIP_OPTIMIZER_REPORT_FILE) < 0 &&
+               errno != ENOENT) {
+        return -1;
+    }
+
+    if (discard_optimizer_snapshot() < 0)
+        return -1;
+
+    printf("snapshot_restored=1\n");
+    printf("restored_result=%d\n", have_result);
+    return 0;
+}
+
 static int publish_completed_calibration(void)
 {
     flip_optimizer_calibration_t calibration;
@@ -512,7 +770,7 @@ static int publish_completed_calibration(void)
     return 0;
 }
 
-static int reset_calibration_state(void)
+static int reset_calibration_state(int discard_snapshot)
 {
     flip_optimizer_guard_status_t guard;
 
@@ -533,6 +791,10 @@ static int reset_calibration_state(void)
         errno != ENOENT)
         return -1;
 
+    if (discard_snapshot &&
+        discard_optimizer_snapshot() < 0)
+        return -1;
+
     printf("optimizer_reset=1\n");
     return 0;
 }
@@ -543,7 +805,8 @@ static void usage(const char *program)
         stderr,
         "usage: %s probe | init | status | prepare | ready | "
         "reconcile | recover-boot | cancel-unapplied | confirm-stable | "
-        "preserve-stock-low | publish | reset | clear-stock-only\n",
+        "preserve-stock-low | publish | snapshot | restore-snapshot | "
+        "discard-snapshot | reset-for-rerun | reset | clear-stock-only\n",
         program);
 }
 
@@ -724,8 +987,28 @@ int main(int argc, char **argv)
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
 
+    if (strcmp(argv[1], "snapshot") == 0)
+        return snapshot_optimizer_state() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+
+    if (strcmp(argv[1], "restore-snapshot") == 0)
+        return restore_optimizer_snapshot() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+
+    if (strcmp(argv[1], "discard-snapshot") == 0)
+        return discard_optimizer_snapshot() == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+
+    if (strcmp(argv[1], "reset-for-rerun") == 0)
+        return reset_calibration_state(0) == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+
     if (strcmp(argv[1], "reset") == 0)
-        return reset_calibration_state() == 0
+        return reset_calibration_state(1) == 0
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
 

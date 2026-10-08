@@ -100,6 +100,37 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     fi
 fi
 
+optimizer_external_power_online() {
+    USB_ONLINE=0
+    AC_ONLINE=0
+    [ ! -r /sys/class/power_supply/usb/online ] || USB_ONLINE=$(cat /sys/class/power_supply/usb/online 2>/dev/null || echo 0)
+    [ ! -r /sys/class/power_supply/ac/online ] || AC_ONLINE=$(cat /sys/class/power_supply/ac/online 2>/dev/null || echo 0)
+    [ "$USB_ONLINE" = "1" ] || [ "$AC_ONLINE" = "1" ]
+}
+
+# A UI-started optimization uses charger presence as a physical cancel switch.
+# Restore the previous known-good optimizer snapshot only after all boot
+# recovery/guard settlement has completed, never inside the dangerous window.
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ -f "$ROOT/state/optimizer/ui-return" ] && \
+   [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
+   ! optimizer_external_power_online; then
+    echo "OPTIMIZER_UI: charger absent at boot; restoring previous snapshot" >> "$LOG_TARGET"
+
+    if [ -x "$ROOT/bin/flip-optimizer-session" ]; then
+        "$ROOT/bin/flip-optimizer-session" stop >> "$LOG_TARGET" 2>&1 || true
+    fi
+
+    if "$ROOT/bin/flip-optimizer-calibration" restore-snapshot >> "$LOG_TARGET" 2>&1; then
+        rm -f "$ROOT/state/optimizer/ui-return"
+        sync
+        echo "OPTIMIZER_UI: previous optimizer state restored; normal frontend boot" >> "$LOG_TARGET"
+    else
+        echo "OPTIMIZER_UI: snapshot restore failed; keeping UI marker for inspection" >> "$LOG_TARGET"
+        printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+    fi
+fi
+
 OPTIMIZER_PROGRESS_PID=""
 if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -f "$ROOT/state/optimizer/ui-return" ] && \
@@ -125,7 +156,8 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
          "$ROOT/bin/flip-optimizer-session" status 2>/dev/null | grep -q '^session_present=0$' && \
          "$ROOT/bin/flip-optimizer-calibration" status 2>/dev/null | grep -q '^complete_opps=8$'; then
         if "$ROOT/bin/flip-optimizer-calibration" publish >> "$LOG_TARGET" 2>&1; then
-            echo "OPTIMIZER_SESSION: completed profile published" >> "$LOG_TARGET"
+            "$ROOT/bin/flip-optimizer-calibration" discard-snapshot >> "$LOG_TARGET" 2>&1 || true
+            echo "OPTIMIZER_SESSION: completed profile published; previous snapshot discarded" >> "$LOG_TARGET"
         else
             echo "OPTIMIZER_SESSION: completed profile publish failed" >> "$LOG_TARGET"
         fi

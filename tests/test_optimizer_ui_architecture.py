@@ -19,6 +19,9 @@ for token in [
     "battery < 30",
     "OPTIMIZER_UI_RETURN_PATH",
     '"start",\n            "20"',
+    '"snapshot"',
+    '"reset-for-rerun"',
+    '"restore-snapshot"',
 ]:
     if token not in frontend:
         errors.append(f"frontend optimizer UX missing: {token}")
@@ -51,7 +54,10 @@ for token in [
     '"$ROOT/bin/flip-optimizer-progress"',
     "OPTIMIZER_PROGRESS_PID",
     '"$ROOT/bin/flip-optimizer-calibration" publish',
-    "OPTIMIZER_SESSION: completed profile published",
+    "OPTIMIZER_SESSION: completed profile published; previous snapshot discarded",
+    "restoring previous snapshot",
+    '"$ROOT/bin/flip-optimizer-calibration" restore-snapshot',
+    '"$ROOT/bin/flip-optimizer-calibration" discard-snapshot',
 ]:
     if token not in updater:
         errors.append(f"updater optimizer UX hook missing: {token}")
@@ -75,6 +81,11 @@ for token in [
     "flip_optimizer_save(&result)",
     "guard.active",
     "guard.stock_only",
+    'strcmp(argv[1], "snapshot")',
+    'strcmp(argv[1], "restore-snapshot")',
+    'strcmp(argv[1], "discard-snapshot")',
+    'strcmp(argv[1], "reset-for-rerun")',
+    "copy_file_durable(",
 ]:
     if token not in caltool:
         errors.append(f"calibration publish/reset safety missing: {token}")

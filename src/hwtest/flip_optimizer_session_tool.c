@@ -311,10 +311,6 @@ static int boot_resume(void)
         if (clear_session() < 0)
             return -1;
 
-        if (unlink(UI_RETURN_FILE) < 0 &&
-            errno != ENOENT)
-            return -1;
-
         return fsync_parent();
     }
 

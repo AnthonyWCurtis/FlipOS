@@ -1316,24 +1316,52 @@ static int optimizer_start_fresh(void)
 
     if (optimizer_run_tool(
             OPTIMIZER_CALIBRATION_TOOL,
-            "reset",
+            "snapshot",
             NULL) < 0)
         return -1;
 
     if (optimizer_run_tool(
             OPTIMIZER_CALIBRATION_TOOL,
-            "init",
-            NULL) < 0)
+            "reset-for-rerun",
+            NULL) < 0) {
+        (void)optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "restore-snapshot",
+            NULL);
         return -1;
+    }
 
-    if (optimizer_write_return_marker() < 0)
+    if (optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "init",
+            NULL) < 0) {
+        (void)optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "restore-snapshot",
+            NULL);
         return -1;
+    }
+
+    if (optimizer_write_return_marker() < 0) {
+        (void)optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "restore-snapshot",
+            NULL);
+        return -1;
+    }
 
     if (optimizer_run_tool(
             OPTIMIZER_SESSION_TOOL,
             "start",
-            "20") < 0)
+            "20") < 0) {
+        (void)unlink(
+            OPTIMIZER_UI_RETURN_PATH);
+        (void)optimizer_run_tool(
+            OPTIMIZER_CALIBRATION_TOOL,
+            "restore-snapshot",
+            NULL);
         return -1;
+    }
 
     sync();
     return 0;

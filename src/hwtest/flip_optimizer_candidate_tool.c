@@ -204,11 +204,6 @@ static int clear_ui_optimizer_session_files(void)
         errno != ENOENT)
         failed = 1;
 
-    if (unlink(
-            FLIP_OPTIMIZER_UI_RETURN_FILE) < 0 &&
-        errno != ENOENT)
-        failed = 1;
-
     return failed ? -1 : 0;
 }
 

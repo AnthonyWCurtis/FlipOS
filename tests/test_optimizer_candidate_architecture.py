@@ -162,6 +162,10 @@ if "confirm_stable" in power_settle or "confirm_unstable" in power_settle:
         "charger cancellation must never classify voltage stable/unstable"
     )
 
+
+if 'unlink(\n            FLIP_OPTIMIZER_UI_RETURN_FILE)' in source[source.find("static int clear_ui_optimizer_session_files"):source.find("static int make_opp_supply_path")]:
+    errors.append("live charger cancel must preserve ui-return for boot rollback")
+
 if "candidate_uv < FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC" in source:
     errors.append("temperature and voltage limits are mixed up")
 
