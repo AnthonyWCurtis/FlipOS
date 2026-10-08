@@ -89,26 +89,10 @@ for token in [
     "OPTIMIZER_HISTORY_FILE",
     "append_history_unstable(",
     "append_history_boundary(",
-    "history_highest_unstable_uv(",
-    "apply_failure_history(",
     "snapshot_preserved=1",
 ]:
     if token not in caltool:
         errors.append(f"calibration publish/reset safety missing: {token}")
-
-# Historical safety evidence is conservative: only prior unstable events may
-# seed a fresh search. Previous stable results are retained for diagnostics,
-# but must not be trusted as a reason to skip live validation.
-seed_start = caltool.find("static unsigned history_highest_unstable_uv")
-seed_end = caltool.find("static int apply_failure_history", seed_start)
-seed_block = caltool[seed_start:seed_end]
-if seed_start < 0 or seed_end < 0:
-    errors.append("failure-history seed parser missing")
-else:
-    if 'strcmp(event, "unstable") != 0' not in seed_block:
-        errors.append("fresh calibration history must only trust unstable events")
-    if 'strcmp(recorded_device, device_id) != 0' not in seed_block:
-        errors.append("failure history must be scoped to the physical device id")
 
 snapshot_start = caltool.find("static int snapshot_optimizer_state")
 snapshot_end = caltool.find("static int read_snapshot_marker(", snapshot_start + 1)
@@ -126,6 +110,12 @@ if "OPTIMIZER_HISTORY_FILE" in reset_block:
 # to snapshot. Snapshot creation must accept that empty baseline.
 if 'if (have_calibration &&\n        (flip_optimizer_calibration_load(&calibration) < 0 ||' not in caltool:
     errors.append("fresh-start snapshot must allow no existing calibration")
+
+init_start = caltool.find('if (strcmp(argv[1], "init") == 0)')
+init_end = caltool.find('if (strcmp(argv[1], "status") == 0)', init_start)
+init_block = caltool[init_start:init_end]
+if "apply_failure_history(" in init_block:
+    errors.append("historical evidence must not influence fresh calibration candidate selection")
 
 if errors:
     for error in errors:
