@@ -159,21 +159,11 @@ VALIDATION_ACTIVE="$ROOT/state/optimizer/validation-active"
 VALIDATION_RESULT="$ROOT/state/optimizer/validation-result"
 VALIDATION_RETURN="$ROOT/state/optimizer/validation-return"
 
-# The runtime voltage module disappears on reboot, so a surviving active marker
-# means the previous gameplay session ended without a clean restore. Quarantine
-# the published profile instead of automatically risking it again.
-if [ "$SD_WRITABLE" -eq 1 ] && [ -f "$RUNTIME_ACTIVE_MARKER" ]; then
-    mv -f "$RUNTIME_ACTIVE_MARKER" "$RUNTIME_QUARANTINE_MARKER"
-    sync
-    echo "OPTIMIZER_RUNTIME: stale active marker quarantined; gameplay will use stock voltages" >> "$LOG_TARGET"
-fi
-
-# A validator that reboots unexpectedly leaves both validation-active and the
-# runtime active marker. The runtime marker above becomes quarantine; convert
-# that combination into an explicit hard-recovery validation failure.
-if [ "$SD_WRITABLE" -eq 1 ] && \
-   [ -f "$VALIDATION_ACTIVE" ] && \
-   [ -f "$RUNTIME_QUARANTINE_MARKER" ]; then
+# validation-active is a durable hazard marker written before the live runtime
+# OPP table is installed. If it survives a reboot, validation ended abnormally.
+# Treat that as the authoritative classification before considering the generic
+# gameplay runtime marker.
+if [ "$SD_WRITABLE" -eq 1 ] && [ -f "$VALIDATION_ACTIVE" ]; then
     CAL_EPOCH=$(sed -n 's/^calibrated_epoch=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
     [ -n "$CAL_EPOCH" ] || CAL_EPOCH=0
     NOW_EPOCH=$(date +%s 2>/dev/null || echo 0)
@@ -187,9 +177,21 @@ seconds_per_opp=0
 max_temp_mc=0
 EOF
     mv -f "$VALIDATION_RESULT.tmp" "$VALIDATION_RESULT"
-    rm -f "$VALIDATION_ACTIVE" "$VALIDATION_REQUEST"
+    rm -f "$VALIDATION_ACTIVE" "$VALIDATION_REQUEST" "$RUNTIME_ACTIVE_MARKER"
+    : > "$RUNTIME_QUARANTINE_MARKER"
     sync
     echo "OPTIMIZER_VALIDATION: hard recovery detected; profile quarantined" >> "$LOG_TARGET"
+fi
+
+# Outside validation, the runtime voltage module disappears on reboot, so a
+# surviving gameplay active marker means the previous game session ended
+# without a clean restore. Quarantine the profile before gameplay can reuse it.
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ ! -f "$VALIDATION_ACTIVE" ] && \
+   [ -f "$RUNTIME_ACTIVE_MARKER" ]; then
+    mv -f "$RUNTIME_ACTIVE_MARKER" "$RUNTIME_QUARANTINE_MARKER"
+    sync
+    echo "OPTIMIZER_RUNTIME: stale active marker quarantined; gameplay will use stock voltages" >> "$LOG_TARGET"
 fi
 
 # UI-requested profile validation runs before the interactive frontend so the

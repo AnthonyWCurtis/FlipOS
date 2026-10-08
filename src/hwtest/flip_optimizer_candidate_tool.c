@@ -2732,8 +2732,7 @@ static int run_validate_profile(unsigned seconds_per_opp)
             FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
             FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
         wait_for_frequency(
-            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
-        run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply") < 0) {
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0) {
         if (original_valid)
             (void)flip_cpu_policy_restore(&original);
         (void)write_validation_state_file(
@@ -2748,7 +2747,6 @@ static int run_validate_profile(unsigned seconds_per_opp)
         sync();
         return -1;
     }
-    runtime_applied = 1;
     flip_optimizer_quiesce_t quiesce = {0};
     flip_optimizer_panic_policy_t panic_policy = {0};
     flip_optimizer_hw_watchdog_t hw_watchdog = {.fd = -1};
@@ -2799,6 +2797,22 @@ static int run_validate_profile(unsigned seconds_per_opp)
     if (arm_deadman(
             total_seconds + FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS,
             &deadman_pid) < 0)
+        emergency_reboot();
+
+    /*
+     * Only expose the optimized OPP table after the complete recovery
+     * envelope is armed. validation-active is already durable, so the
+     * validation path deliberately does not create the gameplay runtime
+     * active marker. A reboot with validation-active still present is
+     * sufficient evidence of a hard validation recovery.
+     */
+    if (run_child_tool(
+            FLIP_OPTIMIZER_RUNTIME_TOOL,
+            "apply-validation") < 0)
+        emergency_reboot();
+    runtime_applied = 1;
+
+    if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
         emergency_reboot();
 
     printf(

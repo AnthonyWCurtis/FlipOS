@@ -360,7 +360,7 @@ static int runtime_preconditions(
     return 0;
 }
 
-static int apply_profile(void)
+static int apply_profile(int write_marker)
 {
     flip_optimizer_result_t result;
     flip_cpu_policy_snapshot_t snapshot;
@@ -416,7 +416,7 @@ out:
     if (parked && flip_cpu_policy_restore(&snapshot) < 0)
         rc = -1;
 
-    if (rc == 0) {
+    if (rc == 0 && write_marker) {
         if (write_runtime_active_marker(&result) < 0) {
             if (module_loaded()) {
                 flip_cpu_policy_snapshot_t cleanup_snapshot;
@@ -429,8 +429,12 @@ out:
             return -1;
         }
 
+    }
+
+    if (rc == 0) {
         printf("runtime_profile_applied=1\n");
         printf("optimized_opps=%u\n", applied);
+        printf("runtime_marker_written=%d\n", write_marker ? 1 : 0);
     }
 
     return rc;
@@ -459,7 +463,7 @@ static int print_status(void)
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "usage: %s apply | restore | status\n", program);
+    fprintf(stderr, "usage: %s apply | apply-validation | restore | status\n", program);
 }
 
 int main(int argc, char **argv)
@@ -470,7 +474,10 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "apply") == 0)
-        return apply_profile() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+        return apply_profile(1) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+
+    if (strcmp(argv[1], "apply-validation") == 0)
+        return apply_profile(0) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 
     if (strcmp(argv[1], "restore") == 0)
         return restore_loaded_profile() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

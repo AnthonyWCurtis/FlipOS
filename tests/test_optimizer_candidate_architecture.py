@@ -174,7 +174,7 @@ for token in [
     'FLIP_OPTIMIZER_VALIDATION_ACTIVE',
     'FLIP_OPTIMIZER_VALIDATION_RESULT',
     'FLIP_OPTIMIZER_RUNTIME_TOOL',
-    'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply")',
+    '"apply-validation"',
     'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore")',
     'opp->optimized_uv',
     'OPTIMIZER_VALIDATION: OPP_PASS',
@@ -203,9 +203,7 @@ else:
     park_before_apply = validation.find(
         "flip_cpu_policy_set_limits(\n            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ"
     )
-    apply_pos = validation.find(
-        'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply")'
-    )
+    apply_pos = validation.find('"apply-validation"')
     watchdog_pos = validation.find(
         "flip_optimizer_hw_watchdog_arm("
     )
@@ -223,11 +221,27 @@ else:
     if min(park_before_apply, apply_pos, watchdog_pos, opp_begin_pos, restore_pos, policy_restore_pos) < 0:
         errors.append("profile validator parking/apply/restore sequence incomplete")
     elif not (
-        park_before_apply < apply_pos < watchdog_pos < opp_begin_pos < restore_pos < policy_restore_pos
+        park_before_apply < watchdog_pos < apply_pos < opp_begin_pos < restore_pos < policy_restore_pos
     ):
         errors.append(
-            "profile validation must park -> apply -> arm recovery -> stress -> restore table -> restore policy"
+            "profile validation must park -> arm recovery -> apply -> stress -> restore table -> restore policy"
         )
+
+# Validation must not expose the optimized table before the full recovery
+# envelope is armed, and it must use its own durable validation marker rather
+# than the gameplay runtime-active marker.
+validation = source[source.find("static int run_validate_profile"):source.find("static void usage")]
+active_pos = validation.find("FLIP_OPTIMIZER_VALIDATION_ACTIVE")
+watchdog_pos = validation.find("flip_optimizer_hw_watchdog_arm")
+deadman_pos = validation.find("arm_deadman(")
+apply_validation_pos = validation.find('"apply-validation"')
+begin_pos = validation.find('"OPTIMIZER_VALIDATION: BEGIN')
+if min(active_pos, watchdog_pos, deadman_pos, apply_validation_pos, begin_pos) < 0:
+    errors.append("validation protected apply sequence missing")
+elif not (active_pos < watchdog_pos < deadman_pos < apply_validation_pos < begin_pos):
+    errors.append("validation must arm durable/recovery state before applying optimized table")
+if 'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply")' in validation:
+    errors.append("validation must not use gameplay runtime marker apply path")
 
 if errors:
     for error in errors:

@@ -143,6 +143,11 @@ session_gate_pos = updater.rfind('[ "$OPTIMIZER_SESSION_WAS_PRESENT" -eq 1 ]', 0
 if clear_quarantine_pos < 0 or session_gate_pos < 0:
     errors.append("runtime quarantine clear must be gated by a pre-existing optimizer session")
 
+validation_active_pos = updater.find('[ -f "$VALIDATION_ACTIVE" ]')
+runtime_stale_pos = updater.find('OPTIMIZER_RUNTIME: stale active marker quarantined')
+if min(validation_active_pos, runtime_stale_pos) < 0 or validation_active_pos >= runtime_stale_pos:
+    errors.append("boot must classify validation-active before generic runtime stale marker")
+
 if errors:
     for error in errors:
         print(error)
