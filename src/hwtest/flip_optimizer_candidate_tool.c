@@ -2607,6 +2607,48 @@ static int run_child_tool(const char *tool, const char *arg)
     return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
 }
 
+static int run_child_tool_with_watchdog(
+    const char *tool,
+    const char *arg,
+    flip_optimizer_hw_watchdog_t *hw_watchdog)
+{
+    if (!tool || !arg || !hw_watchdog || !hw_watchdog->armed)
+        return -1;
+
+    pid_t pid = fork();
+    if (pid < 0)
+        return -1;
+
+    if (pid == 0) {
+        execl(tool, tool, arg, (char *)NULL);
+        _exit(127);
+    }
+
+    const struct timespec delay = {
+        .tv_sec = 0,
+        .tv_nsec = 100 * 1000 * 1000,
+    };
+
+    int status = 0;
+    for (;;) {
+        pid_t rc = waitpid(pid, &status, WNOHANG);
+        if (rc == pid)
+            break;
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -1;
+        }
+
+        if (flip_optimizer_hw_watchdog_ping(hw_watchdog) < 0)
+            emergency_reboot();
+
+        nanosleep(&delay, NULL);
+    }
+
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+}
+
 static int write_validation_state_file(
     const char *path,
     const char *status,
@@ -2806,13 +2848,32 @@ static int run_validate_profile(unsigned seconds_per_opp)
      * active marker. A reboot with validation-active still present is
      * sufficient evidence of a hard validation recovery.
      */
-    if (run_child_tool(
+    if (write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "applying-profile",
+            &result,
+            0,
+            seconds_per_opp,
+            0) < 0)
+        emergency_reboot();
+
+    if (run_child_tool_with_watchdog(
             FLIP_OPTIMIZER_RUNTIME_TOOL,
-            "apply-validation") < 0)
+            "apply-validation",
+            &hw_watchdog) < 0)
         emergency_reboot();
     runtime_applied = 1;
 
     if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
+        emergency_reboot();
+
+    if (write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "profile-applied",
+            &result,
+            0,
+            seconds_per_opp,
+            0) < 0)
         emergency_reboot();
 
     printf(
@@ -2834,6 +2895,26 @@ static int run_validate_profile(unsigned seconds_per_opp)
             power_cancelled = 1;
             break;
         }
+
+        char validation_stage[64];
+        int stage_n = snprintf(
+            validation_stage,
+            sizeof(validation_stage),
+            "entering-%u",
+            opp->frequency_khz);
+        if (stage_n < 0 ||
+            (size_t)stage_n >= sizeof(validation_stage) ||
+            write_validation_state_file(
+                FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+                validation_stage,
+                &result,
+                tested_opps,
+                seconds_per_opp,
+                global_max_temp) < 0)
+            emergency_reboot();
+
+        if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
+            emergency_reboot();
 
         if (flip_cpu_policy_set_limits(
                 opp->frequency_khz,
@@ -2911,6 +2992,20 @@ static int run_validate_profile(unsigned seconds_per_opp)
             tested_opps,
             total_opps);
         fflush(stdout);
+
+        /*
+         * Always return to the stock-preserved parking OPP between test
+         * points. The next loop iteration may durably update validation
+         * progress; never perform that SD write while still running at an
+         * undervolted performance OPP.
+         */
+        if (flip_cpu_policy_set_limits(
+                FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
+                FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
+            wait_for_frequency(
+                FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
+            flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
+            emergency_reboot();
     }
 
     /*
@@ -2929,7 +3024,10 @@ static int run_validate_profile(unsigned seconds_per_opp)
         emergency_reboot();
 
     if (runtime_applied &&
-        run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore") < 0)
+        run_child_tool_with_watchdog(
+            FLIP_OPTIMIZER_RUNTIME_TOOL,
+            "restore",
+            &hw_watchdog) < 0)
         emergency_reboot();
     runtime_applied = 0;
 

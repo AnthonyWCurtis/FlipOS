@@ -175,7 +175,7 @@ for token in [
     'FLIP_OPTIMIZER_VALIDATION_RESULT',
     'FLIP_OPTIMIZER_RUNTIME_TOOL',
     '"apply-validation"',
-    'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore")',
+    'run_child_tool_with_watchdog(',
     'opp->optimized_uv',
     'OPTIMIZER_VALIDATION: OPP_PASS',
     'OPTIMIZER_VALIDATION: COMPLETE',
@@ -199,6 +199,10 @@ else:
         errors.append("profile validator must monitor external power")
     if "FLIP_OPTIMIZER_VALIDATION_PARK_KHZ" not in validation:
         errors.append("profile validator must use stock-preserved parking OPP")
+    if "run_child_tool_with_watchdog(" not in validation:
+        errors.append("profile validator child operations must service hardware watchdog")
+    if validation.count("FLIP_OPTIMIZER_VALIDATION_PARK_KHZ") < 4:
+        errors.append("profile validator must park at stock-safe OPP between validation points")
 
     park_before_apply = validation.find(
         "flip_cpu_policy_set_limits(\n            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ"
@@ -211,7 +215,7 @@ else:
         '"OPTIMIZER_VALIDATION: OPP_BEGIN'
     )
     restore_pos = validation.find(
-        'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore")'
+        'run_child_tool_with_watchdog(\n            FLIP_OPTIMIZER_RUNTIME_TOOL,\n            "restore"'
     )
     policy_restore_pos = validation.find(
         "flip_cpu_policy_restore(&original)",
