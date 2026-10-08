@@ -131,6 +131,18 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
     fi
 fi
 
+RUNTIME_ACTIVE_MARKER="$ROOT/state/optimizer/runtime-profile-active"
+RUNTIME_QUARANTINE_MARKER="$ROOT/state/optimizer/runtime-profile-quarantined"
+
+# The runtime voltage module disappears on reboot, so a surviving active marker
+# means the previous gameplay session ended without a clean restore. Quarantine
+# the published profile instead of automatically risking it again.
+if [ "$SD_WRITABLE" -eq 1 ] && [ -f "$RUNTIME_ACTIVE_MARKER" ]; then
+    mv -f "$RUNTIME_ACTIVE_MARKER" "$RUNTIME_QUARANTINE_MARKER"
+    sync
+    echo "OPTIMIZER_RUNTIME: stale active marker quarantined; gameplay will use stock voltages" >> "$LOG_TARGET"
+fi
+
 OPTIMIZER_PROGRESS_PID=""
 if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -f "$ROOT/state/optimizer/ui-return" ] && \
@@ -157,7 +169,9 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
          "$ROOT/bin/flip-optimizer-calibration" status 2>/dev/null | grep -q '^complete_opps=8$'; then
         if "$ROOT/bin/flip-optimizer-calibration" publish >> "$LOG_TARGET" 2>&1; then
             "$ROOT/bin/flip-optimizer-calibration" discard-snapshot >> "$LOG_TARGET" 2>&1 || true
-            echo "OPTIMIZER_SESSION: completed profile published; previous snapshot discarded" >> "$LOG_TARGET"
+            rm -f "$ROOT/state/optimizer/runtime-profile-quarantined" "$ROOT/state/optimizer/runtime-profile-active"
+            sync
+            echo "OPTIMIZER_SESSION: completed profile published; previous snapshot discarded; runtime quarantine cleared" >> "$LOG_TARGET"
         else
             echo "OPTIMIZER_SESSION: completed profile publish failed" >> "$LOG_TARGET"
         fi

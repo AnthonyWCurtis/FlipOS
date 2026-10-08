@@ -19,6 +19,8 @@
 #define CPUINFO_PATH "/proc/cpuinfo"
 #define SESSION_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/auto-session"
 #define UI_RETURN_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/ui-return"
+#define RUNTIME_ACTIVE_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/runtime-profile-active"
+#define RUNTIME_QUARANTINE_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/runtime-profile-quarantined"
 #define PARK_KHZ 408000U
 
 typedef struct {
@@ -264,6 +266,8 @@ static int apply_one(
     return write_text(RUNTIME_CONTROL, command);
 }
 
+static int clear_runtime_active_marker(void);
+
 static int restore_loaded_profile(void)
 {
     flip_cpu_policy_snapshot_t snapshot;
@@ -288,7 +292,51 @@ static int restore_loaded_profile(void)
 out:
     if (parked && flip_cpu_policy_restore(&snapshot) < 0)
         rc = -1;
+    if (rc == 0 && clear_runtime_active_marker() < 0)
+        rc = -1;
     return rc;
+}
+
+static int write_runtime_active_marker(const flip_optimizer_result_t *result)
+{
+    FILE *f;
+    int failed;
+
+    if (!result)
+        return -1;
+
+    f = fopen(RUNTIME_ACTIVE_FILE ".tmp", "w");
+    if (!f)
+        return -1;
+
+    failed = fprintf(
+        f,
+        "device_id=%s\ncalibrated_epoch=%u\n",
+        result->device_id,
+        result->calibrated_epoch) < 0;
+
+    if (!failed && fflush(f) != 0)
+        failed = 1;
+    if (!failed && fsync(fileno(f)) != 0)
+        failed = 1;
+    if (fclose(f) != 0)
+        failed = 1;
+
+    if (failed || rename(RUNTIME_ACTIVE_FILE ".tmp", RUNTIME_ACTIVE_FILE) < 0) {
+        (void)unlink(RUNTIME_ACTIVE_FILE ".tmp");
+        return -1;
+    }
+
+    sync();
+    return 0;
+}
+
+static int clear_runtime_active_marker(void)
+{
+    if (unlink(RUNTIME_ACTIVE_FILE) < 0 && errno != ENOENT)
+        return -1;
+    sync();
+    return 0;
 }
 
 static int runtime_preconditions(
@@ -300,6 +348,7 @@ static int runtime_preconditions(
     if (!result ||
         access(SESSION_FILE, F_OK) == 0 ||
         access(UI_RETURN_FILE, F_OK) == 0 ||
+        access(RUNTIME_QUARANTINE_FILE, F_OK) == 0 ||
         flip_optimizer_guard_status(&guard) < 0 ||
         guard.active ||
         guard.stock_only ||
@@ -368,6 +417,18 @@ out:
         rc = -1;
 
     if (rc == 0) {
+        if (write_runtime_active_marker(&result) < 0) {
+            if (module_loaded()) {
+                flip_cpu_policy_snapshot_t cleanup_snapshot;
+                if (park_cpu(&cleanup_snapshot) == 0) {
+                    (void)write_text(RUNTIME_CONTROL, "restore-all");
+                    (void)unload_module();
+                    (void)flip_cpu_policy_restore(&cleanup_snapshot);
+                }
+            }
+            return -1;
+        }
+
         printf("runtime_profile_applied=1\n");
         printf("optimized_opps=%u\n", applied);
     }
@@ -381,6 +442,8 @@ static int print_status(void)
 
     if (!module_loaded()) {
         printf("runtime_profile_active=0\n");
+        printf("runtime_profile_marker=%d\n", access(RUNTIME_ACTIVE_FILE, F_OK) == 0);
+        printf("runtime_profile_quarantined=%d\n", access(RUNTIME_QUARANTINE_FILE, F_OK) == 0);
         return 0;
     }
 
@@ -388,6 +451,8 @@ static int print_status(void)
         return -1;
 
     printf("runtime_profile_active=1\n");
+    printf("runtime_profile_marker=%d\n", access(RUNTIME_ACTIVE_FILE, F_OK) == 0);
+    printf("runtime_profile_quarantined=%d\n", access(RUNTIME_QUARANTINE_FILE, F_OK) == 0);
     printf("%s\n", buffer);
     return 0;
 }

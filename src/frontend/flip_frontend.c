@@ -140,6 +140,8 @@ static const char *optimizer_actions[] = {
     FLIP_BIN_ROOT "/flip-optimizer-calibration"
 #define OPTIMIZER_SESSION_TOOL \
     FLIP_BIN_ROOT "/flip-optimizer-session"
+#define OPTIMIZER_RUNTIME_TOOL \
+    FLIP_BIN_ROOT "/flip-optimizer-runtime"
 
 static void stop_handler(int sig)
 {
@@ -2501,6 +2503,17 @@ static int launch_game_once(
         runner,
         rom->path);
 
+    int runtime_profile_applied =
+        optimizer_run_tool(
+            OPTIMIZER_RUNTIME_TOOL,
+            "apply",
+            NULL) == 0;
+
+    fprintf(
+        stderr,
+        "FRONTEND_RUNTIME_PROFILE applied=%d\n",
+        runtime_profile_applied);
+
     if (flip_session_launch(
             drm,
             runner,
@@ -2512,7 +2525,27 @@ static int launch_game_once(
             stderr,
             "FRONTEND_GAME session failed\n");
 
+        if (runtime_profile_applied)
+            (void)optimizer_run_tool(
+                OPTIMIZER_RUNTIME_TOOL,
+                "restore",
+                NULL);
+
         return -1;
+    }
+
+    if (runtime_profile_applied &&
+        optimizer_run_tool(
+            OPTIMIZER_RUNTIME_TOOL,
+            "restore",
+            NULL) < 0) {
+        fprintf(
+            stderr,
+            "FRONTEND_RUNTIME_PROFILE restore_failed=1\n");
+    } else if (runtime_profile_applied) {
+        fprintf(
+            stderr,
+            "FRONTEND_RUNTIME_PROFILE restored=1\n");
     }
 
     if (result.signaled) {
