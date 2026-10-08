@@ -708,6 +708,35 @@ int flip_optimizer_calibration_record_rollback(
     return finish_pending(calibration, 0);
 }
 
+int flip_optimizer_calibration_finalize_after_hard_rollback(
+    flip_optimizer_calibration_t *calibration,
+    size_t opp_index)
+{
+    if (!calibration ||
+        flip_optimizer_calibration_validate(calibration) < 0 ||
+        calibration->pending ||
+        opp_index >= calibration->opp_count)
+        return -1;
+
+    flip_optimizer_calibration_opp_t *opp =
+        &calibration->opps[opp_index];
+
+    if (opp->complete)
+        return 0;
+
+    if (!opp->highest_unstable_uv ||
+        opp->highest_unstable_uv >= opp->lowest_stable_uv)
+        return -1;
+
+    opp->raw_final_uv = guarded_final(
+        calibration,
+        opp,
+        opp->lowest_stable_uv);
+    opp->complete = 1;
+
+    return flip_optimizer_calibration_validate(calibration);
+}
+
 int flip_optimizer_calibration_cancel_pending(
     flip_optimizer_calibration_t *calibration)
 {

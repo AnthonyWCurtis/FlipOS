@@ -345,12 +345,47 @@ static void print_plan(
             &calibration->opps[i];
 
         unsigned first_candidate = 0;
-        if (opp->stock_uv >=
-            opp->floor_uv +
-                calibration->voltage_step_uv) {
-            first_candidate =
-                opp->stock_uv -
-                calibration->voltage_step_uv;
+
+        if (!opp->complete) {
+            if (opp->highest_unstable_uv) {
+                unsigned gap =
+                    opp->lowest_stable_uv -
+                    opp->highest_unstable_uv;
+
+                if (gap > calibration->voltage_step_uv) {
+                    unsigned midpoint_steps =
+                        (gap / calibration->voltage_step_uv) / 2U;
+
+                    if (midpoint_steps == 0)
+                        midpoint_steps = 1;
+
+                    first_candidate =
+                        opp->highest_unstable_uv +
+                        midpoint_steps *
+                            calibration->voltage_step_uv;
+                }
+            } else if (opp->lowest_stable_uv >=
+                       opp->floor_uv +
+                           calibration->voltage_step_uv) {
+                unsigned coarse_step =
+                    calibration->voltage_step_uv * 4U;
+                unsigned available =
+                    opp->lowest_stable_uv -
+                    opp->floor_uv;
+
+                if (coarse_step > available)
+                    coarse_step =
+                        (available /
+                         calibration->voltage_step_uv) *
+                        calibration->voltage_step_uv;
+
+                if (coarse_step == 0)
+                    coarse_step =
+                        calibration->voltage_step_uv;
+
+                first_candidate =
+                    opp->lowest_stable_uv - coarse_step;
+            }
         }
 
         printf(
@@ -1157,17 +1192,40 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
 
         if (reconcile == FLIP_OPTIMIZER_RECONCILE_ROLLED_BACK &&
-            had_pending &&
-            append_history_unstable(
-                &calibration,
-                pending_index,
-                pending_uv,
-                "boot-rollback") < 0)
-            fprintf(
-                stderr,
-                "optimizer history: rollback write failed frequency_khz=%u voltage_uv=%u\n",
+            had_pending) {
+            if (append_history_unstable(
+                    &calibration,
+                    pending_index,
+                    pending_uv,
+                    "boot-rollback") < 0)
+                fprintf(
+                    stderr,
+                    "optimizer history: rollback write failed frequency_khz=%u voltage_uv=%u\n",
+                    calibration.opps[pending_index].frequency_khz,
+                    pending_uv);
+
+            /*
+             * A hard rollback is enough evidence for this run. Do not keep
+             * bisecting downward and deliberately crash the same OPP again.
+             * Finish from the last proven-stable point plus the normal
+             * production guardband. A future rerun can refine above this
+             * persisted known-bad boundary without repeating the crash.
+             */
+            if (flip_optimizer_calibration_finalize_after_hard_rollback(
+                    &calibration,
+                    pending_index) < 0 ||
+                flip_optimizer_calibration_save(
+                    &calibration) < 0)
+                return EXIT_FAILURE;
+
+            printf(
+                "hard_rollback_finalized frequency_khz=%u "
+                "highest_unstable_uv=%u lowest_stable_uv=%u raw_final_uv=%u\n",
                 calibration.opps[pending_index].frequency_khz,
-                pending_uv);
+                calibration.opps[pending_index].highest_unstable_uv,
+                calibration.opps[pending_index].lowest_stable_uv,
+                calibration.opps[pending_index].raw_final_uv);
+        }
 
         printf("reconcile=%d\n", reconcile);
         printf(

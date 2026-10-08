@@ -207,6 +207,45 @@ static void test_rollback_creates_refinement_bracket(void)
     assert(uv == 1025000);
 }
 
+static void test_hard_rollback_finalizes_without_more_danger_probes(void)
+{
+    flip_optimizer_calibration_t calibration =
+        make_wide_calibration();
+
+    size_t index = 0;
+    unsigned uv = 0;
+
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration, &index, &uv) == 1);
+    assert(uv == 1000000);
+    assert(flip_optimizer_calibration_record_pending(
+               &calibration, 1) == 0);
+
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration, &index, &uv) == 1);
+    assert(uv == 950000);
+
+    char trial_id[
+        FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
+    strcpy(trial_id, calibration.pending_trial_id);
+
+    assert(flip_optimizer_calibration_record_rollback(
+               &calibration, trial_id) == 0);
+    assert(calibration.opps[0].lowest_stable_uv == 1000000);
+    assert(calibration.opps[0].highest_unstable_uv == 950000);
+    assert(calibration.opps[0].complete == 0);
+
+    assert(flip_optimizer_calibration_finalize_after_hard_rollback(
+               &calibration, 0) == 0);
+
+    assert(calibration.opps[0].complete == 1);
+    assert(calibration.opps[0].raw_final_uv == 1025000);
+    assert(calibration.opps[0].tests_run == 2);
+
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration, &index, &uv) == 0);
+}
+
 static void test_floor_completion(void)
 {
     flip_optimizer_calibration_t calibration =
@@ -343,6 +382,7 @@ int main(void)
     test_adaptive_bracket_refines_to_base_step();
     test_guardband_is_above_lowest_proven_stable();
     test_rollback_creates_refinement_bracket();
+    test_hard_rollback_finalizes_without_more_danger_probes();
     test_floor_completion();
     test_monotonic_result();
     test_preserve_low_opps_at_stock();

@@ -87,6 +87,10 @@ int flip_optimizer_calibration_record_rollback(
     flip_optimizer_calibration_t *calibration,
     const char *trial_id);
 
+int flip_optimizer_calibration_finalize_after_hard_rollback(
+    flip_optimizer_calibration_t *calibration,
+    size_t opp_index);
+
 int flip_optimizer_calibration_cancel_pending(
     flip_optimizer_calibration_t *calibration);
 
