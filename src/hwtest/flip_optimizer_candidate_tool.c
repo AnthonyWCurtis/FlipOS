@@ -77,6 +77,7 @@
     "/sys/class/thermal/thermal_zone0/type"
 #define FLIP_OPTIMIZER_SOC_THERMAL_TEMP \
     "/sys/class/thermal/thermal_zone0/temp"
+#define FLIP_OPTIMIZER_VALIDATION_PARK_KHZ 408000U
 #define FLIP_OPTIMIZER_STRESS_WORKERS 4U
 #define FLIP_OPTIMIZER_STRESS_MIN_SECONDS 5U
 #define FLIP_OPTIMIZER_STRESS_MAX_SECONDS 120U
@@ -2715,7 +2716,26 @@ static int run_validate_profile(unsigned seconds_per_opp)
             0) < 0)
         return -1;
 
-    if (run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply") < 0) {
+    flip_cpu_policy_snapshot_t original;
+    int original_valid =
+        flip_cpu_policy_snapshot(&original) == 0;
+    int runtime_applied = 0;
+
+    /*
+     * Keep the CPU on the stock-preserved 408 MHz OPP while the optimized
+     * table is installed and until the full recovery envelope is armed.
+     * Never expose the normal governor to a newly applied runtime table
+     * before watchdog/TSADC/deadman protection exists.
+     */
+    if (!original_valid ||
+        flip_cpu_policy_set_limits(
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
+        wait_for_frequency(
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
+        run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply") < 0) {
+        if (original_valid)
+            (void)flip_cpu_policy_restore(&original);
         (void)write_validation_state_file(
             FLIP_OPTIMIZER_VALIDATION_RESULT,
             "start-failed",
@@ -2728,10 +2748,7 @@ static int run_validate_profile(unsigned seconds_per_opp)
         sync();
         return -1;
     }
-
-    flip_cpu_policy_snapshot_t original;
-    int original_valid =
-        flip_cpu_policy_snapshot(&original) == 0;
+    runtime_applied = 1;
     flip_optimizer_quiesce_t quiesce = {0};
     flip_optimizer_panic_policy_t panic_policy = {0};
     flip_optimizer_hw_watchdog_t hw_watchdog = {.fd = -1};
@@ -2882,6 +2899,26 @@ static int run_validate_profile(unsigned seconds_per_opp)
         fflush(stdout);
     }
 
+    /*
+     * Return to the stock-preserved parking OPP before touching the live OPP
+     * table again. Restore stock voltages first; only then restore the user's
+     * normal governor/frequency limits.
+     */
+    if (flip_cpu_policy_set_limits(
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
+        wait_for_frequency(
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0)
+        emergency_reboot();
+
+    if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
+        emergency_reboot();
+
+    if (runtime_applied &&
+        run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore") < 0)
+        emergency_reboot();
+    runtime_applied = 0;
+
     if (original_valid && flip_cpu_policy_restore(&original) < 0)
         failed = 1;
 
@@ -2891,12 +2928,6 @@ static int run_validate_profile(unsigned seconds_per_opp)
     if (quiesced && flip_optimizer_quiesce_end(&quiesce) < 0)
         failed = 1;
     quiesced = 0;
-
-    if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
-        emergency_reboot();
-
-    if (run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore") < 0)
-        emergency_reboot();
 
     const char *status =
         power_cancelled ? "cancelled" :
@@ -2938,11 +2969,19 @@ validation_abort_before_watchdog:
         (void)tsadc_recovery_unload();
     if (panic_armed)
         (void)flip_optimizer_panic_policy_end(&panic_policy);
-    if (quiesced)
-        (void)flip_optimizer_quiesce_end(&quiesce);
+    if (runtime_applied) {
+        (void)flip_cpu_policy_set_limits(
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ);
+        (void)wait_for_frequency(
+            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ);
+        (void)run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore");
+        runtime_applied = 0;
+    }
     if (original_valid)
         (void)flip_cpu_policy_restore(&original);
-    (void)run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore");
+    if (quiesced)
+        (void)flip_optimizer_quiesce_end(&quiesce);
     (void)write_validation_state_file(
         FLIP_OPTIMIZER_VALIDATION_RESULT,
         "start-failed",

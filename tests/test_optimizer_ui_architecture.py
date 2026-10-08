@@ -134,6 +134,15 @@ if "! optimizer_wait_external_power_online" not in power_gate_block:
 if "! optimizer_external_power_online; then" in power_gate_block:
     errors.append("optimizer boot cancel must not use a single-shot power check")
 
+# Runtime quarantine belongs to the validation/runtime safety domain. It may
+# only be cleared when an optimizer session that existed at boot genuinely
+# transitions to a newly completed profile; an unrelated normal/recovery boot
+# must never unquarantine a profile that just caused a hard recovery.
+clear_quarantine_pos = updater.find('rm -f "$ROOT/state/optimizer/runtime-profile-quarantined"')
+session_gate_pos = updater.rfind('[ "$OPTIMIZER_SESSION_WAS_PRESENT" -eq 1 ]', 0, clear_quarantine_pos)
+if clear_quarantine_pos < 0 or session_gate_pos < 0:
+    errors.append("runtime quarantine clear must be gated by a pre-existing optimizer session")
+
 if errors:
     for error in errors:
         print(error)

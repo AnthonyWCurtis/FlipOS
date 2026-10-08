@@ -197,6 +197,37 @@ else:
         errors.append("profile validator must retain hardware watchdog recovery")
     if "optimizer_external_power_online()" not in validation:
         errors.append("profile validator must monitor external power")
+    if "FLIP_OPTIMIZER_VALIDATION_PARK_KHZ" not in validation:
+        errors.append("profile validator must use stock-preserved parking OPP")
+
+    park_before_apply = validation.find(
+        "flip_cpu_policy_set_limits(\n            FLIP_OPTIMIZER_VALIDATION_PARK_KHZ"
+    )
+    apply_pos = validation.find(
+        'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "apply")'
+    )
+    watchdog_pos = validation.find(
+        "flip_optimizer_hw_watchdog_arm("
+    )
+    opp_begin_pos = validation.find(
+        '"OPTIMIZER_VALIDATION: OPP_BEGIN'
+    )
+    restore_pos = validation.find(
+        'run_child_tool(FLIP_OPTIMIZER_RUNTIME_TOOL, "restore")'
+    )
+    policy_restore_pos = validation.find(
+        "flip_cpu_policy_restore(&original)",
+        restore_pos,
+    )
+
+    if min(park_before_apply, apply_pos, watchdog_pos, opp_begin_pos, restore_pos, policy_restore_pos) < 0:
+        errors.append("profile validator parking/apply/restore sequence incomplete")
+    elif not (
+        park_before_apply < apply_pos < watchdog_pos < opp_begin_pos < restore_pos < policy_restore_pos
+    ):
+        errors.append(
+            "profile validation must park -> apply -> arm recovery -> stress -> restore table -> restore policy"
+        )
 
 if errors:
     for error in errors:

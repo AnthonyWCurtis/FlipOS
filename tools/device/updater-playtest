@@ -228,6 +228,13 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
     echo "OPTIMIZER_UI: progress splash pid=$OPTIMIZER_PROGRESS_PID" >> "$LOG_TARGET"
 fi
 
+OPTIMIZER_SESSION_WAS_PRESENT=0
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ -x "$ROOT/bin/flip-optimizer-session" ] && \
+   "$ROOT/bin/flip-optimizer-session" status 2>/dev/null | grep -q '^session_present=1$'; then
+    OPTIMIZER_SESSION_WAS_PRESENT=1
+fi
+
 # An explicit optimizer session may continue only after boot recovery has
 # completely settled and the second supervisor pass says runtime is safe.
 # If inactive/paused/complete this returns normally and frontend boot proceeds.
@@ -238,7 +245,8 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -x "$ROOT/bin/flip-optimizer-session" ]; then
     if ! "$ROOT/bin/flip-optimizer-session" boot-resume >> "$LOG_TARGET" 2>&1; then
         echo "OPTIMIZER_SESSION: boot resume failed; normal frontend boot continues" >> "$LOG_TARGET"
-    elif [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
+    elif [ "$OPTIMIZER_SESSION_WAS_PRESENT" -eq 1 ] && \
+         [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
          "$ROOT/bin/flip-optimizer-session" status 2>/dev/null | grep -q '^session_present=0$' && \
          "$ROOT/bin/flip-optimizer-calibration" status 2>/dev/null | grep -q '^complete_opps=8$'; then
         if "$ROOT/bin/flip-optimizer-calibration" publish >> "$LOG_TARGET" 2>&1; then
