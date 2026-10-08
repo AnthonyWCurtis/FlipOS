@@ -108,13 +108,34 @@ optimizer_external_power_online() {
     [ "$USB_ONLINE" = "1" ] || [ "$AC_ONLINE" = "1" ]
 }
 
+optimizer_wait_external_power_online() {
+    if optimizer_external_power_online; then
+        return 0
+    fi
+
+    # USB power can briefly report offline during reboot before the gadget/
+    # charger path has settled. Require a sustained 5-second absence before
+    # interpreting this as the user's physical cancel gesture.
+    POWER_WAIT=0
+    while [ "$POWER_WAIT" -lt 5 ]; do
+        sleep 1
+        if optimizer_external_power_online; then
+            echo "OPTIMIZER_UI: charger became visible after boot settle wait=${POWER_WAIT}s" >> "$LOG_TARGET"
+            return 0
+        fi
+        POWER_WAIT=$((POWER_WAIT + 1))
+    done
+
+    return 1
+}
+
 # A UI-started optimization uses charger presence as a physical cancel switch.
 # Restore the previous known-good optimizer snapshot only after all boot
 # recovery/guard settlement has completed, never inside the dangerous window.
 if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -f "$ROOT/state/optimizer/ui-return" ] && \
    [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
-   ! optimizer_external_power_online; then
+   ! optimizer_wait_external_power_online; then
     echo "OPTIMIZER_UI: charger absent at boot; restoring previous snapshot" >> "$LOG_TARGET"
 
     if [ -x "$ROOT/bin/flip-optimizer-session" ]; then

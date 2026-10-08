@@ -58,6 +58,10 @@ for token in [
     "restoring previous snapshot",
     '"$ROOT/bin/flip-optimizer-calibration" restore-snapshot',
     '"$ROOT/bin/flip-optimizer-calibration" discard-snapshot',
+    "optimizer_wait_external_power_online()",
+    'POWER_WAIT=0',
+    'while [ "$POWER_WAIT" -lt 5 ]',
+    "charger became visible after boot settle",
 ]:
     if token not in updater:
         errors.append(f"updater optimizer UX hook missing: {token}")
@@ -116,6 +120,14 @@ init_end = caltool.find('if (strcmp(argv[1], "status") == 0)', init_start)
 init_block = caltool[init_start:init_end]
 if "apply_failure_history(" in init_block:
     errors.append("historical evidence must not influence fresh calibration candidate selection")
+
+power_gate = updater.find("# A UI-started optimization uses charger presence as a physical cancel switch.")
+power_gate_end = updater.find("RUNTIME_ACTIVE_MARKER=", power_gate)
+power_gate_block = updater[power_gate:power_gate_end]
+if "! optimizer_wait_external_power_online" not in power_gate_block:
+    errors.append("optimizer boot cancel must debounce transient charger absence")
+if "! optimizer_external_power_online; then" in power_gate_block:
+    errors.append("optimizer boot cancel must not use a single-shot power check")
 
 if errors:
     for error in errors:
