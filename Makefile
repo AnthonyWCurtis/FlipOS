@@ -117,7 +117,7 @@ PERF_CAPTURE_OBJS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool opp-voltage-module tsadc-recovery-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-runtime-tool opp-voltage-module runtime-profile-module tsadc-recovery-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba
 
@@ -149,7 +149,11 @@ optimizer-session-tool: $(BUILD)/flip-optimizer-session
 
 optimizer-progress-tool: $(BUILD)/flip-optimizer-progress
 
+optimizer-runtime-tool: $(BUILD)/flip-optimizer-runtime
+
 opp-voltage-module: $(BUILD)/flip_opp_voltage.ko
+
+runtime-profile-module: $(BUILD)/flip_opp_runtime_profile.ko
 
 tsadc-recovery-module: $(BUILD)/flip_tsadc_recovery.ko
 
@@ -391,6 +395,8 @@ test-architecture:
 	python3 tests/test_optimizer_guard_boot_architecture.py
 	python3 tests/test_optimizer_candidate_architecture.py
 	python3 tests/test_opp_voltage_module_architecture.py
+	python3 tests/test_opp_runtime_profile_module_architecture.py
+	python3 tests/test_optimizer_runtime_architecture.py
 	python3 tests/test_tsadc_recovery_module_architecture.py
 	python3 tests/test_optimizer_hw_watchdog_architecture.py
 	python3 tests/test_optimizer_session_architecture.py
@@ -930,6 +936,15 @@ $(BUILD)/flip-optimizer-progress: src/hwtest/flip_optimizer_progress.c $(BUILD)/
 		$(BUILD)/flip_drm.o $(BUILD)/flip_draw.o \
 		-static -o $@
 
+$(BUILD)/flip-optimizer-runtime: src/hwtest/flip_optimizer_runtime_tool.c src/runtime/flip_cpu_policy.c src/runtime/flip_optimizer.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c include/flip_cpu_policy.h include/flip_optimizer.h include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h | $(BUILD)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Iinclude \
+		src/hwtest/flip_optimizer_runtime_tool.c \
+		src/runtime/flip_cpu_policy.c \
+		src/runtime/flip_optimizer.c \
+		src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c \
+		-static -lm -o $@
+
 $(BUILD)/flip-optimizer-session: src/hwtest/flip_optimizer_session_tool.c src/runtime/flip_optimizer_calibration.c src/runtime/flip_optimizer_supervisor.c src/runtime/flip_optimizer_guard.c src/runtime/flip_optimizer_pmu_token.c src/runtime/flip_optimizer.c include/flip_optimizer_calibration.h include/flip_optimizer_supervisor.h include/flip_optimizer_guard.h include/flip_optimizer_pmu_token.h include/flip_optimizer.h | $(BUILD)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Iinclude \
@@ -950,6 +965,17 @@ $(BUILD)/flip_opp_voltage.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c t
 		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/opp-voltage-module" \
 		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
 	cp $(BUILD)/opp-voltage-module/flip_opp_voltage.ko $@
+
+$(BUILD)/flip_opp_runtime_profile.ko: tools/kernel/flip_opp_runtime_profile/flip_opp_runtime_profile.c tools/kernel/flip_opp_runtime_profile/Makefile | $(BUILD)
+	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
+	rm -rf $(BUILD)/opp-runtime-profile-module $(BUILD)/kernel-python-shim
+	mkdir -p $(BUILD)/opp-runtime-profile-module $(BUILD)/kernel-python-shim
+	cp tools/kernel/flip_opp_runtime_profile/flip_opp_runtime_profile.c tools/kernel/flip_opp_runtime_profile/Makefile $(BUILD)/opp-runtime-profile-module/
+	ln -sf "$$(command -v python3)" $(BUILD)/kernel-python-shim/python
+	PATH="$(CURDIR)/$(BUILD)/kernel-python-shim:$$PATH" \
+		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/opp-runtime-profile-module" \
+		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
+	cp $(BUILD)/opp-runtime-profile-module/flip_opp_runtime_profile.ko $@
 
 $(BUILD)/flip_tsadc_recovery.ko: tools/kernel/flip_tsadc_recovery/flip_tsadc_recovery.c tools/kernel/flip_tsadc_recovery/Makefile | $(BUILD)
 	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
@@ -1038,7 +1064,9 @@ clean:
 		$(BUILD)/flip-optimizer-deadman \
 		$(BUILD)/flip-optimizer-calibration \
 		$(BUILD)/flip-optimizer-candidate \
+		$(BUILD)/flip-optimizer-runtime \
 		$(BUILD)/flip_opp_voltage.ko \
+		$(BUILD)/flip_opp_runtime_profile.ko \
 		$(BUILD)/libgambatte_libretro.a \
 		$(BUILD)/mgba_libretro.a \
 		$(BUILD)/test-flip-controls \

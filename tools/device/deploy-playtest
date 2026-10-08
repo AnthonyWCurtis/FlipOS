@@ -8,6 +8,7 @@ BOOT_UPDATER=/mnt/SDCARD/.tmp_update/updater
 required=(
     build/flip-frontend
     build/flip_opp_voltage.ko
+    build/flip_opp_runtime_profile.ko
     build/flip_tsadc_recovery.ko
     build/flip-optimizer-supervisor
     build/flip-optimizer-deadman
@@ -16,6 +17,7 @@ required=(
     build/flip-optimizer-candidate
     build/flip-optimizer-session
     build/flip-optimizer-progress
+    build/flip-optimizer-runtime
     tools/device/updater-playtest
 )
 
@@ -33,6 +35,7 @@ done
 
 "$ADB" push build/flip-frontend "$ROOT/bin/flip-frontend" >/dev/null
 "$ADB" push build/flip_opp_voltage.ko "$ROOT/lib/flip_opp_voltage.ko" >/dev/null
+"$ADB" push build/flip_opp_runtime_profile.ko "$ROOT/lib/flip_opp_runtime_profile.ko" >/dev/null
 "$ADB" push build/flip_tsadc_recovery.ko "$ROOT/lib/flip_tsadc_recovery.ko" >/dev/null
 "$ADB" push build/flip-optimizer-supervisor "$ROOT/bin/flip-optimizer-supervisor" >/dev/null
 "$ADB" push build/flip-optimizer-deadman "$ROOT/bin/flip-optimizer-deadman" >/dev/null
@@ -41,6 +44,7 @@ done
 "$ADB" push build/flip-optimizer-candidate "$ROOT/bin/flip-optimizer-candidate" >/dev/null
 "$ADB" push build/flip-optimizer-session "$ROOT/bin/flip-optimizer-session" >/dev/null
 "$ADB" push build/flip-optimizer-progress "$ROOT/bin/flip-optimizer-progress" >/dev/null
+"$ADB" push build/flip-optimizer-runtime "$ROOT/bin/flip-optimizer-runtime" >/dev/null
 
 "$ADB" push tools/device/updater-playtest "$ROOT/updater-playtest" >/dev/null
 "$ADB" push tools/device/updater-playtest "$BOOT_UPDATER" >/dev/null
@@ -55,9 +59,11 @@ done
         '$ROOT/bin/flip-optimizer-calibration' \
         '$ROOT/bin/flip-optimizer-candidate' \
         '$ROOT/bin/flip-optimizer-session' \
-        '$ROOT/bin/flip-optimizer-progress'
+        '$ROOT/bin/flip-optimizer-progress' \
+        '$ROOT/bin/flip-optimizer-runtime'
     chmod 644 \
         '$ROOT/lib/flip_opp_voltage.ko' \
+        '$ROOT/lib/flip_opp_runtime_profile.ko' \
         '$ROOT/lib/flip_tsadc_recovery.ko'
     sync
     echo DEPLOY_PLAYTEST_OK
