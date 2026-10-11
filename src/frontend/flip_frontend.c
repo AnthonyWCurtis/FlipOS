@@ -6075,28 +6075,13 @@ int main(void)
 
             } else if (screen == SCREEN_FIRST_BOOT_TIME) {
 
-                (void)flip_wifi_get_status(&wifi_status);
-                if (time_status.automatic &&
-                    wifi_status.connected &&
-                    wifi_status.usable_ip) {
-                    snprintf(
-                        time_message,
-                        sizeof(time_message),
-                        "SYNCING TIME...");
-                    draw_first_boot(&drm, screen, 0.0);
-                    if (flip_time_sync_ntp() == 0) {
-                        refresh_time_status();
-                        snprintf(
-                            time_message,
-                            sizeof(time_message),
-                            "TIME SYNCED");
-                    } else {
-                        snprintf(
-                            time_message,
-                            sizeof(time_message),
-                            "TIME SYNC FAILED - CONTINUING");
-                    }
-                }
+                /*
+                 * Automatic ntpd is already running in the background.
+                 * Do not turn A/CONTINUE into a blocking one-shot NTP sync:
+                 * the stock ntpd can legitimately take tens of seconds while
+                 * Wi-Fi/DHCP settles, which made first boot look frozen.
+                 * X remains the explicit "sync now" action.
+                 */
                 screen = SCREEN_FIRST_BOOT_PREFS;
                 redraw = 1;
 

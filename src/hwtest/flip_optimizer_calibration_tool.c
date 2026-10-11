@@ -760,6 +760,16 @@ static int snapshot_optimizer_state(void)
     flip_optimizer_calibration_t calibration;
 
     /*
+     * A clean public install has no optimizer directory yet. Snapshotting an
+     * empty previous state is still valid and is required before the first
+     * calibration can be initialized, so create the state root here rather
+     * than making first-run optimization fail before init gets a chance.
+     */
+    if (mkdir(FLIP_OPTIMIZER_CALIBRATION_ROOT, 0755) < 0 &&
+        errno != EEXIST)
+        return -1;
+
+    /*
      * Never replace an unresolved rollback snapshot. If a previous restore
      * failed, that snapshot is still the last known-good state and must
      * survive subsequent UI retries until it is restored or superseded by

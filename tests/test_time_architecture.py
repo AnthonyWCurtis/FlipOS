@@ -55,3 +55,6 @@ assert 'status.automatic' in source
 assert 'RTC_RD_TIME' in source
 assert 'timegm(&utc)' in source
 assert 'restore_system_from_rtc()' in source
+assert 'run_process_timeout(sync_argv, 12000)' in source
+assert 'kill(pid, SIGTERM)' in source
+assert 'kill(pid, SIGKILL)' in source

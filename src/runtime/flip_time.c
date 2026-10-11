@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/rtc.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -160,6 +161,7 @@ int flip_time_set_timezone(const char *timezone)
 }
 
 static int run_process(char *const argv[]);
+static int run_process_timeout(char *const argv[], unsigned timeout_ms);
 
 static int restore_system_from_rtc(void)
 {
@@ -279,6 +281,62 @@ static int run_process(char *const argv[])
     return WEXITSTATUS(status_code) == 0 ? 0 : -1;
 }
 
+static int run_process_timeout(char *const argv[], unsigned timeout_ms)
+{
+    pid_t pid = fork();
+    if (pid < 0)
+        return -1;
+
+    if (pid == 0) {
+        execv(argv[0], argv);
+        _exit(127);
+    }
+
+    const unsigned poll_ms = 100;
+    unsigned waited_ms = 0;
+    int status_code = 0;
+
+    while (waited_ms < timeout_ms) {
+        pid_t result = waitpid(pid, &status_code, WNOHANG);
+        if (result == pid) {
+            if (!WIFEXITED(status_code))
+                return -1;
+            return WEXITSTATUS(status_code) == 0 ? 0 : -1;
+        }
+        if (result < 0 && errno != EINTR)
+            return -1;
+
+        struct timespec delay = {
+            .tv_sec = 0,
+            .tv_nsec = (long)poll_ms * 1000000L,
+        };
+        while (nanosleep(&delay, &delay) < 0 && errno == EINTR) {
+        }
+        waited_ms += poll_ms;
+    }
+
+    (void)kill(pid, SIGTERM);
+    for (unsigned i = 0; i < 5; ++i) {
+        pid_t result = waitpid(pid, &status_code, WNOHANG);
+        if (result == pid)
+            return -1;
+        if (result < 0 && errno != EINTR)
+            return -1;
+
+        struct timespec delay = {
+            .tv_sec = 0,
+            .tv_nsec = 100000000L,
+        };
+        while (nanosleep(&delay, &delay) < 0 && errno == EINTR) {
+        }
+    }
+
+    (void)kill(pid, SIGKILL);
+    while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {
+    }
+    return -1;
+}
+
 int flip_time_sync_ntp(void)
 {
     /*
@@ -301,7 +359,13 @@ int flip_time_sync_ntp(void)
         NULL
     };
 
-    int sync_result = run_process(sync_argv);
+    /*
+     * A one-shot sync is a user-facing action. NTP can otherwise wait for
+     * multiple polling cycles while Wi-Fi is settling, leaving the frontend
+     * apparently frozen. Bound the explicit sync attempt; the normal
+     * background ntpd service is restored below and can continue converging.
+     */
+    int sync_result = run_process_timeout(sync_argv, 12000);
     int restore_result =
         status.automatic
             ? apply_ntp_service_state(1)

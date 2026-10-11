@@ -44,3 +44,18 @@ assert '"DATE & TIME"' in frontend
 assert '"LEFT/RIGHT ZONE   X SYNC   A CONTINUE"' in frontend
 assert "flip_time_sync_ntp()" in frontend
 assert "screen = SCREEN_FIRST_BOOT_TIME" in frontend
+
+# A/CONTINUE on first-boot Date & Time must never block on an explicit NTP
+# one-shot. X is the opt-in sync action and automatic ntpd converges in the
+# background.
+continue_start = frontend.find(
+    "} else if (screen == SCREEN_FIRST_BOOT_TIME) {",
+    frontend.find("} else if (screen == SCREEN_FIRST_BOOT_WIFI) {"),
+)
+continue_end = frontend.find(
+    "} else if (screen == SCREEN_FIRST_BOOT_PREFS) {",
+    continue_start,
+)
+assert continue_start >= 0 and continue_end > continue_start
+continue_block = frontend[continue_start:continue_end]
+assert "flip_time_sync_ntp()" not in continue_block

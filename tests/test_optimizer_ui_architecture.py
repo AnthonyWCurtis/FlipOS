@@ -130,6 +130,8 @@ snapshot_end = caltool.find("static int read_snapshot_marker(", snapshot_start +
 snapshot_block = caltool[snapshot_start:snapshot_end]
 if snapshot_start < 0 or 'snapshot_preserved=1' not in snapshot_block:
     errors.append("unresolved rollback snapshot must be preserved across reruns")
+if 'mkdir(FLIP_OPTIMIZER_CALIBRATION_ROOT, 0755)' not in snapshot_block:
+    errors.append("fresh-install snapshot must create optimizer state directory")
 
 reset_start = caltool.find("static int reset_calibration_state")
 reset_end = caltool.find("static void usage", reset_start)
