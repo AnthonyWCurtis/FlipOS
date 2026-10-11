@@ -151,6 +151,8 @@ if "! optimizer_wait_external_power_online" not in power_gate_block:
     errors.append("optimizer boot cancel must debounce transient charger absence")
 if "! optimizer_external_power_online; then" in power_gate_block:
     errors.append("optimizer boot cancel must not use a single-shot power check")
+if '[ "$OPTIMIZER_BOOT_MODE" = "normal" ]' not in power_gate_block:
+    errors.append("optimizer charger cancel must not discard crash-recovery evidence")
 
 # Runtime quarantine belongs to the validation/runtime safety domain. It may
 # only be cleared when an optimizer session that existed at boot genuinely

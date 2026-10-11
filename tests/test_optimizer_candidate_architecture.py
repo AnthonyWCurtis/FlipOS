@@ -33,6 +33,8 @@ required = [
     "run_stress_window(",
     "optimizer_ui_power_interlock_active()",
     "optimizer_external_power_online()",
+    "optimizer_external_power_online_debounced()",
+    "sustained_ms=2000",
     "CHARGER_REMOVED cancel=1",
     "CHARGER_CANCELLED",
     "settle_hw_watchdog_power_cancel_and_reboot(",
@@ -41,6 +43,13 @@ required = [
     "read_cpu_rail_uv(",
     "read_soc_temp_mc(",
     "FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC",
+    "FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 30U",
+    "FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS 3U",
+    "FLIP_OPTIMIZER_VALIDATION_STRESS_WORKERS 4U",
+    "FLIP_OPTIMIZER_MAX_STRESS_WORKERS 4U",
+    "atomic_uint heartbeat",
+    "stress worker stalled",
+    "stress worker stop timeout",
     "emergency_reboot()",
     "flip_cpu_policy_restore(&original)",
     "voltage_entered=0",
@@ -205,8 +214,8 @@ else:
         errors.append("profile validator must not modify calibration search evidence")
     if "FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS" not in validation:
         errors.append("profile validator must retain hardware watchdog recovery")
-    if "optimizer_external_power_online()" not in validation:
-        errors.append("profile validator must monitor external power")
+    if "optimizer_external_power_online_debounced()" not in validation:
+        errors.append("profile validator must debounce external power monitoring")
     if "FLIP_OPTIMIZER_VALIDATION_PARK_KHZ" not in validation:
         errors.append("profile validator must use stock-preserved parking OPP")
     if "run_child_tool_with_watchdog(" not in validation:

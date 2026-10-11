@@ -52,7 +52,7 @@ static void test_prepare_arms_matching_guard(void)
                &index,
                &uv) == 1);
     assert(index == 2);
-    assert(uv == 1050000);
+    assert(uv == 1075000);
     assert(calibration.pending == 1);
     assert(
         flip_optimizer_calibration_session_ready_for_apply(
@@ -80,7 +80,7 @@ static void test_confirmed_stable_commits_candidate(void)
     assert(flip_optimizer_calibration_session_confirm_stable(
                &calibration) == 0);
     assert(calibration.pending == 0);
-    assert(calibration.opps[2].lowest_stable_uv == 1050000);
+    assert(calibration.opps[2].lowest_stable_uv == 1075000);
 
     flip_optimizer_guard_status_t guard;
     assert(flip_optimizer_guard_status(&guard) == 0);
@@ -180,7 +180,7 @@ static void test_reboot_rollback_marks_candidate_unstable(void)
     assert(calibration.pending == 0);
     assert(calibration.opps[2].complete == 0);
     assert(calibration.opps[2].highest_unstable_uv ==
-           1050000);
+           1075000);
 
     assert(flip_optimizer_calibration_session_prepare(
                &calibration,
@@ -218,7 +218,7 @@ static void test_confirm_event_recovers_pending_state(void)
            FLIP_OPTIMIZER_RECONCILE_CONFIRMED);
 
     assert(calibration.pending == 0);
-    assert(calibration.opps[2].lowest_stable_uv == 1050000);
+    assert(calibration.opps[2].lowest_stable_uv == 1075000);
 }
 
 static void test_orphaned_prearm_candidate_is_cancelled(void)

@@ -19,7 +19,7 @@ BUILD_ID=${FLIP_BUILD_ID:-$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)}
 WORK="$OUT_DIR/.flipos-beta-install-work"
 ROOT="$WORK/root"
 FLIP="$ROOT/flipos-dev"
-ARCHIVE="$OUT_DIR/FlipOS-Beta1.zip"
+ARCHIVE="$OUT_DIR/FlipOS-Fresh_Install.zip"
 
 required='
 build/flip-frontend

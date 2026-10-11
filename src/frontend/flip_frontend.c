@@ -2461,6 +2461,14 @@ static int read_update_version(char *out, size_t out_size)
         return -1;
     out[0] = '\0';
 
+    /*
+     * A staged package is installable only when the updater explicitly marked
+     * it as newer than the installed version. This prevents an already-current
+     * release from being shown as "UPDATE FOUND".
+     */
+    if (access(FLIP_UPDATE_AVAILABLE, F_OK) != 0)
+        return -1;
+
     FILE *f = fopen(FLIP_UPDATE_MANIFEST, "r");
     if (!f)
         return -1;
@@ -5874,8 +5882,13 @@ int main(void)
                 "CHECKING GITHUB...");
             draw_update(&drm, 0.0);
             if (run_update_fetcher() == 0) {
-                snprintf(update_message, sizeof(update_message),
-                    "UPDATE DOWNLOADED - READY TO INSTALL");
+                if (access(FLIP_UPDATE_AVAILABLE, F_OK) == 0) {
+                    snprintf(update_message, sizeof(update_message),
+                        "UPDATE DOWNLOADED - READY TO INSTALL");
+                } else {
+                    snprintf(update_message, sizeof(update_message),
+                        "YOU'RE ON THE LATEST RELEASE");
+                }
             } else {
                 snprintf(update_message, sizeof(update_message),
                     "GITHUB CHECK FAILED - TRY AGAIN LATER");
@@ -6361,8 +6374,13 @@ int main(void)
                             "CHECKING GITHUB...");
                         draw_update(&drm, 0.0);
                         if (run_update_fetcher() == 0) {
-                            snprintf(update_message, sizeof(update_message),
-                                "UPDATE DOWNLOADED - READY TO INSTALL");
+                            if (access(FLIP_UPDATE_AVAILABLE, F_OK) == 0) {
+                                snprintf(update_message, sizeof(update_message),
+                                    "UPDATE DOWNLOADED - READY TO INSTALL");
+                            } else {
+                                snprintf(update_message, sizeof(update_message),
+                                    "YOU'RE ON THE LATEST RELEASE");
+                            }
                         } else {
                             snprintf(update_message, sizeof(update_message),
                                 "GITHUB CHECK FAILED - TRY AGAIN LATER");

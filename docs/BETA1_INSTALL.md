@@ -1,14 +1,14 @@
-# FlipOS Beta 1 Installation
+# FlipOS Beta Installation
 
 ## Before you begin
 
-FlipOS Beta 1 is **beta software**. Back up anything important from your SD card before installing.
+FlipOS is **beta software**. Back up anything important from your SD card before installing.
 
 The release does not include ROMs or copyrighted BIOS files.
 
 ## Fresh install
 
-1. Download **FlipOS-Beta1.zip** from the GitHub Beta 1 release.
+1. Download **FlipOS-Fresh_Install.zip** from the latest GitHub release.
 2. Power the Miyoo Flip off and remove the SD card.
 3. Back up the SD card on your computer.
 4. Extract the ZIP **directly to the root of the SD card**.
@@ -35,7 +35,7 @@ Use `ROMs` to copy games, `BIOS` for your own BIOS files, and `Saves` to make ma
 
 ### Supported ROM folders
 
-Beta 1 supports Game Boy, Game Boy Color and Game Boy Advance. FlipOS will organise the normal ROM locations on the SD card.
+The current Beta supports Game Boy, Game Boy Color and Game Boy Advance. FlipOS will organise the normal ROM locations on the SD card.
 
 ## BIOS
 
@@ -43,7 +43,7 @@ BIOS files are optional for some systems/features, but if you choose to use them
 
 ## Updating later
 
-Beta 1 includes a GitHub Release update path. Updates are downloaded, verified and staged before installation.
+FlipOS includes a GitHub Release update path. Updates are downloaded, verified and staged before installation.
 
 Because this is still Beta, **do not remove power or the SD card while an update is being installed**.
 

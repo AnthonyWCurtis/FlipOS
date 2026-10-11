@@ -157,6 +157,9 @@ optimizer_external_power_online() {
     [ "$USB_ONLINE" = "1" ] || [ "$AC_ONLINE" = "1" ]
 }
 
+OPTIMIZER_BOOT_MODE=$(cat /sys/kernel/boot_mode 2>/dev/null | head -n 1)
+[ -n "$OPTIMIZER_BOOT_MODE" ] || OPTIMIZER_BOOT_MODE=unknown
+
 optimizer_wait_external_power_online() {
     if optimizer_external_power_online; then
         return 0
@@ -184,6 +187,7 @@ optimizer_wait_external_power_online() {
 if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -f "$ROOT/state/optimizer/ui-return" ] && \
    [ -x "$ROOT/bin/flip-optimizer-calibration" ] && \
+   [ "$OPTIMIZER_BOOT_MODE" = "normal" ] && \
    ! optimizer_wait_external_power_online; then
     echo "OPTIMIZER_UI: charger absent at boot; restoring previous snapshot" >> "$LOG_TARGET"
 

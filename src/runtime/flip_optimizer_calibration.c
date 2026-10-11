@@ -577,8 +577,15 @@ int flip_optimizer_calibration_prepare_next(
                 midpoint_steps *
                     calibration->voltage_step_uv;
         } else {
+            /*
+             * Search downward in 25 mV increments until the first failure.
+             * The original 50 mV stride was fast but could jump from a stable
+             * point directly into a hard CPU lock before recovery software had
+             * enough execution margin. Binary refinement still takes over
+             * after the first unstable point is known.
+             */
             unsigned coarse_step =
-                calibration->voltage_step_uv * 4U;
+                calibration->voltage_step_uv * 2U;
             unsigned available =
                 opp->lowest_stable_uv -
                 opp->floor_uv;

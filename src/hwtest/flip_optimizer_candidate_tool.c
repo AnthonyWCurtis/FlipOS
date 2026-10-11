@@ -48,7 +48,7 @@
     "/sys/module/flip_tsadc_recovery/parameters/recovery"
 #define FLIP_OPTIMIZER_DEADMAN_PATH \
     "/mnt/SDCARD/flipos-dev/bin/flip-optimizer-deadman"
-#define FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 600U
+#define FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 30U
 #define FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS 8U
 #define FLIP_OPTIMIZER_MODULE_CONTROL \
     "/sys/module/flip_opp_voltage/parameters/control"
@@ -84,7 +84,16 @@
 #define FLIP_OPTIMIZER_SOC_THERMAL_TEMP \
     "/sys/class/thermal/thermal_zone0/temp"
 #define FLIP_OPTIMIZER_VALIDATION_PARK_KHZ 408000U
-#define FLIP_OPTIMIZER_STRESS_WORKERS 4U
+/*
+ * Keep CPU3 out of the destructive stress set. It is the recovery lane for
+ * the realtime deadman and userspace monitor. The RK3566 cluster shares
+ * voltage/frequency, but an unstressed core has materially more execution
+ * margin at a marginal voltage than four simultaneously saturated cores.
+ */
+#define FLIP_OPTIMIZER_MAX_STRESS_WORKERS 4U
+#define FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS 3U
+#define FLIP_OPTIMIZER_VALIDATION_STRESS_WORKERS 4U
+#define FLIP_OPTIMIZER_RECOVERY_CPU 3U
 #define FLIP_OPTIMIZER_STRESS_MIN_SECONDS 5U
 #define FLIP_OPTIMIZER_STRESS_MAX_SECONDS 720U
 #define FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC 75000U
@@ -199,6 +208,22 @@ static int optimizer_external_power_online(void)
         return 0;
 
     return -1;
+}
+
+static int optimizer_external_power_online_debounced(void)
+{
+    const struct timespec delay = {
+        .tv_sec = 0,
+        .tv_nsec = 100 * 1000 * 1000,
+    };
+
+    for (unsigned sample = 0; sample < 10U; ++sample) {
+        if (optimizer_external_power_online() > 0)
+            return 1;
+        (void)nanosleep(&delay, NULL);
+    }
+
+    return 0;
 }
 
 static int optimizer_ui_power_interlock_active(void)
@@ -502,6 +527,8 @@ typedef struct {
     unsigned worker_index;
     atomic_int *stop;
     atomic_int *failed;
+    atomic_uint heartbeat;
+    atomic_int done;
     uint64_t checksum;
 } flip_stress_worker_t;
 
@@ -523,7 +550,7 @@ static uint64_t rotate_left_64(
 static void *integrity_worker_main(void *opaque)
 {
     static const uint64_t expected[
-        FLIP_OPTIMIZER_STRESS_WORKERS] = {
+        FLIP_OPTIMIZER_MAX_STRESS_WORKERS] = {
         0x5265b85ac09d6289ULL,
         0x1ac7c67083926e93ULL,
         0x8bf9170181793689ULL,
@@ -534,7 +561,7 @@ static void *integrity_worker_main(void *opaque)
 
     if (!worker ||
         worker->worker_index >=
-            FLIP_OPTIMIZER_STRESS_WORKERS)
+            FLIP_OPTIMIZER_MAX_STRESS_WORKERS)
         return NULL;
 
     cpu_set_t set;
@@ -635,11 +662,15 @@ static void *integrity_worker_main(void *opaque)
     return NULL;
 }
 
-static int run_integrity_check(void)
+static int run_integrity_check(unsigned worker_count)
 {
-    pthread_t threads[FLIP_OPTIMIZER_STRESS_WORKERS];
+    if (worker_count == 0 ||
+        worker_count > FLIP_OPTIMIZER_MAX_STRESS_WORKERS)
+        return -1;
+
+    pthread_t threads[FLIP_OPTIMIZER_MAX_STRESS_WORKERS];
     flip_integrity_worker_t
-        workers[FLIP_OPTIMIZER_STRESS_WORKERS];
+        workers[FLIP_OPTIMIZER_MAX_STRESS_WORKERS];
 
     memset(threads, 0, sizeof(threads));
     memset(workers, 0, sizeof(workers));
@@ -648,7 +679,7 @@ static int run_integrity_check(void)
     int failed = 0;
 
     for (unsigned i = 0;
-         i < FLIP_OPTIMIZER_STRESS_WORKERS;
+         i < worker_count;
          ++i) {
         workers[i].worker_index = i;
         workers[i].rc = -1;
@@ -672,7 +703,7 @@ static int run_integrity_check(void)
             failed = 1;
     }
 
-    if (created != FLIP_OPTIMIZER_STRESS_WORKERS)
+    if (created != worker_count)
         failed = 1;
 
     for (unsigned i = 0; i < created; ++i) {
@@ -708,6 +739,8 @@ static int read_soc_temp_mc(unsigned *temp_mc)
         temp_mc);
 }
 
+static void emergency_reboot(void);
+
 static void *stress_worker_main(void *opaque)
 {
     flip_stress_worker_t *worker = opaque;
@@ -724,6 +757,7 @@ static void *stress_worker_main(void *opaque)
             sizeof(set),
             &set) != 0) {
         atomic_store(worker->failed, 1);
+        atomic_store(&worker->done, 1);
         return NULL;
     }
 
@@ -733,6 +767,7 @@ static void *stress_worker_main(void *opaque)
 
     if (!buffer) {
         atomic_store(worker->failed, 1);
+        atomic_store(&worker->done, 1);
         return NULL;
     }
 
@@ -779,6 +814,11 @@ static void *stress_worker_main(void *opaque)
             buffer[
                 (state >> 16) %
                 FLIP_OPTIMIZER_STRESS_BUFFER_WORDS];
+
+        atomic_fetch_add_explicit(
+            &worker->heartbeat,
+            1U,
+            memory_order_relaxed);
     }
 
     worker->checksum =
@@ -787,10 +827,12 @@ static void *stress_worker_main(void *opaque)
         (uint64_t)(fp * 1000000000.0);
 
     free(buffer);
+    atomic_store(&worker->done, 1);
     return NULL;
 }
 
 static int run_stress_window(
+    unsigned worker_count,
     unsigned duration_seconds,
     unsigned target_khz,
     unsigned candidate_uv,
@@ -805,15 +847,17 @@ static int run_stress_window(
         duration_seconds >
             FLIP_OPTIMIZER_STRESS_MAX_SECONDS ||
         !target_khz ||
-        !candidate_uv)
+        !candidate_uv ||
+        worker_count == 0 ||
+        worker_count > FLIP_OPTIMIZER_MAX_STRESS_WORKERS)
         return -1;
 
     if (power_cancelled)
         *power_cancelled = 0;
 
-    pthread_t threads[FLIP_OPTIMIZER_STRESS_WORKERS];
+    pthread_t threads[FLIP_OPTIMIZER_MAX_STRESS_WORKERS];
     flip_stress_worker_t
-        workers[FLIP_OPTIMIZER_STRESS_WORKERS];
+        workers[FLIP_OPTIMIZER_MAX_STRESS_WORKERS];
 
     memset(threads, 0, sizeof(threads));
     memset(workers, 0, sizeof(workers));
@@ -823,11 +867,13 @@ static int run_stress_window(
     unsigned created = 0;
 
     for (unsigned i = 0;
-         i < FLIP_OPTIMIZER_STRESS_WORKERS;
+         i < worker_count;
          ++i) {
         workers[i].worker_index = i;
         workers[i].stop = &stop;
         workers[i].failed = &failed;
+        atomic_init(&workers[i].heartbeat, 0U);
+        atomic_init(&workers[i].done, 0);
 
         if (pthread_create(
                 &threads[i],
@@ -847,6 +893,9 @@ static int run_stress_window(
 
     unsigned local_max_temp = 0;
     unsigned local_samples = 0;
+    unsigned power_offline_samples = 0;
+    unsigned last_heartbeat[FLIP_OPTIMIZER_MAX_STRESS_WORKERS] = {0};
+    unsigned stalled_samples[FLIP_OPTIMIZER_MAX_STRESS_WORKERS] = {0};
 
     const struct timespec monitor_delay = {
         .tv_sec = 0,
@@ -877,15 +926,56 @@ static int run_stress_window(
             int power_online =
                 optimizer_external_power_online();
 
-            if (power_online <= 0) {
-                if (power_cancelled)
-                    *power_cancelled = 1;
+            if (power_online > 0) {
+                power_offline_samples = 0;
+            } else {
+                power_offline_samples++;
+                if (power_offline_samples >= 20U) {
+                    if (power_cancelled)
+                        *power_cancelled = 1;
 
+                    fprintf(
+                        stderr,
+                        "OPTIMIZER_CANDIDATE: CHARGER_REMOVED cancel=1 sustained_ms=2000\n");
+                    break;
+                }
+            }
+        }
+
+        /*
+         * A live monitor heartbeat is not enough if one stressed CPU has
+         * silently wedged. Require every pinned worker to keep making forward
+         * progress. If one stops for ~2 seconds, stop feeding the hardware
+         * watchdog and classify the trial as failed.
+         */
+        int worker_stalled = 0;
+        for (unsigned i = 0; i < created; ++i) {
+            unsigned heartbeat = atomic_load_explicit(
+                &workers[i].heartbeat,
+                memory_order_relaxed);
+
+            if (heartbeat == last_heartbeat[i]) {
+                if (local_samples >= 5U)
+                    stalled_samples[i]++;
+            } else {
+                last_heartbeat[i] = heartbeat;
+                stalled_samples[i] = 0;
+            }
+
+            if (stalled_samples[i] >= 20U) {
                 fprintf(
                     stderr,
-                    "OPTIMIZER_CANDIDATE: CHARGER_REMOVED cancel=1\n");
+                    "OPTIMIZER_CANDIDATE: stress worker stalled worker=%u heartbeat=%u\n",
+                    i,
+                    heartbeat);
+                worker_stalled = 1;
                 break;
             }
+        }
+
+        if (worker_stalled) {
+            atomic_store(&failed, 1);
+            break;
         }
 
         if (flip_optimizer_hw_watchdog_ping(
@@ -919,12 +1009,41 @@ static int run_stress_window(
 
     atomic_store(&stop, 1);
 
+    /*
+     * Never block forever joining a worker at an unstable voltage. Give the
+     * workers two seconds to acknowledge stop. If any worker is still wedged,
+     * reboot immediately while the recovery watchdog/deadman are still armed.
+     */
+    int workers_done = 0;
+    for (unsigned attempt = 0; attempt < 20U; ++attempt) {
+        workers_done = 1;
+        for (unsigned i = 0; i < created; ++i) {
+            if (!atomic_load(&workers[i].done)) {
+                workers_done = 0;
+                break;
+            }
+        }
+
+        if (workers_done)
+            break;
+
+        (void)nanosleep(&monitor_delay, NULL);
+    }
+
+    if (!workers_done) {
+        fprintf(
+            stderr,
+            "OPTIMIZER_CANDIDATE: stress worker stop timeout; emergency reboot\n");
+        fflush(stderr);
+        emergency_reboot();
+    }
+
     for (unsigned i = 0; i < created; ++i) {
         if (pthread_join(threads[i], NULL) != 0)
             atomic_store(&failed, 1);
     }
 
-    if (created != FLIP_OPTIMIZER_STRESS_WORKERS)
+    if (created != worker_count)
         atomic_store(&failed, 1);
 
     uint64_t checksum = 0;
@@ -1944,7 +2063,8 @@ static int run_live_once(unsigned duration_seconds)
     voltage_entered = 1;
     candidate_exercised = 1;
 
-    if (run_integrity_check() < 0) {
+    if (run_integrity_check(
+            FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS) < 0) {
         fprintf(
             stderr,
             "OPTIMIZER_CANDIDATE: pre-stress integrity failed\n");
@@ -1961,14 +2081,16 @@ static int run_live_once(unsigned duration_seconds)
     printf(
         "OPTIMIZER_CANDIDATE: LIVE_BEGIN "
         "trial=%s target_khz=%u candidate_uv=%u "
-        "duration_s=%u\n",
+        "duration_s=%u workers=%u\n",
         calibration.pending_trial_id,
         target_khz,
         candidate_uv,
-        duration_seconds);
+        duration_seconds,
+        FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS);
     fflush(stdout);
 
     if (run_stress_window(
+            FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS,
             duration_seconds,
             target_khz,
             candidate_uv,
@@ -1990,7 +2112,8 @@ static int run_live_once(unsigned duration_seconds)
         goto fail;
     }
 
-    if (run_integrity_check() < 0) {
+    if (run_integrity_check(
+            FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS) < 0) {
         fprintf(
             stderr,
             "OPTIMIZER_CANDIDATE: post-stress integrity failed\n");
@@ -2799,7 +2922,7 @@ static int validation_preconditions(
 
     if (!result || !testable_opps ||
         geteuid() != 0 ||
-        optimizer_external_power_online() <= 0 ||
+        !optimizer_external_power_online_debounced() ||
         access(FLIP_OPTIMIZER_VALIDATION_REQUEST, F_OK) != 0 ||
         access(FLIP_OPTIMIZER_UI_RETURN_FILE, F_OK) == 0 ||
         access(FLIP_OPTIMIZER_AUTO_SESSION_FILE, F_OK) == 0 ||
@@ -3129,7 +3252,7 @@ static int run_validate_profile(
         if (only_frequency_khz && opp->frequency_khz != only_frequency_khz)
             continue;
 
-        if (optimizer_external_power_online() <= 0) {
+        if (!optimizer_external_power_online_debounced()) {
             power_cancelled = 1;
             break;
         }
@@ -3147,10 +3270,11 @@ static int run_validate_profile(
 
         printf(
             "OPTIMIZER_VALIDATION: OPP_BEGIN frequency_khz=%u voltage_uv=%u "
-            "chunks=%u\n",
+            "chunks=%u workers=%u\n",
             opp->frequency_khz,
             opp->optimized_uv,
-            chunks);
+            chunks,
+            FLIP_OPTIMIZER_VALIDATION_STRESS_WORKERS);
         fflush(stdout);
 
         for (unsigned chunk = 0;
@@ -3211,7 +3335,8 @@ static int run_validate_profile(
                 break;
             }
 
-            if (run_integrity_check() < 0) {
+            if (run_integrity_check(
+                    FLIP_OPTIMIZER_VALIDATION_STRESS_WORKERS) < 0) {
                 failed = 1;
                 break;
             }
@@ -3227,6 +3352,7 @@ static int run_validate_profile(
             int cancelled = 0;
 
             if (run_stress_window(
+                    FLIP_OPTIMIZER_VALIDATION_STRESS_WORKERS,
                     chunk_seconds,
                     opp->frequency_khz,
                     opp->optimized_uv,
@@ -3244,7 +3370,8 @@ static int run_validate_profile(
                 break;
             }
 
-            if (run_integrity_check() < 0) {
+            if (run_integrity_check(
+                    FLIP_OPTIMIZER_VALIDATION_STRESS_WORKERS) < 0) {
                 failed = 1;
                 break;
             }
@@ -3466,7 +3593,8 @@ int main(int argc, char **argv)
 
     if (argc == 2 &&
         strcmp(argv[1], "integrity-only") == 0) {
-        if (run_integrity_check() < 0)
+        if (run_integrity_check(
+                FLIP_OPTIMIZER_MAX_STRESS_WORKERS) < 0)
             return EXIT_FAILURE;
 
         printf("OPTIMIZER_CANDIDATE: INTEGRITY_ONLY_OK\n");

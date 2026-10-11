@@ -23,11 +23,6 @@ for token in [
     '"candidate-exec"',
     '"pending-after-recovery"',
     '"runtime-stock-safe"',
-    '"/ui-return"',
-    '"/sys/class/power_supply/usb/online"',
-    '"/sys/class/power_supply/ac/online"',
-    "external_power_online()",
-    "CHARGER_CANCELLED boot_resume=0 frontend=normal",
 ]:
     if token not in src:
         errors.append(f"optimizer session controller missing: {token}")
@@ -35,6 +30,21 @@ for token in [
 # The boot wrapper may resume a session, but must never create one implicitly.
 if "flip-optimizer-session start" in wrapper:
     errors.append("boot wrapper must never implicitly start optimizer sessions")
+
+# Charger cancellation belongs to the boot wrapper because it can debounce the
+# power-supply nodes and reject cancellation on coldboot/crash recovery. The
+# session controller must not perform a single-shot charger check of its own.
+for forbidden in [
+    '"/sys/class/power_supply/usb/online"',
+    '"/sys/class/power_supply/ac/online"',
+    "external_power_online()",
+    "CHARGER_CANCELLED boot_resume=0 frontend=normal",
+]:
+    if forbidden in src:
+        errors.append(f"optimizer session must not own charger cancel policy: {forbidden}")
+
+if "optimizer_wait_external_power_online" not in wrapper or    '[ "$OPTIMIZER_BOOT_MODE" = "normal" ]' not in wrapper:
+    errors.append("boot wrapper must debounce charger cancel and gate it to normal boot")
 
 resume_pos = wrapper.find('"$ROOT/bin/flip-optimizer-session" boot-resume')
 post_pos = wrapper.find("post-settlement enforcement")

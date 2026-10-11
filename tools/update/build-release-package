@@ -19,7 +19,7 @@ BUILD_ID=${FLIP_BUILD_ID:-$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)}
 WORK="$OUT_DIR/.flipos-release-work"
 PACKAGE="$WORK/FlipOSUpdate"
 PAYLOAD="$PACKAGE/payload"
-ARCHIVE="$OUT_DIR/FlipOSUpdate.tar.gz"
+ARCHIVE="$OUT_DIR/FlipOS-Update.tar.gz"
 
 required='build/flip-frontend build/flip-gb build/flip-gba build/flip-charge-service build/umtprd build/flip-optimizer-supervisor build/flip-optimizer-deadman build/flip-optimizer-guard build/flip-optimizer-calibration build/flip-optimizer-candidate build/flip-optimizer-session build/flip-optimizer-progress build/flip-optimizer-validation-progress build/flip-optimizer-runtime tools/device/flip-usb-mtp tools/device/umtprd.conf tools/update/flip-update-install tools/update/flip-update-fetch tools/device/updater-playtest'
 for rel in $required; do

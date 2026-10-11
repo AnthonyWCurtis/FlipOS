@@ -46,6 +46,17 @@ static int arm_realtime_runtime(void)
 {
     memset(locked_probe, 0xa5, sizeof(locked_probe));
 
+    /*
+     * CPU3 is deliberately reserved by the optimizer as a recovery lane.
+     * Keep the deadman there so a marginal stressed core cannot starve the
+     * process that must reboot us back to the stock OPP table.
+     */
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(3, &set);
+    if (sched_setaffinity(0, sizeof(set), &set) < 0)
+        return -1;
+
     if (mlockall(MCL_CURRENT | MCL_FUTURE) < 0)
         return -1;
 

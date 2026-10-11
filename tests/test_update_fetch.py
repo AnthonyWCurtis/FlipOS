@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
         "format=1\ntarget=miyoo-flip-rk3566\nversion=beta-test\nbuild_id=test\n"
     )
     serve.mkdir()
-    archive = serve / "FlipOSUpdate.tar.gz"
+    archive = serve / "FlipOS-Update.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
         tf.add(package, arcname="FlipOSUpdate")
 
@@ -42,10 +42,10 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
                     "prerelease": True,
                     "assets": [
                         {
-                            "browser_download_url": f"http://127.0.0.1:{port}/FlipOSUpdate.tar.gz.sha256"
+                            "browser_download_url": f"http://127.0.0.1:{port}/FlipOS-Update.tar.gz.sha256"
                         },
                         {
-                            "browser_download_url": f"http://127.0.0.1:{port}/FlipOSUpdate.tar.gz"
+                            "browser_download_url": f"http://127.0.0.1:{port}/FlipOS-Update.tar.gz"
                         },
                     ]
                 }]).encode()
@@ -77,6 +77,21 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
         assert (dest / "payload/VERSION").read_text() == "beta-test\n"
         assert "phase=ready" in (base / "progress").read_text()
         assert "FLIP_UPDATE_FETCH_OK" in result.stdout
+
+        # When the installed version already matches the latest release tag,
+        # report success without presenting the staged package as an update.
+        install.mkdir(parents=True, exist_ok=True)
+        (install / "VERSION").write_text("0.1.0-beta.1\n")
+        available = install / "state/update/available"
+        available.parent.mkdir(parents=True, exist_ok=True)
+        available.write_text("stale\n")
+        latest = subprocess.run(
+            [str(FETCH)], env=env, text=True, capture_output=True
+        )
+        assert latest.returncode == 0, latest.stderr
+        assert "FLIP_UPDATE_FETCH_LATEST" in latest.stdout
+        assert not available.exists()
+        assert "YOU'RE ON THE LATEST RELEASE" in (base / "progress").read_text()
     finally:
         server.shutdown()
         server.server_close()

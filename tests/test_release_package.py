@@ -32,9 +32,9 @@ with tempfile.TemporaryDirectory(prefix="flipos-release-") as td:
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr
-    archive = out / "FlipOSUpdate.tar.gz"
+    archive = out / "FlipOS-Update.tar.gz"
     assert archive.exists()
-    assert (out / "FlipOSUpdate.tar.gz.sha256").exists()
+    assert (out / "FlipOS-Update.tar.gz.sha256").exists()
     with tarfile.open(archive, "r:gz") as tf:
         names = set(tf.getnames())
         assert "FlipOSUpdate/manifest" in names

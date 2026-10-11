@@ -16,12 +16,6 @@
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/auto-session.tmp"
 #define CANDIDATE_PATH \
     "/mnt/SDCARD/flipos-dev/bin/flip-optimizer-candidate"
-#define UI_RETURN_FILE \
-    FLIP_OPTIMIZER_CALIBRATION_ROOT "/ui-return"
-#define USB_ONLINE_FILE \
-    "/sys/class/power_supply/usb/online"
-#define AC_ONLINE_FILE \
-    "/sys/class/power_supply/ac/online"
 #define DEFAULT_DURATION_SECONDS 20U
 
 typedef struct {
@@ -30,51 +24,6 @@ typedef struct {
     unsigned duration_seconds;
     unsigned target_complete_count;
 } session_state_t;
-
-static int read_online_value(
-    const char *path,
-    int *value)
-{
-    if (!path || !value)
-        return -1;
-
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return -1;
-
-    int parsed = 0;
-    int rc = fscanf(f, "%d", &parsed);
-    fclose(f);
-
-    if (rc != 1)
-        return -1;
-
-    *value = parsed;
-    return 0;
-}
-
-static int external_power_online(void)
-{
-    int usb = 0;
-    int ac = 0;
-    int usb_ok =
-        read_online_value(
-            USB_ONLINE_FILE,
-            &usb) == 0;
-    int ac_ok =
-        read_online_value(
-            AC_ONLINE_FILE,
-            &ac) == 0;
-
-    if ((usb_ok && usb > 0) ||
-        (ac_ok && ac > 0))
-        return 1;
-
-    if (usb_ok || ac_ok)
-        return 0;
-
-    return -1;
-}
 
 static int fsync_parent(void)
 {
@@ -303,17 +252,12 @@ static int boot_resume(void)
     if (session_rc <= 0)
         return session_rc < 0 ? -1 : 0;
 
-    if (access(UI_RETURN_FILE, F_OK) == 0 &&
-        external_power_online() <= 0) {
-        printf(
-            "OPTIMIZER_SESSION: CHARGER_CANCELLED boot_resume=0 frontend=normal\n");
-
-        if (clear_session() < 0)
-            return -1;
-
-        return fsync_parent();
-    }
-
+    /*
+     * Charger-cancel policy is owned by the boot wrapper, which can debounce
+     * charger detection and distinguish a normal boot from crash recovery.
+     * Never single-shot the power sysfs nodes here: on recovery boots they can
+     * briefly read offline and would discard a valid calibration session.
+     */
     if (!state.active || state.paused) {
         printf(
             "OPTIMIZER_SESSION: NOT_RESUMED active=%d paused=%d\n",

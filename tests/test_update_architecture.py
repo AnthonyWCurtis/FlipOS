@@ -28,7 +28,7 @@ assert 'run_update_installer()' in frontend
 assert 'UPDATE FAILED - CURRENT VERSION KEPT' in frontend
 fetcher = (ROOT / "tools/update/flip-update-fetch").read_text()
 assert 'api.github.com/repos/AnthonyWCurtis/FlipOS/releases?per_page=10' in fetcher
-assert 'FlipOSUpdate.tar.gz' in fetcher
+assert 'FlipOS-Update.tar.gz' in fetcher
 assert 'browser_download_url' in fetcher
 assert 'sha256sum -c' in fetcher
 assert 'run_update_fetcher()' in frontend

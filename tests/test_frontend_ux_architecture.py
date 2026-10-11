@@ -148,6 +148,8 @@ assert 'run_update_fetcher()' in SOURCE
 assert 'A CHECK GITHUB' in SOURCE
 assert 'X CHECK GITHUB' in SOURCE
 assert 'UPDATE DOWNLOADED - READY TO INSTALL' in SOURCE
+assert "YOU'RE ON THE LATEST RELEASE" in SOURCE
+assert 'access(FLIP_UPDATE_AVAILABLE, F_OK) != 0' in SOURCE
 assert 'DOWNLOAD FROM THE FLIPOS GITHUB RELEASE' in SOURCE
 
 print("frontend UX architecture tests passed")
