@@ -4,9 +4,9 @@ FlipOS is a lightweight custom operating environment built specifically for the 
 
 The project is focused on a simple console-like experience: fast game launch and resume, lid-aware sleep/wake, GameSwitcher, native emulator integration, sensible power management, Wi-Fi, USB file transfer, and minimal UI overhead.
 
-## Beta 1
+## Beta 2
 
-**FlipOS Beta 1 is testing software.** It is usable, but it is not considered finished or fully hardened yet.
+**FlipOS Beta 2 is testing software.** It is usable, but it is not considered finished or fully hardened yet.
 
 If you find a bug, crash, odd resume behaviour, broken game, Wi-Fi problem, update problem, battery issue, or anything else that does not feel right, please report it in **GitHub Issues**:
 
@@ -19,14 +19,14 @@ When possible, include:
 - whether it happens every time;
 - photos/video if useful.
 
-## Supported in Beta 1
+## Supported in Beta 2
 
-Beta 1 currently focuses on:
+Beta 2 currently focuses on:
 - Game Boy;
 - Game Boy Color;
 - Game Boy Advance.
 
-NES, SNES, Mega Drive, PS1, RetroArch compatibility, themes, richer metadata/artwork, and additional emulator expansion are not part of Beta 1.
+NES, SNES, Mega Drive, PS1, RetroArch compatibility, themes, richer metadata/artwork, and additional emulator expansion are not part of Beta 2.
 
 ## Highlights
 
@@ -47,7 +47,7 @@ NES, SNES, Mega Drive, PS1, RetroArch compatibility, themes, richer metadata/art
 
 FlipOS does **not** include commercial ROMs or copyrighted BIOS files. You must provide your own legally obtained files.
 
-Read [Beta 1 Installation](docs/BETA1_INSTALL.md) and [Beta 1 Known Issues](docs/BETA1_KNOWN_ISSUES.md) before installing.
+Read the [installation guide](docs/BETA1_INSTALL.md), [Beta known issues](docs/BETA1_KNOWN_ISSUES.md), and [Beta 2 release notes](docs/BETA2_RELEASE_NOTES.md) before installing.
 
 ## Status
 
