@@ -5,6 +5,11 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 VERSION=${1:-}
 OUT_DIR=${2:-$ROOT_DIR/dist}
 
+case "$OUT_DIR" in
+    /*) ;;
+    *) OUT_DIR="$ROOT_DIR/$OUT_DIR" ;;
+esac
+
 if [ -z "$VERSION" ]; then
     echo "usage: $0 <version> [output-dir]" >&2
     exit 2
