@@ -176,6 +176,16 @@ for token in [
     'FLIP_OPTIMIZER_RUNTIME_TOOL',
     '"apply-validation"',
     'run_child_tool_with_watchdog(',
+    'strcmp(argv[1], "raise-profile-voltage") == 0',
+    'FLIP_OPTIMIZER_VALIDATION_RETRY_STEP_UV 25000U',
+    'OPTIMIZER_VALIDATION: AUTO_RAISE',
+    'validation-target-passed',
+    'validation-adjustments.log',
+    'recovery_armed=%d',
+    'phase=%s',
+    'validate-profile-frequency',
+    'flip_optimizer_save(&adjusted)',
+    'flip_optimizer_calibration_save(&calibration)',
     'opp->optimized_uv',
     'OPTIMIZER_VALIDATION: OPP_PASS',
     'OPTIMIZER_VALIDATION: COMPLETE',
@@ -201,6 +211,10 @@ else:
         errors.append("profile validator must use stock-preserved parking OPP")
     if "run_child_tool_with_watchdog(" not in validation:
         errors.append("profile validator child operations must service hardware watchdog")
+    if "TRANSITION_PASS" not in validation or "chunks" not in validation:
+        errors.append("profile validator must repeatedly transition through optimized OPPs")
+    if "seconds_per_opp > FLIP_OPTIMIZER_STRESS_MAX_SECONDS" not in validation:
+        errors.append("profile validator must support bounded extended stability durations")
     if validation.count("FLIP_OPTIMIZER_VALIDATION_PARK_KHZ") < 4:
         errors.append("profile validator must park at stock-safe OPP between validation points")
 

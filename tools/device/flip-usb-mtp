@@ -1,0 +1,175 @@
+#!/bin/sh
+set -eu
+
+ROOT=/mnt/SDCARD/flipos-dev
+MTP_BIN="$ROOT/bin/umtprd"
+MTP_CONF="$ROOT/etc/umtprd.conf"
+MTP_ROOT="$ROOT/mtp-root"
+MTP_LOG="$ROOT/logs/mtp.log"
+GADGET=/sys/kernel/config/usb_gadget/rockchip
+CONFIG="$GADGET/configs/b.1"
+MTP_FUNC="$GADGET/functions/ffs.mtp"
+MTP_LINK="$CONFIG/f-ffs.mtp"
+FFS_DIR=/dev/ffs-mtp
+PID_FILE=/tmp/flipos-mtp.pid
+ADB_FUNC="$GADGET/functions/ffs.adb"
+ADB_LINK="$CONFIG/f-ffs.adb"
+ADB_FFS=/dev/usb-ffs/adb
+OWNER_MARKER=/tmp/flipos-usb-owned
+
+log()
+{
+    printf '%s\n' "FLIP_MTP: $*" >> "$MTP_LOG"
+}
+
+is_bind_mounted()
+{
+    mountpoint -q "$1"
+}
+
+bind_dir()
+{
+    src=$1
+    dst=$2
+
+    mkdir -p "$src" "$dst"
+    if ! is_bind_mounted "$dst"; then
+        if mount --bind "$src" "$dst"; then
+            log "bind src=$src dst=$dst"
+        else
+            log "bind failed src=$src dst=$dst"
+            return 1
+        fi
+    fi
+}
+
+mkdir -p "$ROOT/logs" "$ROOT/etc" "$MTP_ROOT" "$FFS_DIR"
+touch "$MTP_LOG"
+
+if [ ! -x "$MTP_BIN" ] || [ ! -r "$MTP_CONF" ]; then
+    log "disabled missing binary/config"
+    exit 0
+fi
+
+# Rockchip's stock usbdevice helper reacts to USB state changes by rebuilding
+# its ADB-only gadget. Disable that owner before installing the FlipOS composite
+# gadget, otherwise it races our MTP function back out of the configuration.
+if [ ! -f "$OWNER_MARKER" ] && [ -x /usr/bin/usbdevice ]; then
+    /usr/bin/usbdevice stop >> "$MTP_LOG" 2>&1 || true
+    sleep 0.3
+    log "stock usbdevice stopped"
+fi
+
+# Expose only user-owned content. Internal state, updater files, logs and
+# calibration data never become part of the MTP filesystem.
+bind_dir /mnt/SDCARD/Roms "$MTP_ROOT/ROMs"
+bind_dir "$ROOT/system" "$MTP_ROOT/BIOS"
+bind_dir "$ROOT/saves" "$MTP_ROOT/Saves"
+
+# Preserve ADB on development/playtest units. The stock helper has been
+# stopped, so FlipOS now owns this FunctionFS instance and the composite.
+mkdir -p "$ADB_FFS"
+if [ ! -d "$ADB_FUNC" ]; then
+    mkdir "$ADB_FUNC"
+fi
+if ! mountpoint -q "$ADB_FFS"; then
+    mount -t functionfs adb "$ADB_FFS" -o uid=2000,gid=2000
+fi
+if ! ps 2>/dev/null | grep '[a]dbd' >/dev/null 2>&1; then
+    nohup /usr/bin/adbd </dev/null >/dev/null 2>&1 &
+fi
+
+adb_wait=0
+while [ ! -e "$ADB_FFS/ep1" ] && [ "$adb_wait" -lt 50 ]; do
+    sleep 0.1
+    adb_wait=$((adb_wait + 1))
+done
+if [ ! -e "$ADB_FFS/ep1" ]; then
+    log "ADB FunctionFS endpoints unavailable"
+    exit 1
+fi
+
+# The FunctionFS instance must exist in configfs before this kernel accepts
+# a mount using the matching "mtp" instance name.
+if [ ! -d "$MTP_FUNC" ]; then
+    if ! mkdir "$MTP_FUNC"; then
+        log "failed creating ffs.mtp function"
+        exit 1
+    fi
+fi
+
+if ! mountpoint -q "$FFS_DIR"; then
+    if ! mount -t functionfs mtp "$FFS_DIR"; then
+        log "FunctionFS mount failed"
+        exit 1
+    fi
+    log "FunctionFS mounted"
+fi
+
+# The responder must publish its FunctionFS descriptors before the composite
+# gadget is rebound to the USB device controller.
+START_RESPONDER=1
+if [ -r "$PID_FILE" ]; then
+    old_pid=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+        START_RESPONDER=0
+    fi
+fi
+
+if [ "$START_RESPONDER" -eq 1 ]; then
+    nohup "$MTP_BIN" -conf "$MTP_CONF" </dev/null >> "$MTP_LOG" 2>&1 &
+    echo $! > "$PID_FILE"
+    log "responder started pid=$!"
+fi
+
+wait_count=0
+while [ ! -e "$FFS_DIR/ep1" ] && [ "$wait_count" -lt 50 ]; do
+    sleep 0.1
+    wait_count=$((wait_count + 1))
+done
+
+if [ ! -e "$FFS_DIR/ep1" ]; then
+    log "responder endpoints unavailable"
+    exit 1
+fi
+
+if [ -L "$MTP_LINK" ] && [ -L "$ADB_LINK" ] &&
+   [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
+    touch "$OWNER_MARKER"
+    log "already configured"
+    exit 0
+fi
+
+UDC=$(cat "$GADGET/UDC" 2>/dev/null || true)
+if [ -z "$UDC" ]; then
+    UDC=$(ls /sys/class/udc 2>/dev/null | head -n 1)
+fi
+
+if [ -z "$UDC" ]; then
+    log "no USB device controller"
+    exit 1
+fi
+
+# Install the complete FlipOS composite while unbound. usbdevice stop above
+# normally leaves UDC empty; handle a pre-existing binding defensively.
+if [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
+    printf '\n' > "$GADGET/UDC"
+    sleep 0.4
+fi
+
+rm -f "$CONFIG"/f-*
+ln -s "$ADB_FUNC" "$ADB_LINK"
+ln -s "$MTP_FUNC" "$MTP_LINK"
+printf '%s\n' "0x2207" > "$GADGET/idVendor"
+# Keep the development PID so the existing ADB driver remains usable while
+# adding the standards-based MTP interface.
+printf '%s\n' "0x0006" > "$GADGET/idProduct"
+printf '%s\n' "FlipOS" > "$GADGET/strings/0x409/product"
+printf '%s\n' "FlipOS Project" > "$GADGET/strings/0x409/manufacturer"
+printf '%s\n' "FlipOS MTP + ADB" > "$CONFIG/strings/0x409/configuration"
+printf '%s\n' "0x0311" > "$GADGET/bcdDevice"
+
+touch "$OWNER_MARKER"
+printf '%s\n' "$UDC" > "$GADGET/UDC"
+log "ready udc=$UDC storage=$MTP_ROOT"
+exit 0

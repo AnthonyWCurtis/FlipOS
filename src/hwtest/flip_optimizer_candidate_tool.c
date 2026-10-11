@@ -48,7 +48,7 @@
     "/sys/module/flip_tsadc_recovery/parameters/recovery"
 #define FLIP_OPTIMIZER_DEADMAN_PATH \
     "/mnt/SDCARD/flipos-dev/bin/flip-optimizer-deadman"
-#define FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 20U
+#define FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS 600U
 #define FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS 8U
 #define FLIP_OPTIMIZER_MODULE_CONTROL \
     "/sys/module/flip_opp_voltage/parameters/control"
@@ -72,6 +72,12 @@
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-result"
 #define FLIP_OPTIMIZER_VALIDATION_RETURN \
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-return"
+#define FLIP_OPTIMIZER_VALIDATION_ADJUSTMENTS \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-adjustments.log"
+#define FLIP_OPTIMIZER_VALIDATION_TARGET_PASSED \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-target-passed"
+#define FLIP_OPTIMIZER_VALIDATION_MANUAL_STOP \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/validation-manual-stop"
 
 #define FLIP_OPTIMIZER_SOC_THERMAL_TYPE \
     "/sys/class/thermal/thermal_zone0/type"
@@ -80,11 +86,12 @@
 #define FLIP_OPTIMIZER_VALIDATION_PARK_KHZ 408000U
 #define FLIP_OPTIMIZER_STRESS_WORKERS 4U
 #define FLIP_OPTIMIZER_STRESS_MIN_SECONDS 5U
-#define FLIP_OPTIMIZER_STRESS_MAX_SECONDS 120U
+#define FLIP_OPTIMIZER_STRESS_MAX_SECONDS 720U
 #define FLIP_OPTIMIZER_STRESS_MAX_TEMP_MC 75000U
 #define FLIP_OPTIMIZER_STRESS_BUFFER_WORDS 32768U
 #define FLIP_OPTIMIZER_INTEGRITY_WORDS 4096U
 #define FLIP_OPTIMIZER_INTEGRITY_ROUNDS 48U
+#define FLIP_OPTIMIZER_VALIDATION_RETRY_STEP_UV 25000U
 
 typedef struct {
     unsigned target_uv;
@@ -360,6 +367,52 @@ static int read_cpu_rail_uv(unsigned *uv)
         return -1;
 
     return read_unsigned_path(path, uv);
+}
+
+static int wait_for_validation_entry(
+    unsigned expected_khz,
+    unsigned expected_uv,
+    flip_optimizer_hw_watchdog_t *hw_watchdog,
+    unsigned *last_khz,
+    unsigned *last_uv)
+{
+    const struct timespec delay = {
+        .tv_sec = 0,
+        .tv_nsec = 20 * 1000 * 1000,
+    };
+
+    unsigned current = 0;
+    unsigned rail_uv = 0;
+
+    for (unsigned attempt = 0; attempt < 100; ++attempt) {
+        int freq_ok =
+            flip_cpu_policy_get_current(&current) == 0 &&
+            current == expected_khz;
+        int rail_ok =
+            read_cpu_rail_uv(&rail_uv) == 0 &&
+            rail_uv == expected_uv;
+
+        if (freq_ok && rail_ok) {
+            if (last_khz)
+                *last_khz = current;
+            if (last_uv)
+                *last_uv = rail_uv;
+            return 0;
+        }
+
+        if (hw_watchdog &&
+            (attempt % 10U) == 0U &&
+            flip_optimizer_hw_watchdog_ping(hw_watchdog) < 0)
+            return -1;
+
+        nanosleep(&delay, NULL);
+    }
+
+    if (last_khz)
+        *last_khz = current;
+    if (last_uv)
+        *last_uv = rail_uv;
+    return -1;
 }
 
 static int choose_parking_frequency(
@@ -1049,9 +1102,7 @@ static int arm_deadman(
 {
     if (!pid_out ||
         timeout_seconds < FLIP_OPTIMIZER_STRESS_MIN_SECONDS ||
-        timeout_seconds >
-            FLIP_OPTIMIZER_STRESS_MAX_SECONDS +
-            FLIP_OPTIMIZER_DEADMAN_HEADROOM_SECONDS)
+        timeout_seconds > 4200U)
         return -1;
 
     int ready_pipe[2];
@@ -2649,13 +2700,19 @@ static int run_child_tool_with_watchdog(
     return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
 }
 
-static int write_validation_state_file(
+static int write_validation_state_file_ex(
     const char *path,
     const char *status,
     const flip_optimizer_result_t *result,
     unsigned tested_opps,
     unsigned seconds_per_opp,
-    unsigned max_temp_mc)
+    unsigned max_temp_mc,
+    const char *phase,
+    unsigned frequency_khz,
+    unsigned voltage_uv,
+    unsigned chunk_index,
+    unsigned chunk_count,
+    int recovery_armed)
 {
     if (!path || !status || !result)
         return -1;
@@ -2678,14 +2735,22 @@ static int write_validation_state_file(
     int failed = fprintf(
         f,
         "version=1\nstatus=%s\ndevice_id=%s\ncalibrated_epoch=%u\n"
-        "tested_epoch=%u\ntested_opps=%u\nseconds_per_opp=%u\nmax_temp_mc=%u\n",
+        "tested_epoch=%u\ntested_opps=%u\nseconds_per_opp=%u\nmax_temp_mc=%u\n"
+        "phase=%s\nfrequency_khz=%u\nvoltage_uv=%u\nchunk_index=%u\nchunk_count=%u\n"
+        "recovery_armed=%d\n",
         status,
         result->device_id,
         result->calibrated_epoch,
         epoch,
         tested_opps,
         seconds_per_opp,
-        max_temp_mc) < 0;
+        max_temp_mc,
+        phase && phase[0] ? phase : "none",
+        frequency_khz,
+        voltage_uv,
+        chunk_index,
+        chunk_count,
+        recovery_armed ? 1 : 0) < 0;
 
     if (!failed && fflush(f) != 0)
         failed = 1;
@@ -2701,6 +2766,29 @@ static int write_validation_state_file(
 
     sync();
     return 0;
+}
+
+static int write_validation_state_file(
+    const char *path,
+    const char *status,
+    const flip_optimizer_result_t *result,
+    unsigned tested_opps,
+    unsigned seconds_per_opp,
+    unsigned max_temp_mc)
+{
+    return write_validation_state_file_ex(
+        path,
+        status,
+        result,
+        tested_opps,
+        seconds_per_opp,
+        max_temp_mc,
+        "none",
+        0,
+        0,
+        0,
+        0,
+        0);
 }
 
 static int validation_preconditions(
@@ -2736,9 +2824,88 @@ static int validation_preconditions(
     return 0;
 }
 
-static int run_validate_profile(unsigned seconds_per_opp)
+static int raise_validation_profile_voltage(unsigned frequency_khz, unsigned increment_uv)
 {
-    if (seconds_per_opp < 10 || seconds_per_opp > 300)
+    flip_optimizer_result_t current;
+    flip_optimizer_calibration_t calibration;
+
+    if (!frequency_khz ||
+        increment_uv != FLIP_OPTIMIZER_VALIDATION_RETRY_STEP_UV ||
+        flip_optimizer_load(&current) < 0 ||
+        flip_optimizer_calibration_load(&calibration) < 0 ||
+        !flip_optimizer_calibration_is_complete(&calibration) ||
+        current.opp_count != calibration.opp_count)
+        return -1;
+
+    size_t index = current.opp_count;
+    for (size_t i = 0; i < current.opp_count; ++i) {
+        if (current.opps[i].frequency_khz == frequency_khz &&
+            calibration.opps[i].frequency_khz == frequency_khz) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index >= current.opp_count)
+        return -1;
+
+    unsigned old_uv = current.opps[index].optimized_uv;
+    unsigned stock_uv = current.opps[index].stock_uv;
+    unsigned new_uv = old_uv + increment_uv;
+    if (new_uv < old_uv || new_uv > stock_uv)
+        new_uv = stock_uv;
+    if (new_uv <= old_uv)
+        return 1;
+
+    calibration.opps[index].raw_final_uv = new_uv;
+
+    flip_optimizer_result_t adjusted;
+    if (flip_optimizer_calibration_build_result(
+            &calibration,
+            current.calibrated_epoch,
+            &adjusted) < 0)
+        return -1;
+
+    /* Save the safer runtime profile first. If power is lost between these
+     * writes, the device can only end up using the higher voltage. */
+    if (flip_optimizer_save(&adjusted) < 0 ||
+        flip_optimizer_calibration_save(&calibration) < 0)
+        return -1;
+
+    FILE *audit = fopen(FLIP_OPTIMIZER_VALIDATION_ADJUSTMENTS, "a");
+    if (audit) {
+        time_t now = time(NULL);
+        fprintf(
+            audit,
+            "epoch=%lld frequency_khz=%u old_uv=%u new_uv=%u increment_uv=%u reason=hard-recovery calibrated_epoch=%u\n",
+            (long long)now,
+            frequency_khz,
+            old_uv,
+            adjusted.opps[index].optimized_uv,
+            increment_uv,
+            current.calibrated_epoch);
+        (void)fflush(audit);
+        (void)fsync(fileno(audit));
+        (void)fclose(audit);
+    }
+
+    printf(
+        "OPTIMIZER_VALIDATION: AUTO_RAISE frequency_khz=%u old_uv=%u new_uv=%u increment_uv=%u\n",
+        frequency_khz,
+        old_uv,
+        adjusted.opps[index].optimized_uv,
+        increment_uv);
+    fflush(stdout);
+    return 0;
+}
+
+static int run_validate_profile(
+    unsigned seconds_per_opp,
+    unsigned only_frequency_khz,
+    int preserve_request)
+{
+    if (seconds_per_opp < 10 ||
+        seconds_per_opp > FLIP_OPTIMIZER_STRESS_MAX_SECONDS)
         return -1;
 
     flip_optimizer_result_t result;
@@ -2747,6 +2914,21 @@ static int run_validate_profile(unsigned seconds_per_opp)
     if (validation_preconditions(&result, &total_opps) < 0) {
         fprintf(stderr, "OPTIMIZER_VALIDATION: preconditions failed\n");
         return -1;
+    }
+
+    if (only_frequency_khz) {
+        int found = 0;
+        for (size_t i = 0; i < result.opp_count; ++i) {
+            if (result.opps[i].frequency_khz == only_frequency_khz &&
+                result.opps[i].frequency_khz >=
+                    FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found)
+            return -1;
+        total_opps = 1;
     }
 
     if (write_validation_state_file(
@@ -2802,21 +2984,57 @@ static int run_validate_profile(unsigned seconds_per_opp)
     unsigned tested_opps = 0;
     unsigned global_max_temp = 0;
 
+    if (write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "arming-quiesce",
+            &result,
+            tested_opps,
+            seconds_per_opp,
+            global_max_temp) < 0)
+        emergency_reboot();
+
     if (!original_valid ||
         flip_optimizer_quiesce_begin(&quiesce) < 0)
         failed = 1;
     else
         quiesced = 1;
 
+    if (!failed && write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "arming-panic-policy",
+            &result,
+            tested_opps,
+            seconds_per_opp,
+            global_max_temp) < 0)
+        emergency_reboot();
+
     if (!failed && flip_optimizer_panic_policy_begin(&panic_policy) < 0)
         failed = 1;
     else if (!failed)
         panic_armed = 1;
 
+    if (!failed && write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "loading-tsadc-recovery",
+            &result,
+            tested_opps,
+            seconds_per_opp,
+            global_max_temp) < 0)
+        emergency_reboot();
+
     if (!failed && tsadc_recovery_load() < 0)
         failed = 1;
     else if (!failed)
         tsadc_loaded = 1;
+
+    if (!failed && write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "arming-tsadc-recovery",
+            &result,
+            tested_opps,
+            seconds_per_opp,
+            global_max_temp) < 0)
+        emergency_reboot();
 
     if (!failed && tsadc_recovery_set(1) < 0)
         failed = 1;
@@ -2826,6 +3044,15 @@ static int run_validate_profile(unsigned seconds_per_opp)
     if (failed)
         goto validation_abort_before_watchdog;
 
+    if (write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "arming-hw-watchdog",
+            &result,
+            tested_opps,
+            seconds_per_opp,
+            global_max_temp) < 0)
+        emergency_reboot();
+
     if (flip_optimizer_hw_watchdog_arm(
             &hw_watchdog,
             FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS) < 0) {
@@ -2834,6 +3061,15 @@ static int run_validate_profile(unsigned seconds_per_opp)
         failed = 1;
         goto validation_abort_before_watchdog;
     }
+
+    if (write_validation_state_file(
+            FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+            "arming-deadman",
+            &result,
+            tested_opps,
+            seconds_per_opp,
+            global_max_temp) < 0)
+        emergency_reboot();
 
     unsigned total_seconds = seconds_per_opp * total_opps;
     if (arm_deadman(
@@ -2890,122 +3126,176 @@ static int run_validate_profile(unsigned seconds_per_opp)
         if (opp->frequency_khz <
                 FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ)
             continue;
+        if (only_frequency_khz && opp->frequency_khz != only_frequency_khz)
+            continue;
 
         if (optimizer_external_power_online() <= 0) {
             power_cancelled = 1;
             break;
         }
 
-        char validation_stage[64];
-        int stage_n = snprintf(
-            validation_stage,
-            sizeof(validation_stage),
-            "entering-%u",
-            opp->frequency_khz);
-        if (stage_n < 0 ||
-            (size_t)stage_n >= sizeof(validation_stage) ||
-            write_validation_state_file(
-                FLIP_OPTIMIZER_VALIDATION_ACTIVE,
-                validation_stage,
-                &result,
-                tested_opps,
-                seconds_per_opp,
-                global_max_temp) < 0)
-            emergency_reboot();
+        unsigned chunks =
+            seconds_per_opp >= 15U
+                ? (seconds_per_opp + 59U) / 60U
+                : 1U;
+        if (seconds_per_opp >= 15U && chunks < 3U)
+            chunks = 3U;
 
-        if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
-            emergency_reboot();
-
-        if (flip_cpu_policy_set_limits(
-                opp->frequency_khz,
-                opp->frequency_khz) < 0) {
-            failed = 1;
-            break;
-        }
-
-        unsigned current = 0;
-        unsigned rail_uv = 0;
-        if (flip_cpu_policy_get_current(&current) < 0 ||
-            current != opp->frequency_khz ||
-            read_cpu_rail_uv(&rail_uv) < 0 ||
-            rail_uv != opp->optimized_uv) {
-            fprintf(
-                stderr,
-                "OPTIMIZER_VALIDATION: entry verification failed "
-                "freq=%u/%u rail_uv=%u/%u\n",
-                current,
-                opp->frequency_khz,
-                rail_uv,
-                opp->optimized_uv);
-            failed = 1;
-            break;
-        }
-
-        if (run_integrity_check() < 0) {
-            failed = 1;
-            break;
-        }
-
-        unsigned max_temp_mc = 0;
-        unsigned samples = 0;
-        int cancelled = 0;
+        unsigned remaining_seconds = seconds_per_opp;
+        unsigned opp_samples = 0;
+        unsigned opp_max_temp_mc = 0;
 
         printf(
-            "OPTIMIZER_VALIDATION: OPP_BEGIN frequency_khz=%u voltage_uv=%u\n",
+            "OPTIMIZER_VALIDATION: OPP_BEGIN frequency_khz=%u voltage_uv=%u "
+            "chunks=%u\n",
             opp->frequency_khz,
-            opp->optimized_uv);
+            opp->optimized_uv,
+            chunks);
         fflush(stdout);
 
-        if (run_stress_window(
-                seconds_per_opp,
+        for (unsigned chunk = 0;
+             !failed && !power_cancelled && chunk < chunks;
+             ++chunk) {
+            char validation_stage[64];
+            int stage_n = snprintf(
+                validation_stage,
+                sizeof(validation_stage),
+                "entering-%u",
+                opp->frequency_khz);
+            if (stage_n < 0 ||
+                (size_t)stage_n >= sizeof(validation_stage) ||
+                write_validation_state_file_ex(
+                    FLIP_OPTIMIZER_VALIDATION_ACTIVE,
+                    validation_stage,
+                    &result,
+                    tested_opps,
+                    seconds_per_opp,
+                    global_max_temp,
+                    "stress",
+                    opp->frequency_khz,
+                    opp->optimized_uv,
+                    chunk + 1U,
+                    chunks,
+                    1) < 0)
+                emergency_reboot();
+
+            if (flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
+                emergency_reboot();
+
+            if (flip_cpu_policy_set_limits(
+                    opp->frequency_khz,
+                    opp->frequency_khz) < 0) {
+                failed = 1;
+                break;
+            }
+
+            unsigned current = 0;
+            unsigned rail_uv = 0;
+            if (wait_for_validation_entry(
+                    opp->frequency_khz,
+                    opp->optimized_uv,
+                    &hw_watchdog,
+                    &current,
+                    &rail_uv) < 0) {
+                fprintf(
+                    stderr,
+                    "OPTIMIZER_VALIDATION: entry settle failed "
+                    "freq=%u/%u rail_uv=%u/%u chunk=%u/%u\n",
+                    current,
+                    opp->frequency_khz,
+                    rail_uv,
+                    opp->optimized_uv,
+                    chunk + 1U,
+                    chunks);
+                failed = 1;
+                break;
+            }
+
+            if (run_integrity_check() < 0) {
+                failed = 1;
+                break;
+            }
+
+            unsigned chunks_left = chunks - chunk;
+            unsigned chunk_seconds =
+                remaining_seconds / chunks_left;
+            if (chunk_seconds < FLIP_OPTIMIZER_STRESS_MIN_SECONDS)
+                chunk_seconds = FLIP_OPTIMIZER_STRESS_MIN_SECONDS;
+
+            unsigned max_temp_mc = 0;
+            unsigned samples = 0;
+            int cancelled = 0;
+
+            if (run_stress_window(
+                    chunk_seconds,
+                    opp->frequency_khz,
+                    opp->optimized_uv,
+                    &hw_watchdog,
+                    1,
+                    &cancelled,
+                    &max_temp_mc,
+                    &samples) < 0) {
+                failed = 1;
+                break;
+            }
+
+            if (cancelled) {
+                power_cancelled = 1;
+                break;
+            }
+
+            if (run_integrity_check() < 0) {
+                failed = 1;
+                break;
+            }
+
+            if (remaining_seconds >= chunk_seconds)
+                remaining_seconds -= chunk_seconds;
+            else
+                remaining_seconds = 0;
+
+            opp_samples += samples;
+            if (max_temp_mc > opp_max_temp_mc)
+                opp_max_temp_mc = max_temp_mc;
+            if (max_temp_mc > global_max_temp)
+                global_max_temp = max_temp_mc;
+
+            /*
+             * A production validation repeatedly traverses the voltage and
+             * frequency transition path instead of only soaking one static
+             * OPP. Always park at the stock-preserved OPP between chunks.
+             */
+            if (flip_cpu_policy_set_limits(
+                    FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
+                    FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
+                wait_for_frequency(
+                    FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
+                flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
+                emergency_reboot();
+
+            printf(
+                "OPTIMIZER_VALIDATION: TRANSITION_PASS frequency_khz=%u "
+                "chunk=%u/%u seconds=%u\n",
                 opp->frequency_khz,
-                opp->optimized_uv,
-                &hw_watchdog,
-                1,
-                &cancelled,
-                &max_temp_mc,
-                &samples) < 0) {
-            failed = 1;
-            break;
+                chunk + 1U,
+                chunks,
+                chunk_seconds);
+            fflush(stdout);
         }
 
-        if (cancelled) {
-            power_cancelled = 1;
+        if (failed || power_cancelled)
             break;
-        }
-
-        if (run_integrity_check() < 0) {
-            failed = 1;
-            break;
-        }
-
-        if (max_temp_mc > global_max_temp)
-            global_max_temp = max_temp_mc;
 
         tested_opps++;
         printf(
             "OPTIMIZER_VALIDATION: OPP_PASS frequency_khz=%u "
             "samples=%u max_temp_mc=%u progress=%u/%u\n",
             opp->frequency_khz,
-            samples,
-            max_temp_mc,
+            opp_samples,
+            opp_max_temp_mc,
             tested_opps,
             total_opps);
         fflush(stdout);
-
-        /*
-         * Always return to the stock-preserved parking OPP between test
-         * points. The next loop iteration may durably update validation
-         * progress; never perform that SD write while still running at an
-         * undervolted performance OPP.
-         */
-        if (flip_cpu_policy_set_limits(
-                FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
-                FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
-            wait_for_frequency(
-                FLIP_OPTIMIZER_VALIDATION_PARK_KHZ) < 0 ||
-            flip_optimizer_hw_watchdog_ping(&hw_watchdog) < 0)
-            emergency_reboot();
     }
 
     /*
@@ -3056,7 +3346,20 @@ static int run_validate_profile(unsigned seconds_per_opp)
         emergency_reboot();
 
     (void)unlink(FLIP_OPTIMIZER_VALIDATION_ACTIVE);
-    (void)unlink(FLIP_OPTIMIZER_VALIDATION_REQUEST);
+    (void)unlink(FLIP_OPTIMIZER_VALIDATION_MANUAL_STOP);
+    if (preserve_request && !failed && !power_cancelled) {
+        FILE *marker = fopen(FLIP_OPTIMIZER_VALIDATION_TARGET_PASSED ".tmp", "w");
+        if (!marker)
+            emergency_reboot();
+        if (fprintf(marker, "frequency_khz=%u\n", only_frequency_khz) < 0 ||
+            fflush(marker) != 0 || fsync(fileno(marker)) != 0 || fclose(marker) != 0 ||
+            rename(FLIP_OPTIMIZER_VALIDATION_TARGET_PASSED ".tmp",
+                   FLIP_OPTIMIZER_VALIDATION_TARGET_PASSED) < 0)
+            emergency_reboot();
+    } else {
+        (void)unlink(FLIP_OPTIMIZER_VALIDATION_REQUEST);
+        (void)unlink(FLIP_OPTIMIZER_VALIDATION_TARGET_PASSED);
+    }
     sync();
 
     printf(
@@ -3107,16 +3410,60 @@ validation_abort_before_watchdog:
     return -1;
 }
 
+static int run_validate_profile_total(unsigned total_seconds)
+{
+    if (total_seconds < 300U || total_seconds > 3600U)
+        return -1;
+
+    flip_optimizer_result_t result;
+    unsigned total_opps = 0;
+    if (validation_preconditions(&result, &total_opps) < 0 || !total_opps)
+        return -1;
+
+    unsigned seconds_per_opp = total_seconds / total_opps;
+    if (seconds_per_opp < FLIP_OPTIMIZER_STRESS_MIN_SECONDS)
+        seconds_per_opp = FLIP_OPTIMIZER_STRESS_MIN_SECONDS;
+    if (seconds_per_opp > FLIP_OPTIMIZER_STRESS_MAX_SECONDS)
+        return -1;
+
+    return run_validate_profile(seconds_per_opp, 0, 0);
+}
+
 static void usage(const char *program)
 {
     fprintf(
         stderr,
-        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | watchdog-reboot-probe | watchdog-button-expiry-probe | live-once SECONDS | validate-profile SECONDS_PER_OPP\n",
+        "usage: %s integrity-only | table-only | quiesce-probe SECONDS | kernel-recovery-probe SECONDS | kernel-recovery-crash-test | watchdog-reboot-probe | watchdog-button-expiry-probe | live-once SECONDS | validate-profile SECONDS_PER_OPP | validate-profile-total TOTAL_SECONDS | validate-profile-frequency SECONDS FREQUENCY_KHZ | raise-profile-voltage FREQUENCY_KHZ INCREMENT_UV\n",
         program);
 }
 
 int main(int argc, char **argv)
 {
+    if (argc == 4 && strcmp(argv[1], "validate-profile-frequency") == 0) {
+        unsigned seconds = 0;
+        unsigned frequency_khz = 0;
+        if (parse_unsigned_text(argv[2], &seconds) < 0 ||
+            parse_unsigned_text(argv[3], &frequency_khz) < 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        return run_validate_profile(seconds, frequency_khz, 1) == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+    }
+
+    if (argc == 4 && strcmp(argv[1], "raise-profile-voltage") == 0) {
+        unsigned frequency_khz = 0;
+        unsigned increment_uv = 0;
+        if (parse_unsigned_text(argv[2], &frequency_khz) < 0 ||
+            parse_unsigned_text(argv[3], &increment_uv) < 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+        int rc = raise_validation_profile_voltage(frequency_khz, increment_uv);
+        return rc == 0 ? EXIT_SUCCESS : rc == 1 ? 2 : EXIT_FAILURE;
+    }
+
     if (argc == 2 &&
         strcmp(argv[1], "integrity-only") == 0) {
         if (run_integrity_check() < 0)
@@ -3183,6 +3530,22 @@ int main(int argc, char **argv)
     }
 
     if (argc == 3 &&
+        strcmp(argv[1], "validate-profile-total") == 0) {
+        unsigned seconds = 0;
+
+        if (parse_unsigned_text(
+                argv[2],
+                &seconds) < 0) {
+            usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+
+        return run_validate_profile_total(seconds) == 0
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+    }
+
+    if (argc == 3 &&
         strcmp(argv[1], "validate-profile") == 0) {
         unsigned seconds = 0;
 
@@ -3193,7 +3556,7 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
 
-        return run_validate_profile(seconds) == 0
+        return run_validate_profile(seconds, 0, 0) == 0
             ? EXIT_SUCCESS
             : EXIT_FAILURE;
     }

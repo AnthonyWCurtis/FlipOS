@@ -1,12 +1,16 @@
 #ifndef FLIP_HOTKEYS_H
 #define FLIP_HOTKEYS_H
 
+#include <stdint.h>
+
 #include "flip_controls.h"
 #include "flip_input.h"
 
 typedef struct {
     int previous_vol_up;
     int previous_vol_down;
+    uint64_t vol_up_repeat_at_ms;
+    uint64_t vol_down_repeat_at_ms;
 } flip_hotkeys_t;
 
 typedef struct {

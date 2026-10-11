@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #define FLIP_BIOS_PATH_MAX 512
+#define FLIP_BIOS_SHA256_HEX 65
 
 typedef enum {
     FLIP_BIOS_GB_DMG = 0,
@@ -25,6 +26,8 @@ typedef struct {
     const char *filename;
     size_t expected_size;
     size_t actual_size;
+    const char *expected_sha256;
+    char actual_sha256[FLIP_BIOS_SHA256_HEX];
     char path[FLIP_BIOS_PATH_MAX];
 } flip_bios_info_t;
 

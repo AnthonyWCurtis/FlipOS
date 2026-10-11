@@ -7,6 +7,8 @@
 
 #define FLIP_CPU_DYNAMIC_WARMUP_WINDOWS 3U
 #define FLIP_CPU_DYNAMIC_BAD_WINDOWS_TO_RAISE 2U
+#define FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER 15U
+#define FLIP_CPU_DYNAMIC_LOWER_PROBE_WINDOWS 3U
 
 typedef struct {
     int enabled;
@@ -17,17 +19,22 @@ typedef struct {
     unsigned frequencies_khz[FLIP_CPU_POLICY_MAX_FREQS];
     size_t current_index;
     size_t allowed_index;
+    size_t base_index;
 
     unsigned warmup_windows;
     unsigned bad_windows;
+    unsigned good_windows;
     unsigned cooldown_windows;
+    unsigned lower_probe_windows;
     unsigned raise_count;
+    unsigned lower_count;
 } flip_cpu_dynamic_t;
 
 /*
  * Initialize dynamic ceiling escalation from the current cpufreq policy.
- * The controller never exceeds allowed_max_khz and never lowers the current
- * ceiling. The kernel governor remains responsible for normal down-clocking.
+ * The controller never exceeds allowed_max_khz and never lowers below the
+ * session's initial ceiling. Temporary escalation is reclaimed after a long
+ * run of healthy full-speed performance.
  *
  * Returns:
  *   1 = dynamic escalation available
@@ -42,6 +49,7 @@ int flip_cpu_dynamic_init(
  * Feed one performance window, normally about one second.
  *
  * Returns:
+ *   2 = ceiling lowered by one OPP after sustained healthy performance
  *   1 = ceiling raised by one OPP
  *   0 = unchanged
  *  -1 = policy update failed

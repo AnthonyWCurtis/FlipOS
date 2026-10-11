@@ -1,0 +1,120 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+VERSION=${1:-}
+OUT_DIR=${2:-$ROOT_DIR/dist}
+
+if [ -z "$VERSION" ]; then
+    echo "usage: $0 <version> [output-dir]" >&2
+    exit 2
+fi
+
+BUILD_ID=${FLIP_BUILD_ID:-$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)}
+WORK="$OUT_DIR/.flipos-beta-install-work"
+ROOT="$WORK/root"
+FLIP="$ROOT/flipos-dev"
+ARCHIVE="$OUT_DIR/FlipOS-Beta1.zip"
+
+required='
+build/flip-frontend
+build/flip-gb
+build/flip-gba
+build/flip-charge-service
+build/umtprd
+build/flip-optimizer-supervisor
+build/flip-optimizer-deadman
+build/flip-optimizer-guard
+build/flip-optimizer-calibration
+build/flip-optimizer-candidate
+build/flip-optimizer-session
+build/flip-optimizer-progress
+build/flip-optimizer-validation-progress
+build/flip-optimizer-runtime
+build/flip_opp_voltage.ko
+build/flip_opp_runtime_profile.ko
+build/flip_tsadc_recovery.ko
+build/flip_rk817_charger.ko
+tools/device/flip-usb-mtp
+tools/device/umtprd.conf
+tools/device/updater-playtest
+tools/update/flip-update-install
+tools/update/flip-update-fetch
+'
+
+for rel in $required; do
+    [ -f "$ROOT_DIR/$rel" ] || {
+        echo "missing install input: $rel" >&2
+        exit 1
+    }
+done
+
+command -v zip >/dev/null 2>&1 || {
+    echo "zip is required to build the Beta install bundle" >&2
+    exit 1
+}
+
+rm -rf "$WORK"
+mkdir -p "$ROOT/.tmp_update" "$FLIP/bin" "$FLIP/lib" "$FLIP/etc"     "$FLIP/licenses" "$FLIP/system/gb" "$FLIP/system/gba" "$OUT_DIR"
+
+cp "$ROOT_DIR/tools/device/updater-playtest" "$ROOT/.tmp_update/updater"
+cp "$ROOT_DIR/tools/device/updater-playtest" "$FLIP/updater-playtest"
+
+for name in     flip-frontend flip-gb flip-gba flip-charge-service umtprd     flip-optimizer-supervisor flip-optimizer-deadman flip-optimizer-guard     flip-optimizer-calibration flip-optimizer-candidate flip-optimizer-session     flip-optimizer-progress flip-optimizer-validation-progress flip-optimizer-runtime; do
+    cp "$ROOT_DIR/build/$name" "$FLIP/bin/$name"
+done
+
+cp "$ROOT_DIR/tools/device/flip-usb-mtp" "$FLIP/bin/flip-usb-mtp"
+cp "$ROOT_DIR/tools/update/flip-update-install" "$FLIP/bin/flip-update-install"
+cp "$ROOT_DIR/tools/update/flip-update-fetch" "$FLIP/bin/flip-update-fetch"
+cp "$ROOT_DIR/tools/device/umtprd.conf" "$FLIP/etc/umtprd.conf"
+
+for module in     flip_opp_voltage.ko     flip_opp_runtime_profile.ko     flip_tsadc_recovery.ko     flip_rk817_charger.ko; do
+    cp "$ROOT_DIR/build/$module" "$FLIP/lib/$module"
+done
+
+cp "$ROOT_DIR/external/gambatte-libretro/COPYING" "$FLIP/licenses/Gambatte-GPL-2.0.txt"
+cp "$ROOT_DIR/external/mgba/LICENSE" "$FLIP/licenses/mGBA-MPL-2.0.txt"
+cp "$ROOT_DIR/external/uMTP-Responder/LICENSE" "$FLIP/licenses/uMTP-Responder-GPL-3.0.txt"
+cp "$ROOT_DIR/external/uMTP-Responder/FLIPOS_UPSTREAM" "$FLIP/licenses/uMTP-Responder-UPSTREAM.txt"
+cp "$ROOT_DIR/docs/THIRD_PARTY_NOTICES.md" "$FLIP/licenses/THIRD_PARTY_NOTICES.md"
+
+printf '%s\n' "$VERSION" > "$FLIP/VERSION"
+printf '%s\n' "$BUILD_ID" > "$FLIP/BUILD_ID"
+
+cat > "$ROOT/README-FIRST.txt" <<EOF
+FlipOS $VERSION
+Build: $BUILD_ID
+
+THIS IS BETA SOFTWARE.
+
+1. Back up your SD card.
+2. Extract this ZIP directly to the root of the SD card.
+3. Keep the hidden .tmp_update folder exactly where it is.
+4. Put the card back in the Miyoo Flip and power on.
+5. Follow the first-boot wizard.
+
+No ROMs or copyrighted BIOS files are included.
+
+After boot, connect the Flip to a PC over USB. A portable device named
+"FlipOS" should expose ROMs, BIOS and Saves.
+
+Please report bugs:
+https://github.com/AnthonyWCurtis/FlipOS/issues
+
+Full instructions:
+https://github.com/AnthonyWCurtis/FlipOS/blob/main/docs/BETA1_INSTALL.md
+EOF
+
+chmod 755 "$ROOT/.tmp_update/updater" "$FLIP/updater-playtest" "$FLIP/bin/"*
+chmod 644 "$FLIP/lib/"* "$FLIP/etc/umtprd.conf" "$FLIP/licenses/"*     "$FLIP/VERSION" "$FLIP/BUILD_ID" "$ROOT/README-FIRST.txt"
+
+rm -f "$ARCHIVE" "$ARCHIVE.sha256"
+(
+    cd "$ROOT"
+    zip -qr "$ARCHIVE" .tmp_update flipos-dev README-FIRST.txt
+)
+sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+
+rm -rf "$WORK"
+echo "FLIP_BETA_INSTALL_OK $ARCHIVE"

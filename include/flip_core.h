@@ -58,6 +58,12 @@ typedef struct {
 
     size_t (*save_memory_size)(
         void *userdata);
+
+    void *(*rtc_memory_data)(
+        void *userdata);
+
+    size_t (*rtc_memory_size)(
+        void *userdata);
 } flip_core_adapter_t;
 
 int flip_core_validate(
@@ -104,6 +110,12 @@ void *flip_core_save_memory_data(
     flip_core_adapter_t *adapter);
 
 size_t flip_core_save_memory_size(
+    flip_core_adapter_t *adapter);
+
+void *flip_core_rtc_memory_data(
+    flip_core_adapter_t *adapter);
+
+size_t flip_core_rtc_memory_size(
     flip_core_adapter_t *adapter);
 
 #endif

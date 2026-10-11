@@ -16,6 +16,11 @@ int main(void)
         FLIP_EXIT_PROTOCOL_SUSPEND);
 
     assert(
+        flip_exit_protocol_classify(
+            FLIP_EXIT_CODE_LOW_BATTERY) ==
+        FLIP_EXIT_PROTOCOL_LOW_BATTERY);
+
+    assert(
         flip_exit_protocol_classify(1) ==
         FLIP_EXIT_PROTOCOL_ERROR);
 

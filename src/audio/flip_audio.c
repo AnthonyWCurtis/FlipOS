@@ -17,10 +17,19 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
+#include <sound/asound.h>
 #include <pthread.h>
 #include <time.h>
 
+#define ALSA_CONTROL_DEVICE "/dev/snd/controlC0"
+#define ALSA_NUMID_PLAYBACK_PATH 2
+#define ALSA_NUMID_SPK_VOLUME 5
+#define ALSA_NUMID_SPEAKER_SWITCH 7
+#define ALSA_PLAYBACK_PATH_OFF 0
+#define ALSA_PLAYBACK_PATH_SPK 2
+
 static int audio_fd = -1;
+static int mixer_fd = -1;
 static pid_t audio_pid = -1;
 static int speaker_volume = 30;
 
@@ -210,69 +219,95 @@ static int rk817_codec_resume_recover(void)
     return 1;
 }
 
+static void alsa_control_close(void)
+{
+    if (mixer_fd >= 0) {
+        close(mixer_fd);
+        mixer_fd = -1;
+    }
+}
+
+static int alsa_control_fd(void)
+{
+    if (mixer_fd >= 0)
+        return mixer_fd;
+
+    mixer_fd = open(ALSA_CONTROL_DEVICE, O_RDWR | O_CLOEXEC);
+    return mixer_fd;
+}
+
+static int alsa_control_write_integer(unsigned numid, long value)
+{
+    int fd = alsa_control_fd();
+    if (fd < 0)
+        return -1;
+
+    struct snd_ctl_elem_value control;
+    memset(&control, 0, sizeof(control));
+    control.id.numid = numid;
+    control.value.integer.value[0] = value;
+
+    if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_WRITE, &control) < 0) {
+        /* A resume or driver reset may invalidate the cached control fd. */
+        alsa_control_close();
+        return -1;
+    }
+
+    return 0;
+}
+
+static int alsa_control_write_enumerated(unsigned numid, unsigned item)
+{
+    int fd = alsa_control_fd();
+    if (fd < 0)
+        return -1;
+
+    struct snd_ctl_elem_value control;
+    memset(&control, 0, sizeof(control));
+    control.id.numid = numid;
+    control.value.enumerated.item[0] = item;
+
+    if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_WRITE, &control) < 0) {
+        alsa_control_close();
+        return -1;
+    }
+
+    return 0;
+}
+
 static int configure_speaker(void)
 {
     /*
-     * RK817 can require a short settling period after the
-     * RK3566 resumes from deep suspend.
-     *
-     * Reassert the complete speaker route and retry before
-     * opening PCM.
+     * Reassert the RK817 speaker route at audio-open time. Keep this path
+     * process-free as well: it makes startup/resume deterministic and leaves
+     * one mixer implementation for both initial setup and hotkey changes.
      */
-    for (int attempt = 1;
-         attempt <= 5;
-         ++attempt) {
-
+    for (int attempt = 1; attempt <= 5; ++attempt) {
         int rc = 0;
 
-        char command[128];
-
-        snprintf(
-            command,
-            sizeof(command),
-            "/usr/bin/amixer sset 'SPK' %d%% "
-            ">/dev/null 2>&1",
-            speaker_volume);
-
         if (speaker_volume == 0) {
-            /*
-             * Mute gain first, then disconnect the route.
-             */
-            rc |= system(command);
-
-            rc |= system(
-                "/usr/bin/amixer sset 'Playback Path' OFF "
-                ">/dev/null 2>&1");
-
-            rc |= system(
-                "/usr/bin/amixer sset 'Speaker' off "
-                ">/dev/null 2>&1");
+            rc |= alsa_control_write_integer(ALSA_NUMID_SPK_VOLUME, 0);
+            rc |= alsa_control_write_enumerated(
+                ALSA_NUMID_PLAYBACK_PATH,
+                ALSA_PLAYBACK_PATH_OFF);
+            rc |= alsa_control_write_integer(ALSA_NUMID_SPEAKER_SWITCH, 0);
         } else {
-            /*
-             * RK817 may reset speaker gain when the route or
-             * switch is re-enabled. Set the requested gain
-             * last so resume/unmute cannot jump to full scale.
-             */
-            rc |= system(
-                "/usr/bin/amixer sset 'Playback Path' SPK "
-                ">/dev/null 2>&1");
-
-            rc |= system(
-                "/usr/bin/amixer sset 'Speaker' on "
-                ">/dev/null 2>&1");
-
-            rc |= system(command);
+            rc |= alsa_control_write_enumerated(
+                ALSA_NUMID_PLAYBACK_PATH,
+                ALSA_PLAYBACK_PATH_SPK);
+            rc |= alsa_control_write_integer(ALSA_NUMID_SPEAKER_SWITCH, 1);
+            /* Set gain last so route enable can never expose full-scale gain. */
+            rc |= alsa_control_write_integer(
+                ALSA_NUMID_SPK_VOLUME,
+                speaker_volume);
         }
 
         if (rc == 0) {
-
             fprintf(
                 stderr,
-                "flip_audio: speaker configured "
-                "attempt=%d volume=%d\n",
+                "flip_audio: speaker configured attempt=%d volume=%d\n",
                 attempt,
                 speaker_volume);
-
             return 0;
         }
 
@@ -281,6 +316,7 @@ static int configure_speaker(void)
             "flip_audio: speaker configure retry=%d\n",
             attempt);
 
+        alsa_control_close();
         usleep(100000);
     }
 
@@ -1002,76 +1038,47 @@ int flip_audio_set_volume(int percent)
     if (percent > 100)
         percent = 100;
 
-    char command[128];
-
-    snprintf(
-        command,
-        sizeof(command),
-        "/usr/bin/amixer sset 'SPK' %d%% "
-        ">/dev/null 2>&1",
-        percent);
-
+    int old_volume = speaker_volume;
     int rc = 0;
 
-    if (percent == 0) {
-        pthread_mutex_lock(
-            &audio_queue_mutex);
+    /*
+     * Volume hotkeys run on the emulation thread. Do not spawn amixer or any
+     * other process here: fork/exec and mixer route reconstruction can stall a
+     * frame and sound like a game slowdown. The RK817 controls are simple ALSA
+     * controls, so write them directly through /dev/snd/controlC0.
+     */
+    if (percent > 0 && old_volume > 0) {
+        rc = alsa_control_write_integer(ALSA_NUMID_SPK_VOLUME, percent);
+    } else if (percent == 0 && old_volume > 0) {
+        pthread_mutex_lock(&audio_queue_mutex);
+        flip_audio_queue_reset(&audio_queue);
+        pthread_mutex_unlock(&audio_queue_mutex);
+        flip_audio_buffer_reset(&audio_buffer);
 
-        flip_audio_queue_reset(
-            &audio_queue);
-
-        pthread_mutex_unlock(
-            &audio_queue_mutex);
-
-        flip_audio_buffer_reset(
-            &audio_buffer);
-
-        /*
-         * speaker_volume remains nonzero until the end of this
-         * function, so explicitly set gain to zero before
-         * disconnecting the hardware path.
-         */
-        rc |= system(command);
-
-        rc |= system(
-            "/usr/bin/amixer sset 'Playback Path' OFF "
-            ">/dev/null 2>&1");
-
-        rc |= system(
-            "/usr/bin/amixer sset 'Speaker' off "
-            ">/dev/null 2>&1");
-    } else {
-        /*
-         * When unmuting from zero, audio_queue_sink continues
-         * feeding digital silence because speaker_volume is
-         * still zero here. Re-enable the route first, then set
-         * the requested gain last; only afterwards expose the
-         * new nonzero software volume.
-         */
-        rc |= system(
-            "/usr/bin/amixer sset 'Playback Path' SPK "
-            ">/dev/null 2>&1");
-
-        rc |= system(
-            "/usr/bin/amixer sset 'Speaker' on "
-            ">/dev/null 2>&1");
-
-        rc |= system(command);
+        rc |= alsa_control_write_integer(ALSA_NUMID_SPK_VOLUME, 0);
+        rc |= alsa_control_write_enumerated(
+            ALSA_NUMID_PLAYBACK_PATH,
+            ALSA_PLAYBACK_PATH_OFF);
+        rc |= alsa_control_write_integer(ALSA_NUMID_SPEAKER_SWITCH, 0);
+    } else if (percent > 0 && old_volume == 0) {
+        /* Keep digital output silent until the physical speaker path is ready. */
+        rc |= alsa_control_write_enumerated(
+            ALSA_NUMID_PLAYBACK_PATH,
+            ALSA_PLAYBACK_PATH_SPK);
+        rc |= alsa_control_write_integer(ALSA_NUMID_SPEAKER_SWITCH, 1);
+        rc |= alsa_control_write_integer(ALSA_NUMID_SPK_VOLUME, percent);
     }
 
     if (rc != 0) {
         fprintf(
             stderr,
-            "flip_audio: volume set failed\n");
-
+            "flip_audio: direct volume control failed\n");
         return -1;
     }
 
     speaker_volume = percent;
 
-    if (flip_settings_set_volume(
-            speaker_volume) < 0) {
-
+    if (flip_settings_set_volume(speaker_volume) < 0) {
         fprintf(
             stderr,
             "flip_audio: volume persistence failed\n");
@@ -1151,6 +1158,8 @@ void flip_audio_close(void)
 
         audio_pid = -1;
     }
+
+    alsa_control_close();
 
     memset(
         &audio_config,

@@ -3,12 +3,15 @@
 #include "flip_core_host.h"
 
 #include "flip_audio.h"
+#include "flip_battery.h"
 #include "flip_controls.h"
 #include "flip_cpu_dynamic.h"
 #include "flip_hotkeys.h"
 #include "flip_input.h"
 #include "flip_lifecycle.h"
+#include "flip_log.h"
 #include "flip_osd.h"
+#include "flip_power_policy.h"
 #include "flip_perf_diag.h"
 #include "flip_settings.h"
 #include "flip_telemetry.h"
@@ -322,6 +325,20 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
     }
     if (restore_result > 0) {
         fprintf(stderr, "FLIP_CORE_HOST: resumed saved session\n");
+
+        if (config->post_restore &&
+            config->post_restore(
+                config->core,
+                config->post_restore_userdata) < 0) {
+            fprintf(
+                stderr,
+                "FLIP_CORE_HOST: post-resume reconciliation failed\n");
+        } else if (config->post_restore) {
+            fprintf(
+                stderr,
+                "FLIP_CORE_HOST: post-resume reconciliation complete\n");
+        }
+
         if (flip_lifecycle_resume_timing(&timing) < 0)
             fprintf(stderr, "FLIP_CORE_HOST: resume timing resync failed\n");
     }
@@ -338,6 +355,11 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
     int last_measured_fps_valid = 0;
     persistence_bridge_t bridge = { .config = config };
 
+    flip_low_battery_guard_t low_battery_guard;
+    flip_low_battery_guard_init(&low_battery_guard);
+    uint64_t next_battery_check_us = monotonic_us();
+    int low_battery_warning_visible = 0;
+
     while (1) {
         uint64_t frame_start_us = monotonic_us();
         uint64_t stage_start_us = frame_start_us;
@@ -348,6 +370,59 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
             fprintf(stderr, "FLIP_CORE_HOST: input poll failed\n");
             host_result = -1;
             break;
+        }
+
+        uint64_t battery_now_us = monotonic_us();
+        if (battery_now_us >= next_battery_check_us) {
+            flip_battery_snapshot_t battery;
+            next_battery_check_us = battery_now_us + 1000000ULL;
+
+            if (flip_battery_read(&battery) == 0) {
+                flip_low_battery_action_t battery_action =
+                    flip_low_battery_guard_update(
+                        &low_battery_guard,
+                        &battery,
+                        1000U);
+
+                if (battery_action == FLIP_LOW_BATTERY_WARN) {
+                    if (!low_battery_warning_visible) {
+                        flip_osd_show_status(
+                            "LOW BATTERY - CONNECT CHARGER");
+                        low_battery_warning_visible = 1;
+                    }
+                } else if (battery_action == FLIP_LOW_BATTERY_OK) {
+                    low_battery_warning_visible = 0;
+                }
+
+                if (battery_action == FLIP_LOW_BATTERY_SHUTDOWN) {
+                    flip_log_write(
+                        FLIP_LOG_WARN,
+                        "FLIP_POWER",
+                        "critical battery percent=%d voltage_uv=%ld external=%d; saving before shutdown",
+                        battery.percent_valid ? battery.percent : -1,
+                        battery.voltage_valid ? battery.voltage_uv : -1L,
+                        battery.external_power_valid
+                            ? battery.external_power_online
+                            : -1);
+
+                    flip_osd_show_status(
+                        "BATTERY CRITICAL - SAVING");
+
+                    int save_result =
+                        lifecycle_save_bridge(&bridge);
+
+                    flip_log_write(
+                        save_result == 0
+                            ? FLIP_LOG_INFO
+                            : FLIP_LOG_ERROR,
+                        "FLIP_POWER",
+                        "critical battery save %s",
+                        save_result == 0 ? "ok" : "failed");
+
+                    *exit_code = FLIP_EXIT_CODE_LOW_BATTERY;
+                    break;
+                }
+            }
         }
 
         stage_start_us = monotonic_us();
@@ -497,17 +572,28 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
                         host_avg_us,
                         audio_diag.queue_dropped_frames);
 
-                if (dynamic_result > 0) {
+                if (dynamic_result == 1) {
                     fprintf(
                         stderr,
-                        "FLIP_CPU_DYNAMIC: raised max_khz=%u->%u fps=%.3f target=%.3f host_avg_us=%llu audio_drops=%llu raise_count=%u\n",
+                        "FLIP_CPU_DYNAMIC: raised max_khz=%u->%u fps=%.3f target=%.3f host_avg_us=%llu audio_drops=%llu raise_count=%u learned_floor_khz=%u\n",
                         previous_max_khz,
                         dynamic_cpu.current_max_khz,
                         measured_fps,
                         fps,
                         (unsigned long long)host_avg_us,
                         (unsigned long long)audio_diag.queue_dropped_frames,
-                        dynamic_cpu.raise_count);
+                        dynamic_cpu.raise_count,
+                        dynamic_cpu.frequencies_khz[dynamic_cpu.base_index]);
+                } else if (dynamic_result == 2) {
+                    fprintf(
+                        stderr,
+                        "FLIP_CPU_DYNAMIC: lowered max_khz=%u->%u fps=%.3f target=%.3f good_windows=%u lower_count=%u\n",
+                        previous_max_khz,
+                        dynamic_cpu.current_max_khz,
+                        measured_fps,
+                        fps,
+                        FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER,
+                        dynamic_cpu.lower_count);
                 } else if (dynamic_result < 0) {
                     fprintf(
                         stderr,

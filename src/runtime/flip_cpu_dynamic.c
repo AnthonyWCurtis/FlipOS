@@ -75,6 +75,8 @@ int flip_cpu_dynamic_init(
             controller->frequency_count,
             allowed_max_khz);
 
+    controller->base_index = controller->current_index;
+
     controller->current_max_khz =
         controller->frequencies_khz[controller->current_index];
 
@@ -104,11 +106,6 @@ int flip_cpu_dynamic_sample(
     if (!controller->enabled)
         return 0;
 
-    if (controller->current_index >= controller->allowed_index) {
-        controller->enabled = 0;
-        return 0;
-    }
-
     if (controller->warmup_windows > 0) {
         controller->warmup_windows--;
         return 0;
@@ -116,6 +113,10 @@ int flip_cpu_dynamic_sample(
 
     if (controller->cooldown_windows > 0)
         controller->cooldown_windows--;
+
+    int lower_probe_active = controller->lower_probe_windows > 0;
+    if (controller->lower_probe_windows > 0)
+        controller->lower_probe_windows--;
 
     if (target_fps < 1.0 || measured_fps < 1.0)
         return 0;
@@ -153,40 +154,62 @@ int flip_cpu_dynamic_sample(
         host_pressure ||
         audio_bad;
 
-    if (bad)
+    if (bad) {
         controller->bad_windows++;
-    else
+        controller->good_windows = 0;
+    } else {
         controller->bad_windows = 0;
+        controller->good_windows++;
+    }
 
     int should_raise =
-        severe_fps_bad ||
-        audio_bad ||
-        (controller->cooldown_windows == 0 &&
-         controller->bad_windows >= FLIP_CPU_DYNAMIC_BAD_WINDOWS_TO_RAISE);
+        controller->current_index < controller->allowed_index &&
+        (severe_fps_bad ||
+         audio_bad ||
+         (controller->cooldown_windows == 0 &&
+          controller->bad_windows >= FLIP_CPU_DYNAMIC_BAD_WINDOWS_TO_RAISE));
 
-    if (!should_raise)
-        return 0;
+    if (should_raise) {
+        size_t next_index = controller->current_index + 1;
+        if (next_index > controller->allowed_index)
+            next_index = controller->allowed_index;
 
-    size_t next_index =
-        controller->current_index + 1;
+        unsigned next_khz = controller->frequencies_khz[next_index];
+        if (flip_cpu_policy_set_max(next_khz) < 0)
+            return -1;
 
-    if (next_index > controller->allowed_index)
-        next_index = controller->allowed_index;
+        controller->current_index = next_index;
+        controller->current_max_khz = next_khz;
+        if (lower_probe_active && next_index > controller->base_index)
+            controller->base_index = next_index;
+        controller->lower_probe_windows = 0;
+        controller->raise_count++;
+        controller->bad_windows = 0;
+        controller->good_windows = 0;
+        controller->cooldown_windows = 3;
+        return 1;
+    }
 
-    unsigned next_khz =
-        controller->frequencies_khz[next_index];
+    if (!bad &&
+        controller->current_index > controller->base_index &&
+        controller->cooldown_windows == 0 &&
+        controller->good_windows >= FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER) {
+        size_t next_index = controller->current_index - 1;
+        if (next_index < controller->base_index)
+            next_index = controller->base_index;
 
-    if (flip_cpu_policy_set_max(next_khz) < 0)
-        return -1;
+        unsigned next_khz = controller->frequencies_khz[next_index];
+        if (flip_cpu_policy_set_max(next_khz) < 0)
+            return -1;
 
-    controller->current_index = next_index;
-    controller->current_max_khz = next_khz;
-    controller->raise_count++;
-    controller->bad_windows = 0;
-    controller->cooldown_windows = 3;
+        controller->current_index = next_index;
+        controller->current_max_khz = next_khz;
+        controller->lower_count++;
+        controller->good_windows = 0;
+        controller->cooldown_windows = 3;
+        controller->lower_probe_windows = FLIP_CPU_DYNAMIC_LOWER_PROBE_WINDOWS;
+        return 2;
+    }
 
-    if (controller->current_index >= controller->allowed_index)
-        controller->enabled = 0;
-
-    return 1;
+    return 0;
 }

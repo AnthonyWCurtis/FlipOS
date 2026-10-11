@@ -15,6 +15,8 @@
 #define DIGITAL_DEVICE "/dev/input/event0"
 #define HALL_DEVICE    "/dev/input/event1"
 #define HALL_VALUE     "/sys/devices/platform/hall-mh248/hallvalue"
+#define DEV_LID_OVERRIDE "/tmp/flipos-dev-lid-override"
+#define DEV_BUTTON_INJECT "/tmp/flipos-dev-button"
 #define UART_DEVICE    "/dev/ttyS1"
 
 #define UART_START 0xff
@@ -28,6 +30,7 @@ static int uart_fd = -1;
 
 static uint8_t uart_buffer[6];
 static int uart_pos = 0;
+static uint64_t dev_button_release_mask = 0;
 
 static long cal_lx;
 static long cal_ly;
@@ -66,6 +69,72 @@ static int code_to_button(unsigned code)
         default:
             return -1;
     }
+}
+
+static int dev_button_name_to_button(const char *name)
+{
+    if (!name)
+        return -1;
+    static const struct { const char *name; int button; } map[] = {
+        {"UP", FLIP_BTN_UP}, {"DOWN", FLIP_BTN_DOWN},
+        {"LEFT", FLIP_BTN_LEFT}, {"RIGHT", FLIP_BTN_RIGHT},
+        {"A", FLIP_BTN_A}, {"B", FLIP_BTN_B}, {"X", FLIP_BTN_X}, {"Y", FLIP_BTN_Y},
+        {"L1", FLIP_BTN_L1}, {"R1", FLIP_BTN_R1}, {"L2", FLIP_BTN_L2}, {"R2", FLIP_BTN_R2},
+        {"START", FLIP_BTN_START}, {"SELECT", FLIP_BTN_SELECT}, {"MENU", FLIP_BTN_MENU},
+        {"L3", FLIP_BTN_L3}, {"R3", FLIP_BTN_R3},
+        {"VOL+", FLIP_BTN_VOL_UP}, {"VOL-", FLIP_BTN_VOL_DOWN},
+    };
+    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); ++i)
+        if (strcmp(name, map[i].name) == 0)
+            return map[i].button;
+    return -1;
+}
+
+static int apply_dev_button_injection(flip_input_state_t *state)
+{
+    if (!state)
+        return 0;
+
+    int changed = 0;
+
+    /* Release every button injected on the previous poll. */
+    for (int button = 0; button < FLIP_BTN_COUNT; ++button) {
+        if (!(dev_button_release_mask & (1ULL << button)))
+            continue;
+        if (state->down[button]) {
+            state->down[button] = 0;
+            changed = 1;
+        }
+    }
+    dev_button_release_mask = 0;
+
+    FILE *f = fopen(DEV_BUTTON_INJECT, "r");
+    if (!f)
+        return changed;
+
+    /*
+     * One or more whitespace-separated names may be supplied. Supporting a
+     * chord here is useful for development-only hotkeys such as MENU VOL- for
+     * brightness while keeping the production input path untouched.
+     */
+    char value[128] = {0};
+    if (fgets(value, sizeof(value), f)) {
+        char *save = NULL;
+        for (char *name = strtok_r(value, " \t\r\n", &save);
+             name;
+             name = strtok_r(NULL, " \t\r\n", &save)) {
+            int button = dev_button_name_to_button(name);
+            if (button < 0 || button >= FLIP_BTN_COUNT || button >= 64)
+                continue;
+            state->down[button] = 1;
+            dev_button_release_mask |= 1ULL << button;
+            changed = 1;
+        }
+    }
+
+    fclose(f);
+    (void)unlink(DEV_BUTTON_INJECT);
+    return changed;
 }
 
 const char *flip_button_name(flip_button_t button)
@@ -323,35 +392,47 @@ static int read_lid_state(
     if (!state)
         return -1;
 
-    FILE *f =
-        fopen(
-            HALL_VALUE,
-            "r");
-
-    if (!f)
-        return -1;
-
-    int raw = -1;
-
-    int ok =
-        fscanf(
-            f,
-            "%d",
-            &raw);
-
-    fclose(f);
-
-    if (ok != 1)
-        return -1;
+    int closed = -1;
 
     /*
-     * Confirmed on Miyoo Flip:
-     *
-     * hallvalue=1 -> lid OPEN
-     * hallvalue=0 -> lid CLOSED
+     * Development-only lid override. /tmp is volatile and the hook is
+     * completely inert unless a developer explicitly creates the file.
+     * Accepted values are exactly "open" or "closed". Any malformed
+     * override is ignored and the real hall sensor remains authoritative.
      */
-    int closed =
-        raw == 0 ? 1 : 0;
+    FILE *override = fopen(DEV_LID_OVERRIDE, "r");
+    if (override) {
+        char value[16] = {0};
+        if (fgets(value, sizeof(value), override)) {
+            char *end = strpbrk(value, "\r\n");
+            if (end)
+                *end = '\0';
+            if (strcmp(value, "open") == 0)
+                closed = 0;
+            else if (strcmp(value, "closed") == 0)
+                closed = 1;
+        }
+        fclose(override);
+    }
+
+    if (closed < 0) {
+        FILE *f = fopen(HALL_VALUE, "r");
+        if (!f)
+            return -1;
+
+        int raw = -1;
+        int ok = fscanf(f, "%d", &raw);
+        fclose(f);
+        if (ok != 1)
+            return -1;
+
+        /*
+         * Confirmed on Miyoo Flip:
+         * hallvalue=1 -> lid OPEN
+         * hallvalue=0 -> lid CLOSED
+         */
+        closed = raw == 0 ? 1 : 0;
+    }
 
     int changed =
         !state->lid_ready ||
@@ -491,6 +572,9 @@ int flip_input_poll(
             }
         }
     }
+
+    if (apply_dev_button_injection(state))
+        changed = 1;
 
     return changed;
 }

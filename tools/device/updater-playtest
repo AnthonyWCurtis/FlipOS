@@ -60,18 +60,67 @@ fi
     fi
 } >> "$LOG_TARGET" 2>&1
 
+
+CHARGE_MODULE="$ROOT/lib/flip_rk817_charger.ko"
+CHARGE_SERVICE="$ROOT/bin/flip-charge-service"
+CHARGE_PID=/tmp/flipos-charge-service.pid
+
+# Smart charging is deliberately isolated in a tiny helper that only caps the
+# RK817 charge-current selector. Loading it does not alter the PMIC until the
+# service requests a thermal cap.
+if [ -f "$CHARGE_MODULE" ]; then
+    if ! grep -q '^flip_rk817_charger ' /proc/modules 2>/dev/null; then
+        if insmod "$CHARGE_MODULE" >> "$LOG_TARGET" 2>&1; then
+            echo "FLIP_CHARGE: RK817 helper loaded" >> "$LOG_TARGET"
+        else
+            echo "FLIP_CHARGE: RK817 helper load failed; stock charging retained" >> "$LOG_TARGET"
+        fi
+    fi
+fi
+
+if [ -x "$CHARGE_SERVICE" ]; then
+    START_CHARGE_SERVICE=1
+    if [ -r "$CHARGE_PID" ]; then
+        OLD_CHARGE_PID=$(cat "$CHARGE_PID" 2>/dev/null || echo '')
+        if [ -n "$OLD_CHARGE_PID" ] && kill -0 "$OLD_CHARGE_PID" 2>/dev/null; then
+            START_CHARGE_SERVICE=0
+        fi
+    fi
+
+    if [ "$START_CHARGE_SERVICE" -eq 1 ]; then
+        "$CHARGE_SERVICE" >/dev/null 2>&1 &
+        echo $! > "$CHARGE_PID"
+        echo "FLIP_CHARGE: service started pid=$!" >> "$LOG_TARGET"
+    fi
+fi
+
 if [ "$SD_WRITABLE" -eq 1 ]; then
     chmod 755 "$ROOT/bin/flip-frontend"
     chmod 755 "$ROOT/bin/flip-gb"
     [ ! -f "$ROOT/bin/flip-gba" ] || chmod 755 "$ROOT/bin/flip-gba"
     [ ! -f "$ROOT/bin/flip-perf-capture" ] || chmod 755 "$ROOT/bin/flip-perf-capture"
     [ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
+    [ ! -f "$ROOT/bin/flip-charge-service" ] || chmod 755 "$ROOT/bin/flip-charge-service"
+    [ ! -f "$ROOT/bin/flip-usb-mtp" ] || chmod 755 "$ROOT/bin/flip-usb-mtp"
+    [ ! -f "$ROOT/bin/umtprd" ] || chmod 755 "$ROOT/bin/umtprd"
     [ ! -f "$ROOT/bin/flip-optimizer-supervisor" ] || chmod 755 "$ROOT/bin/flip-optimizer-supervisor"
     [ ! -f "$ROOT/bin/flip-optimizer-deadman" ] || chmod 755 "$ROOT/bin/flip-optimizer-deadman"
     [ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
     [ ! -f "$ROOT/bin/flip-optimizer-calibration" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration"
     [ ! -f "$ROOT/bin/flip-optimizer-session" ] || chmod 755 "$ROOT/bin/flip-optimizer-session"
     [ ! -f "$ROOT/bin/flip-optimizer-progress" ] || chmod 755 "$ROOT/bin/flip-optimizer-progress"
+fi
+
+# Replace the stock ADB-only USB gadget with FlipOS' composite MTP + ADB
+# presentation. The helper exposes only ROMs, BIOS and Saves to the host.
+USB_MTP_SERVICE="$ROOT/bin/flip-usb-mtp"
+if [ -x "$USB_MTP_SERVICE" ] && [ -x "$ROOT/bin/umtprd" ] &&
+   [ -r "$ROOT/etc/umtprd.conf" ]; then
+    if "$USB_MTP_SERVICE" >> "$LOG_TARGET" 2>&1; then
+        echo "FLIP_MTP: startup complete" >> "$LOG_TARGET"
+    else
+        echo "FLIP_MTP: startup failed; continuing without MTP" >> "$LOG_TARGET"
+    fi
 fi
 
 # Durable rollback bookkeeping is secondary to the RAM safety decision.
@@ -152,12 +201,59 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
     fi
 fi
 
+WIFI_CONFIG="$ROOT/state/network/wpa_supplicant.conf"
+
+# Bring Wi-Fi back automatically when a saved network exists. A control-only
+# config created by scanning is also safe: wpa_supplicant simply stays idle.
+if [ -r "$WIFI_CONFIG" ] && [ -d /sys/class/net/wlan0 ]; then
+    if ! ps 2>/dev/null | grep '[w]pa_supplicant.*-i wlan0' >/dev/null 2>&1; then
+        /usr/sbin/ip link set wlan0 up >> "$LOG_TARGET" 2>&1 || true
+        if /usr/sbin/wpa_supplicant -B -i wlan0 -c "$WIFI_CONFIG" >> "$LOG_TARGET" 2>&1; then
+            echo "FLIP_WIFI: supplicant started from saved config" >> "$LOG_TARGET"
+
+            (
+                WIFI_WAIT=0
+                while [ "$WIFI_WAIT" -lt 20 ]; do
+                    if /usr/sbin/wpa_cli -i wlan0 status 2>/dev/null | grep -q '^wpa_state=COMPLETED$'; then
+                        /usr/sbin/dhcpcd -n wlan0 >/dev/null 2>&1 || true
+                        echo "FLIP_WIFI: dhcpcd rebind requested after association" >> "$LOG_TARGET"
+
+                        DHCP_WAIT=0
+                        while [ "$DHCP_WAIT" -lt 20 ]; do
+                            WIFI_IP=$(/usr/sbin/wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p' | head -n 1)
+                            case "$WIFI_IP" in
+                                ''|169.254.*) ;;
+                                *)
+                                    echo "FLIP_WIFI: DHCP address ready $WIFI_IP" >> "$LOG_TARGET"
+                                    exit 0
+                                    ;;
+                            esac
+                            DHCP_WAIT=$((DHCP_WAIT + 1))
+                            sleep 1
+                        done
+
+                        echo "FLIP_WIFI: associated but DHCP address unavailable" >> "$LOG_TARGET"
+                        exit 0
+                    fi
+                    WIFI_WAIT=$((WIFI_WAIT + 1))
+                    sleep 1
+                done
+                echo "FLIP_WIFI: saved network did not associate" >> "$LOG_TARGET"
+            ) &
+        else
+            echo "FLIP_WIFI: saved-config reconnect failed" >> "$LOG_TARGET"
+        fi
+    fi
+fi
+
 RUNTIME_ACTIVE_MARKER="$ROOT/state/optimizer/runtime-profile-active"
 RUNTIME_QUARANTINE_MARKER="$ROOT/state/optimizer/runtime-profile-quarantined"
 VALIDATION_REQUEST="$ROOT/state/optimizer/validation-request"
 VALIDATION_ACTIVE="$ROOT/state/optimizer/validation-active"
 VALIDATION_RESULT="$ROOT/state/optimizer/validation-result"
 VALIDATION_RETURN="$ROOT/state/optimizer/validation-return"
+VALIDATION_MANUAL_STOP="$ROOT/state/optimizer/validation-manual-stop"
+VALIDATION_TARGET_PASSED="$ROOT/state/optimizer/validation-target-passed"
 
 # validation-active is a durable hazard marker written before the live runtime
 # OPP table is installed. If it survives a reboot, validation ended abnormally.
@@ -165,22 +261,125 @@ VALIDATION_RETURN="$ROOT/state/optimizer/validation-return"
 # gameplay runtime marker.
 if [ "$SD_WRITABLE" -eq 1 ] && [ -f "$VALIDATION_ACTIVE" ]; then
     CAL_EPOCH=$(sed -n 's/^calibrated_epoch=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_STAGE=$(sed -n 's/^status=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_PHASE=$(sed -n 's/^phase=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_FREQ=$(sed -n 's/^frequency_khz=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_UV=$(sed -n 's/^voltage_uv=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_CHUNK=$(sed -n 's/^chunk_index=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_CHUNKS=$(sed -n 's/^chunk_count=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    RECOVERY_ARMED=$(sed -n 's/^recovery_armed=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_TESTED=$(sed -n 's/^tested_opps=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_SECONDS=$(sed -n 's/^seconds_per_opp=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    LAST_MAX_TEMP=$(sed -n 's/^max_temp_mc=//p' "$VALIDATION_ACTIVE" 2>/dev/null | head -1)
+    BOOT_MODE=$(cat /sys/kernel/boot_mode 2>/dev/null | head -1)
     [ -n "$CAL_EPOCH" ] || CAL_EPOCH=0
-    NOW_EPOCH=$(date +%s 2>/dev/null || echo 0)
-    cat > "$VALIDATION_RESULT.tmp" <<EOF
+    [ -n "$LAST_STAGE" ] || LAST_STAGE=unknown
+    [ -n "$LAST_PHASE" ] || LAST_PHASE=unknown
+    [ -n "$LAST_FREQ" ] || LAST_FREQ=0
+    [ -n "$LAST_UV" ] || LAST_UV=0
+    [ -n "$LAST_CHUNK" ] || LAST_CHUNK=0
+    [ -n "$LAST_CHUNKS" ] || LAST_CHUNKS=0
+    [ -n "$RECOVERY_ARMED" ] || RECOVERY_ARMED=0
+    [ -n "$LAST_TESTED" ] || LAST_TESTED=0
+    [ -n "$LAST_SECONDS" ] || LAST_SECONDS=0
+    [ -n "$LAST_MAX_TEMP" ] || LAST_MAX_TEMP=0
+    [ -n "$BOOT_MODE" ] || BOOT_MODE=unknown
+
+    RETRY_COUNT=$(sed -n 's/^retry_count=//p' "$VALIDATION_REQUEST" 2>/dev/null | head -1)
+    case "$RETRY_COUNT" in
+        ''|*[!0-9]*) RETRY_COUNT=0 ;;
+    esac
+
+    # If the power key was pressed while the progress UI was alive, classify
+    # this as a user interruption. Never mutate CPU voltages because of it.
+    if [ -f "$VALIDATION_MANUAL_STOP" ]; then
+        NOW_EPOCH=$(date +%s 2>/dev/null || echo 0)
+        cat > "$VALIDATION_RESULT.tmp" <<EOF
 version=1
-status=failed-hard-recovery
+status=cancelled-manual
+last_stage=$LAST_STAGE
+phase=$LAST_PHASE
+frequency_khz=$LAST_FREQ
+voltage_uv=$LAST_UV
+chunk_index=$LAST_CHUNK
+chunk_count=$LAST_CHUNKS
+boot_mode=$BOOT_MODE
 calibrated_epoch=$CAL_EPOCH
 tested_epoch=$NOW_EPOCH
-tested_opps=0
-seconds_per_opp=0
-max_temp_mc=0
+tested_opps=$LAST_TESTED
+seconds_per_opp=$LAST_SECONDS
+max_temp_mc=$LAST_MAX_TEMP
 EOF
-    mv -f "$VALIDATION_RESULT.tmp" "$VALIDATION_RESULT"
-    rm -f "$VALIDATION_ACTIVE" "$VALIDATION_REQUEST" "$RUNTIME_ACTIVE_MARKER"
-    : > "$RUNTIME_QUARANTINE_MARKER"
-    sync
-    echo "OPTIMIZER_VALIDATION: hard recovery detected; profile quarantined" >> "$LOG_TARGET"
+        mv -f "$VALIDATION_RESULT.tmp" "$VALIDATION_RESULT"
+        rm -f "$VALIDATION_ACTIVE" "$VALIDATION_REQUEST" "$RUNTIME_ACTIVE_MARKER" \
+            "$VALIDATION_MANUAL_STOP" "$VALIDATION_TARGET_PASSED"
+        sync
+        echo "OPTIMIZER_VALIDATION: manual interruption detected; voltage unchanged" >> "$LOG_TARGET"
+    else
+        AUTO_HEALED=0
+        CLASSIFIED_UNDERVOLT=0
+
+        # Only a reboot while the recovery envelope was armed and a specific
+        # OPP stress point was active is eligible for automatic voltage repair.
+        # normal boots are never treated as undervolt evidence. watchdog/panic
+        # are direct evidence; RK817/TSADC hard recovery presents as coldboot.
+        if [ "$RECOVERY_ARMED" = 1 ] && [ "$LAST_PHASE" = stress ] && \
+           [ "$LAST_FREQ" -gt 0 ] 2>/dev/null && [ "$LAST_UV" -gt 0 ] 2>/dev/null; then
+            case "$BOOT_MODE" in
+                watchdog|panic|coldboot) CLASSIFIED_UNDERVOLT=1 ;;
+            esac
+        fi
+
+        if [ "$CLASSIFIED_UNDERVOLT" -eq 1 ] && [ "$RETRY_COUNT" -lt 2 ] && \
+           [ -x "$ROOT/bin/flip-optimizer-candidate" ]; then
+            if "$ROOT/bin/flip-optimizer-candidate" \
+                    raise-profile-voltage "$LAST_FREQ" 25000 >> "$LOG_TARGET" 2>&1; then
+                NEXT_RETRY=$((RETRY_COUNT + 1))
+                DURATION_MINUTES=$(sed -n 's/^duration_minutes=//p' "$VALIDATION_REQUEST" 2>/dev/null | head -1)
+                [ -n "$DURATION_MINUTES" ] || DURATION_MINUTES=5
+                cat > "$VALIDATION_REQUEST.tmp" <<EOF
+calibrated_epoch=$CAL_EPOCH
+duration_minutes=$DURATION_MINUTES
+retry_count=$NEXT_RETRY
+target_frequency_khz=$LAST_FREQ
+target_seconds=120
+EOF
+                mv -f "$VALIDATION_REQUEST.tmp" "$VALIDATION_REQUEST"
+                rm -f "$VALIDATION_ACTIVE" "$RUNTIME_ACTIVE_MARKER" \
+                    "$RUNTIME_QUARANTINE_MARKER" "$VALIDATION_TARGET_PASSED"
+                sync
+                AUTO_HEALED=1
+                echo "OPTIMIZER_VALIDATION: probable undervolt hard recovery phase=$LAST_PHASE frequency_khz=$LAST_FREQ voltage_uv=$LAST_UV chunk=$LAST_CHUNK/$LAST_CHUNKS boot_mode=$BOOT_MODE" >> "$LOG_TARGET"
+                echo "OPTIMIZER_VALIDATION: hard recovery auto-adjusted frequency_khz=$LAST_FREQ increment_uv=25000 retry=$NEXT_RETRY/2; targeted_recheck=120s" >> "$LOG_TARGET"
+            fi
+        fi
+
+        if [ "$AUTO_HEALED" -ne 1 ]; then
+            NOW_EPOCH=$(date +%s 2>/dev/null || echo 0)
+            cat > "$VALIDATION_RESULT.tmp" <<EOF
+version=1
+status=failed-hard-recovery
+last_stage=$LAST_STAGE
+phase=$LAST_PHASE
+frequency_khz=$LAST_FREQ
+voltage_uv=$LAST_UV
+chunk_index=$LAST_CHUNK
+chunk_count=$LAST_CHUNKS
+boot_mode=$BOOT_MODE
+calibrated_epoch=$CAL_EPOCH
+tested_epoch=$NOW_EPOCH
+tested_opps=$LAST_TESTED
+seconds_per_opp=$LAST_SECONDS
+max_temp_mc=$LAST_MAX_TEMP
+EOF
+            mv -f "$VALIDATION_RESULT.tmp" "$VALIDATION_RESULT"
+            rm -f "$VALIDATION_ACTIVE" "$VALIDATION_REQUEST" "$RUNTIME_ACTIVE_MARKER" \
+                "$VALIDATION_TARGET_PASSED"
+            : > "$RUNTIME_QUARANTINE_MARKER"
+            sync
+            echo "OPTIMIZER_VALIDATION: hard recovery not eligible for auto-adjust; profile quarantined phase=$LAST_PHASE boot_mode=$BOOT_MODE" >> "$LOG_TARGET"
+        fi
+    fi
 fi
 
 # Outside validation, the runtime voltage module disappears on reboot, so a
@@ -208,9 +407,33 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
         echo "OPTIMIZER_VALIDATION: progress splash pid=$VALIDATION_PROGRESS_PID" >> "$LOG_TARGET"
     fi
 
-    echo "OPTIMIZER_VALIDATION: launching profile stress validation" >> "$LOG_TARGET"
-    if ! "$ROOT/bin/flip-optimizer-candidate" validate-profile 60 >> "$LOG_TARGET" 2>&1; then
-        echo "OPTIMIZER_VALIDATION: validator returned without reboot" >> "$LOG_TARGET"
+    VALIDATION_MINUTES=$(sed -n 's/^duration_minutes=//p' "$VALIDATION_REQUEST" 2>/dev/null | head -1)
+    case "$VALIDATION_MINUTES" in
+        5|10|20|30|60) ;;
+        *) VALIDATION_MINUTES=5 ;;
+    esac
+    VALIDATION_TOTAL_SECONDS=$((VALIDATION_MINUTES * 60))
+    TARGET_FREQ=$(sed -n 's/^target_frequency_khz=//p' "$VALIDATION_REQUEST" 2>/dev/null | head -1)
+    TARGET_SECONDS=$(sed -n 's/^target_seconds=//p' "$VALIDATION_REQUEST" 2>/dev/null | head -1)
+
+    if [ -f "$VALIDATION_TARGET_PASSED" ]; then
+        echo "OPTIMIZER_VALIDATION: targeted recovery recheck passed; starting requested full validation" >> "$LOG_TARGET"
+        rm -f "$VALIDATION_TARGET_PASSED"
+        TARGET_FREQ=""
+        TARGET_SECONDS=""
+    fi
+
+    if [ -n "$TARGET_FREQ" ] && [ -n "$TARGET_SECONDS" ]; then
+        echo "OPTIMIZER_VALIDATION: launching targeted recovery recheck frequency_khz=$TARGET_FREQ seconds=$TARGET_SECONDS" >> "$LOG_TARGET"
+        if ! "$ROOT/bin/flip-optimizer-candidate" validate-profile-frequency "$TARGET_SECONDS" "$TARGET_FREQ" >> "$LOG_TARGET" 2>&1; then
+            echo "OPTIMIZER_VALIDATION: targeted validator returned without reboot" >> "$LOG_TARGET"
+        fi
+    else
+        rm -f "$VALIDATION_MANUAL_STOP"
+        echo "OPTIMIZER_VALIDATION: launching stability validation minutes=$VALIDATION_MINUTES" >> "$LOG_TARGET"
+        if ! "$ROOT/bin/flip-optimizer-candidate" validate-profile-total "$VALIDATION_TOTAL_SECONDS" >> "$LOG_TARGET" 2>&1; then
+            echo "OPTIMIZER_VALIDATION: validator returned without reboot" >> "$LOG_TARGET"
+        fi
     fi
 
     if [ -n "$VALIDATION_PROGRESS_PID" ]; then

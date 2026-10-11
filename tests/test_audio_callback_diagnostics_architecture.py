@@ -29,7 +29,19 @@ def main():
     require(CORE_HOST_C, "write_max_us=", "transport write maximum timing summary")
     require(CORE_HOST_C, "writes=", "transport write count summary")
 
+    require(AUDIO_C, "static int mixer_fd = -1", "cached ALSA mixer fd")
+    require(AUDIO_C, "alsa_control_close();", "mixer fd cleanup")
+    require(AUDIO_C, "Reassert the RK817 speaker route at audio-open time", "direct startup mixer setup")
+    assert "system(command)" not in AUDIO_C, "audio mixer path must not spawn amixer"
+
     print("audio callback diagnostics architecture tests passed")
+
+
+    require(AUDIO_C, 'ALSA_CONTROL_DEVICE "/dev/snd/controlC0"', "direct ALSA control device")
+    require(AUDIO_C, "SNDRV_CTL_IOCTL_ELEM_WRITE", "direct ALSA control writes")
+    require(AUDIO_C, "ALSA_NUMID_SPK_VOLUME", "RK817 speaker volume control")
+    require(AUDIO_C, "percent > 0 && old_volume > 0", "fast nonzero volume path")
+    require(AUDIO_C, "direct volume control failed", "direct volume failure diagnostics")
 
 
 if __name__ == "__main__":

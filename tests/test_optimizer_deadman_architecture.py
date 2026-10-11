@@ -52,7 +52,12 @@ if min(arm_pos, enter_pos, disarm_pos, confirm_pos) < 0:
 elif not (arm_pos < enter_pos < disarm_pos < confirm_pos):
     errors.append("deadman must arm before voltage entry and disarm before durable confirmation")
 
-if "sync();" in candidate[candidate.find("static void emergency_reboot"):candidate.find("static int ensure_candidate_ready")]:
+emergency_start = candidate.find("static void emergency_reboot")
+emergency_end = candidate.find("static void settle_hw_watchdog_trial_and_reboot", emergency_start)
+emergency_block = candidate[emergency_start:emergency_end]
+if emergency_start < 0 or emergency_end < 0:
+    errors.append("emergency reboot helper missing")
+elif "sync();" in emergency_block:
     errors.append("emergency reboot must not sync storage during unstable recovery")
 
 if errors:

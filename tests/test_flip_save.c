@@ -12,9 +12,17 @@ int flip_save_test_build_path(
     char *path,
     size_t path_size);
 
+int flip_save_test_build_legacy_path(
+    const flip_save_context_t *context,
+    const char *suffix,
+    char *path,
+    size_t path_size);
+
 typedef struct {
     unsigned char save_memory[32];
     size_t save_memory_size;
+    unsigned char rtc_memory[32];
+    size_t rtc_memory_size;
 } fake_save_core_t;
 
 static void *fake_save_memory_data(void *userdata)
@@ -29,6 +37,18 @@ static size_t fake_save_memory_size(void *userdata)
     return fake->save_memory_size;
 }
 
+static void *fake_rtc_memory_data(void *userdata)
+{
+    fake_save_core_t *fake = userdata;
+    return fake->rtc_memory_size > 0 ? fake->rtc_memory : NULL;
+}
+
+static size_t fake_rtc_memory_size(void *userdata)
+{
+    fake_save_core_t *fake = userdata;
+    return fake->rtc_memory_size;
+}
+
 static flip_core_adapter_t make_core(fake_save_core_t *fake)
 {
     flip_core_adapter_t core;
@@ -36,6 +56,8 @@ static flip_core_adapter_t make_core(fake_save_core_t *fake)
     core.userdata = fake;
     core.save_memory_data = fake_save_memory_data;
     core.save_memory_size = fake_save_memory_size;
+    core.rtc_memory_data = fake_rtc_memory_data;
+    core.rtc_memory_size = fake_rtc_memory_size;
     return core;
 }
 
@@ -98,6 +120,21 @@ static void write_bytes(
     assert(fclose(file) == 0);
 }
 
+static void write_legacy_bytes(
+    const flip_save_context_t *context,
+    const char *suffix,
+    const unsigned char *data,
+    size_t size)
+{
+    char path[640];
+    assert(flip_save_test_build_legacy_path(
+        context, suffix, path, sizeof(path)) == 0);
+    FILE *file = fopen(path, "wb");
+    assert(file != NULL);
+    assert(fwrite(data, 1, size, file) == size);
+    assert(fclose(file) == 0);
+}
+
 static void read_bytes(
     const flip_save_context_t *context,
     const char *suffix,
@@ -135,7 +172,7 @@ static size_t path_size(
     return (size_t)st.st_size;
 }
 
-static void test_paths_use_frozen_rom_identity(void)
+static void test_paths_use_readable_rom_name(void)
 {
     flip_save_context_t context;
     char path[512];
@@ -146,22 +183,73 @@ static void test_paths_use_frozen_rom_identity(void)
         "/mnt/SDCARD/Roms/GB/Pokemon - Yellow.gb");
 
     assert(flip_save_test_build_path(&context, ".sav", path, sizeof(path)) == 0);
-    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav") == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/Pokemon - Yellow.sav") == 0);
 
     assert(flip_save_test_build_path(&context, ".sav.prev", path, sizeof(path)) == 0);
-    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.prev") == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/Pokemon - Yellow.sav.prev") == 0);
 
     assert(flip_save_test_build_path(&context, ".sav.tmp", path, sizeof(path)) == 0);
-    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.tmp") == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/Pokemon - Yellow.sav.tmp") == 0);
 
     assert(flip_save_test_build_path(&context, ".sav.prev.tmp", path, sizeof(path)) == 0);
-    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.prev.tmp") == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/Pokemon - Yellow.sav.prev.tmp") == 0);
 
     assert(flip_save_test_build_path(&context, ".sav.recovery", path, sizeof(path)) == 0);
-    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.recovery") == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/Pokemon - Yellow.sav.recovery") == 0);
 
-    assert(flip_save_test_build_path(&context, ".sav.recovery.tmp", path, sizeof(path)) == 0);
-    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav.recovery.tmp") == 0);
+    assert(flip_save_test_build_path(&context, ".rtc", path, sizeof(path)) == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/Pokemon - Yellow.rtc") == 0);
+
+    assert(flip_save_test_build_legacy_path(
+        &context, ".sav", path, sizeof(path)) == 0);
+    assert(strcmp(path, FLIP_SAVE_ROOT "/gb/792f9628ba43b7d9.sav") == 0);
+}
+
+static void test_legacy_hash_files_migrate_to_readable_names(void)
+{
+    reset_root();
+
+    flip_save_context_t context;
+    flip_save_context_init(
+        &context,
+        "gb",
+        "/mnt/SDCARD/Roms/GBC/Pokemon - Crystal Version (USA, Europe).gbc");
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    fake.rtc_memory_size = 8;
+    flip_core_adapter_t core = make_core(&fake);
+
+    unsigned char saved[32];
+    unsigned char rtc[8];
+    for (size_t i = 0; i < sizeof(saved); ++i)
+        saved[i] = (unsigned char)(0x30 + i);
+    for (size_t i = 0; i < sizeof(rtc); ++i)
+        rtc[i] = (unsigned char)(0x90 + i);
+
+    write_legacy_bytes(&context, FLIP_SAVE_CURRENT_SUFFIX, saved, sizeof(saved));
+    write_legacy_bytes(&context, FLIP_RTC_CURRENT_SUFFIX, rtc, sizeof(rtc));
+
+    char old_save[640];
+    char old_rtc[640];
+    assert(flip_save_test_build_legacy_path(
+        &context, FLIP_SAVE_CURRENT_SUFFIX, old_save, sizeof(old_save)) == 0);
+    assert(flip_save_test_build_legacy_path(
+        &context, FLIP_RTC_CURRENT_SUFFIX, old_rtc, sizeof(old_rtc)) == 0);
+
+    assert(flip_save_load(&core, &context) == FLIP_SAVE_LOAD_CURRENT);
+    assert(memcmp(fake.save_memory, saved, sizeof(saved)) == 0);
+    assert(flip_rtc_load(&core, &context) == 0);
+    assert(memcmp(fake.rtc_memory, rtc, sizeof(rtc)) == 0);
+
+    assert(!path_exists(&context, ".does-not-exist"));
+    assert(path_exists(&context, FLIP_SAVE_CURRENT_SUFFIX));
+    assert(path_exists(&context, FLIP_RTC_CURRENT_SUFFIX));
+
+    struct stat st;
+    assert(stat(old_save, &st) < 0);
+    assert(stat(old_rtc, &st) < 0);
 }
 
 static void test_no_save_memory_is_noop(void)
@@ -562,9 +650,116 @@ static void test_restore_recovery_restores_old_timeline_and_preserves_current(vo
     assert(memcmp(got, current, sizeof(got)) == 0);
 }
 
+static void test_rtc_no_memory_is_noop(void)
+{
+    reset_root();
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    flip_core_adapter_t core = make_core(&fake);
+
+    flip_save_context_t context;
+    flip_save_context_init(
+        &context,
+        "gb",
+        "/mnt/SDCARD/Roms/GBC/no-rtc.gbc");
+
+    assert(flip_rtc_load(&core, &context) == 0);
+    assert(flip_rtc_commit(&core, &context) == 0);
+    assert(!path_exists(&context, FLIP_RTC_CURRENT_SUFFIX));
+}
+
+static void test_rtc_commit_load_and_previous(void)
+{
+    reset_root();
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.rtc_memory_size = 8;
+    memset(fake.rtc_memory, 0x11, fake.rtc_memory_size);
+    flip_core_adapter_t core = make_core(&fake);
+
+    flip_save_context_t context;
+    flip_save_context_init(
+        &context,
+        "gb",
+        "/mnt/SDCARD/Roms/GBC/Pokemon Crystal.gbc");
+
+    assert(flip_rtc_commit(&core, &context) == 0);
+    assert(path_exists(&context, FLIP_RTC_CURRENT_SUFFIX));
+
+    unsigned char got[8];
+    read_bytes(
+        &context,
+        FLIP_RTC_CURRENT_SUFFIX,
+        got,
+        sizeof(got));
+    for (size_t i = 0; i < sizeof(got); ++i)
+        assert(got[i] == 0x11);
+
+    memset(fake.rtc_memory, 0x22, fake.rtc_memory_size);
+    assert(flip_rtc_commit(&core, &context) == 0);
+
+    read_bytes(
+        &context,
+        FLIP_RTC_PREVIOUS_SUFFIX,
+        got,
+        sizeof(got));
+    for (size_t i = 0; i < sizeof(got); ++i)
+        assert(got[i] == 0x11);
+
+    memset(fake.rtc_memory, 0, fake.rtc_memory_size);
+    assert(flip_rtc_load(&core, &context) == 0);
+    for (size_t i = 0; i < fake.rtc_memory_size; ++i)
+        assert(fake.rtc_memory[i] == 0x22);
+}
+
+static void test_rtc_invalid_current_falls_back_to_previous(void)
+{
+    reset_root();
+
+    fake_save_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.rtc_memory_size = 8;
+    flip_core_adapter_t core = make_core(&fake);
+
+    flip_save_context_t context;
+    flip_save_context_init(
+        &context,
+        "gb",
+        "/mnt/SDCARD/Roms/GBC/Pokemon Gold.gbc");
+
+    unsigned char previous[8];
+    memset(previous, 0x5A, sizeof(previous));
+    write_bytes(
+        &context,
+        FLIP_RTC_PREVIOUS_SUFFIX,
+        previous,
+        sizeof(previous));
+
+    unsigned char bad[4] = {1, 2, 3, 4};
+    write_bytes(
+        &context,
+        FLIP_RTC_CURRENT_SUFFIX,
+        bad,
+        sizeof(bad));
+
+    assert(flip_rtc_load(&core, &context) == 0);
+    assert(memcmp(fake.rtc_memory, previous, sizeof(previous)) == 0);
+
+    write_bytes(
+        &context,
+        FLIP_RTC_PREVIOUS_SUFFIX,
+        bad,
+        sizeof(bad));
+    memset(fake.rtc_memory, 0, fake.rtc_memory_size);
+    assert(flip_rtc_load(&core, &context) == -1);
+}
+
 int main(void)
 {
-    test_paths_use_frozen_rom_identity();
+    test_paths_use_readable_rom_name();
+    test_legacy_hash_files_migrate_to_readable_names();
     test_no_save_memory_is_noop();
     test_exact_size_current_is_loaded();
     test_invalid_current_falls_back_to_previous();
@@ -579,6 +774,9 @@ int main(void)
     test_restore_previous_preserves_current_recovery();
     test_restore_previous_staging_failure_preserves_authoritative_files();
     test_restore_recovery_restores_old_timeline_and_preserves_current();
+    test_rtc_no_memory_is_noop();
+    test_rtc_commit_load_and_previous();
+    test_rtc_invalid_current_falls_back_to_previous();
 
     puts("flip_save tests passed");
     return 0;

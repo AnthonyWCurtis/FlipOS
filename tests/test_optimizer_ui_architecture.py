@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 frontend = (ROOT / "src/frontend/flip_frontend.c").read_text()
 progress = (ROOT / "src/hwtest/flip_optimizer_progress.c").read_text()
+validation_progress = (ROOT / "src/hwtest/flip_optimizer_validation_progress.c").read_text()
 updater = (ROOT / "tools/device/updater-playtest").read_text()
 caltool = (ROOT / "src/hwtest/flip_optimizer_calibration_tool.c").read_text()
 
@@ -13,8 +14,8 @@ for token in [
     "SCREEN_SETTINGS",
     "SCREEN_OPTIMIZER",
     "CPU OPTIMIZATION",
-    "RUN OPTIMIZATION AGAIN",
-    "RESET OPTIMIZATION",
+    "OPTIMIZE AGAIN",
+    "RESTORE DEFAULT SETTINGS",
     "optimizer_external_power_online()",
     "battery < 30",
     "OPTIMIZER_UI_RETURN_PATH",
@@ -22,20 +23,41 @@ for token in [
     '"snapshot"',
     '"reset-for-rerun"',
     '"restore-snapshot"',
-    "STRESS TEST PROFILE",
+    "RUN STABILITY TEST",
     "OPTIMIZER_VALIDATION_REQUEST_PATH",
     "OPTIMIZER_VALIDATION_RESULT_PATH",
-    "optimizer_start_validation()",
-    "STRESS TEST OPTIMIZED PROFILE?",
+    "optimizer_start_validation(unsigned duration_minutes)",
+    "START STABILITY TEST?",
+    "QUICK - 5 MIN",
+    "STANDARD - 10 MIN",
+    "THOROUGH - 20 MIN",
+    "EXTENDED - 30 MIN",
+    "FULL - 60 MIN",
 ]:
     if token not in frontend:
         errors.append(f"frontend optimizer UX missing: {token}")
 
 for token in [
+    "CPU STABILITY TEST",
+    "%u MINUTE STABILITY TEST",
+    "LEVEL %u/5",
+    "C%d",
+    "/proc/stat",
+    "duration_minutes",
+    "KEEP CHARGER CONNECTED",
+    "UNPLUG CHARGER TO CANCEL SAFELY",
+    "read_cpu_samples",
+    "read_validation_status",
+]:
+    if token not in validation_progress:
+        errors.append(f"validation progress UI missing: {token}")
+
+for token in [
     "OPTIMIZING CPU",
+    "FINDING SAFE SETTINGS FOR THIS DEVICE",
     "DO NOT POWER OFF",
     "KEEP CHARGER CONNECTED",
-    "OPTIMIZATION WILL RESUME AUTOMATICALLY",
+    "PROGRESS IS SAVED AUTOMATICALLY",
     "UNPLUG CHARGER TO CANCEL SAFELY",
     "read_progress(&completed, &total);",
     "while (running)\n        pause();",
@@ -120,12 +142,6 @@ if "OPTIMIZER_HISTORY_FILE" in reset_block:
 if 'if (have_calibration &&\n        (flip_optimizer_calibration_load(&calibration) < 0 ||' not in caltool:
     errors.append("fresh-start snapshot must allow no existing calibration")
 
-init_start = caltool.find('if (strcmp(argv[1], "init") == 0)')
-init_end = caltool.find('if (strcmp(argv[1], "status") == 0)', init_start)
-init_block = caltool[init_start:init_end]
-if "apply_failure_history(" in init_block:
-    errors.append("historical evidence must not influence fresh calibration candidate selection")
-
 power_gate = updater.find("# A UI-started optimization uses charger presence as a physical cancel switch.")
 power_gate_end = updater.find("RUNTIME_ACTIVE_MARKER=", power_gate)
 power_gate_block = updater[power_gate:power_gate_end]
@@ -147,6 +163,25 @@ validation_active_pos = updater.find('[ -f "$VALIDATION_ACTIVE" ]')
 runtime_stale_pos = updater.find('OPTIMIZER_RUNTIME: stale active marker quarantined')
 if min(validation_active_pos, runtime_stale_pos) < 0 or validation_active_pos >= runtime_stale_pos:
     errors.append("boot must classify validation-active before generic runtime stale marker")
+
+init_start = caltool.find('strcmp(argv[1], "init")')
+init_end = caltool.find('strcmp(argv[1], "status")', init_start)
+init_block = caltool[init_start:init_end]
+if init_start < 0 or init_end < 0 or "apply_failure_history(&calibration)" not in init_block:
+    errors.append("optimizer init must import persisted hard-failure history before saving")
+
+if errors:
+    for error in errors:
+        print(error)
+    raise SystemExit(1)
+
+calibration_tool = (ROOT / "src/hwtest/flip_optimizer_calibration_tool.c").read_text()
+for token in [
+    'DT_SERIAL_PATH "/sys/firmware/devicetree/base/serial-number"',
+    'fopen(DT_SERIAL_PATH, "rb")',
+]:
+    if token not in calibration_tool:
+        errors.append(f"stable optimizer identity support missing: {token}")
 
 if errors:
     for error in errors:

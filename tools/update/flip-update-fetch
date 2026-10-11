@@ -1,0 +1,138 @@
+#!/bin/sh
+set -eu
+
+ROOT=${FLIP_UPDATE_ROOT:-/mnt/SDCARD/flipos-dev}
+DEST=${FLIP_UPDATE_DEST:-/mnt/SDCARD/FlipOSUpdate}
+STATE="$ROOT/state/update"
+AVAILABLE="$STATE/available"
+INSTALLED_VERSION="$ROOT/VERSION"
+WORK="$STATE/download"
+PROGRESS=${FLIP_UPDATE_PROGRESS:-/tmp/flipos-update-progress}
+API_URL=${FLIP_UPDATE_API_URL:-https://api.github.com/repos/AnthonyWCurtis/FlipOS/releases?per_page=10}
+ASSET_NAME=${FLIP_UPDATE_ASSET_NAME:-FlipOSUpdate.tar.gz}
+
+progress() {
+    phase=$1
+    percent=$2
+    message=$3
+    tmp="${PROGRESS}.tmp"
+    {
+        echo "phase=$phase"
+        echo "percent=$percent"
+        echo "message=$message"
+    } > "$tmp"
+    mv -f "$tmp" "$PROGRESS"
+}
+
+fail() {
+    progress failed 0 "$1"
+    echo "FLIP_UPDATE_FETCH: $1" >&2
+    cleanup
+    exit 1
+}
+
+cleanup() {
+    rm -rf "$WORK" 2>/dev/null || true
+}
+# BusyBox ash can inherit EXIT traps inside command substitutions. That made
+# the HTTP status command substitution remove $WORK before the archive download.
+# Clean up explicitly instead, and reserve traps for actual interruption.
+trap 'cleanup; exit 1' HUP INT TERM
+
+mkdir -p "$STATE"
+rm -rf "$WORK"
+mkdir -p "$WORK/extract"
+
+progress check 5 "CHECKING GITHUB FOR UPDATES"
+
+RELEASES="$WORK/releases.json"
+HTTP_CODE=$(curl -sS -L --connect-timeout 10 --max-time 30 \
+        -H 'Accept: application/vnd.github+json' \
+        -H 'User-Agent: FlipOS-Updater' \
+        -o "$RELEASES" -w '%{http_code}' "$API_URL" 2>/dev/null) || \
+    fail "COULD NOT REACH GITHUB"
+case "$HTTP_CODE" in
+    200) ;;
+    404) fail "FLIPOS RELEASES ARE NOT PUBLIC YET" ;;
+    403) fail "GITHUB UPDATE CHECK WAS REFUSED" ;;
+    *) fail "GITHUB UPDATE CHECK FAILED" ;;
+esac
+
+# GitHub's releases list includes prereleases but excludes drafts for anonymous
+# callers. Pick the first matching release asset, which gives Beta builds the
+# same update path as stable releases.
+# GitHub returns compact JSON, often as one very long line. Split fields on
+# commas before extracting URLs/tags so greedy sed matching cannot accidentally
+# select a later sidecar asset such as FlipOSUpdate.tar.gz.sha256.
+ASSET_URL=$(tr ',' '\n' < "$RELEASES" \
+    | grep '"browser_download_url"' \
+    | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+    | grep "/$ASSET_NAME$" \
+    | head -n 1)
+TAG=$(tr ',' '\n' < "$RELEASES" \
+    | grep '"tag_name"' \
+    | head -n 1 \
+    | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+[ -n "$ASSET_URL" ] || fail "NO FLIPOS UPDATE ASSET FOUND"
+
+progress download 15 "DOWNLOADING UPDATE FROM GITHUB"
+ARCHIVE="$WORK/$ASSET_NAME"
+if ! curl -fL --connect-timeout 10 --max-time 300 \
+        -H 'User-Agent: FlipOS-Updater' \
+        "$ASSET_URL" -o "$ARCHIVE"; then
+    fail "UPDATE DOWNLOAD FAILED"
+fi
+
+progress unpack 55 "UNPACKING UPDATE"
+# The Miyoo Flip ships BusyBox tar, which does not support GNU tar's -z
+# flag. Decompress explicitly with BusyBox gzip and pipe the tar stream.
+if ! gzip -dc "$ARCHIVE" | tar -xf - -C "$WORK/extract"; then
+    fail "UPDATE ARCHIVE IS INVALID"
+fi
+
+PACKAGE="$WORK/extract/FlipOSUpdate"
+[ -d "$PACKAGE" ] || fail "UPDATE PACKAGE MISSING"
+[ -f "$PACKAGE/manifest" ] || fail "UPDATE MANIFEST MISSING"
+[ -f "$PACKAGE/SHA256SUMS" ] || fail "UPDATE CHECKSUMS MISSING"
+[ -d "$PACKAGE/payload" ] || fail "UPDATE PAYLOAD MISSING"
+
+format=$(sed -n 's/^format=//p' "$PACKAGE/manifest" | head -n 1)
+target=$(sed -n 's/^target=//p' "$PACKAGE/manifest" | head -n 1)
+version=$(sed -n 's/^version=//p' "$PACKAGE/manifest" | head -n 1)
+
+[ "$format" = "1" ] || fail "UNSUPPORTED UPDATE FORMAT"
+[ "$target" = "miyoo-flip-rk3566" ] || fail "UPDATE IS FOR ANOTHER DEVICE"
+[ -n "$version" ] || fail "UPDATE VERSION MISSING"
+
+progress verify 70 "VERIFYING DOWNLOADED UPDATE"
+(
+    cd "$PACKAGE/payload"
+    sha256sum -c "$PACKAGE/SHA256SUMS"
+) >/dev/null 2>&1 || fail "DOWNLOADED UPDATE CHECKSUM FAILED"
+
+progress ready 90 "PREPARING UPDATE"
+rm -rf "${DEST}.new"
+mkdir -p "${DEST}.new"
+cp -R "$PACKAGE/." "${DEST}.new/"
+sync
+rm -rf "$DEST"
+mv "${DEST}.new" "$DEST"
+sync
+
+installed_version=""
+if [ -f "$INSTALLED_VERSION" ]; then
+    installed_version=$(head -n 1 "$INSTALLED_VERSION" | tr -d '\r\n')
+fi
+if [ "$version" != "$installed_version" ]; then
+    printf '%s\n' "$version" > "${AVAILABLE}.tmp"
+    mv -f "${AVAILABLE}.tmp" "$AVAILABLE"
+else
+    rm -f "$AVAILABLE"
+fi
+sync
+
+progress ready 100 "UPDATE READY TO INSTALL"
+echo "FLIP_UPDATE_FETCH_OK version=$version tag=${TAG:-unknown}"
+cleanup
+exit 0

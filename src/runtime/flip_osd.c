@@ -95,15 +95,15 @@ void flip_osd_show_volume(
 void flip_osd_show_brightness(
     int brightness)
 {
-    /*
-     * FlipOS brightness range:
-     *
-     *   10  -> 0%
-     *   255 -> 100%
-     */
-    int percent =
-        ((brightness - 10) * 100 + 122) /
-        245;
+    /* Keep display conversion in this dependency-light OSD module. */
+    int percent;
+
+    if (brightness <= 10)
+        percent = 0;
+    else if (brightness >= 255)
+        percent = 100;
+    else
+        percent = ((brightness - 10) * 100 + 122) / 245;
 
     show(
         FLIP_OSD_BRIGHTNESS,

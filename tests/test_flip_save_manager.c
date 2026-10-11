@@ -42,9 +42,9 @@ static flip_core_adapter_t make_core(fake_core_t *fake)
 static void cleanup_root(void)
 {
     const char *files[] = {
-        "/tmp/flipos-save-manager-test/gb/792f9628ba43b7d9.sav",
-        "/tmp/flipos-save-manager-test/gb/792f9628ba43b7d9.sav.prev",
-        "/tmp/flipos-save-manager-test/gb/792f9628ba43b7d9.sav.recovery"
+        "/tmp/flipos-save-manager-test/gb/Pokemon - Yellow.sav",
+        "/tmp/flipos-save-manager-test/gb/Pokemon - Yellow.sav.prev",
+        "/tmp/flipos-save-manager-test/gb/Pokemon - Yellow.sav.recovery"
     };
 
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); ++i)

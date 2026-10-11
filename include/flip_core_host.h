@@ -24,6 +24,14 @@ typedef struct {
     flip_core_host_state_fn restore_state;
     void *state_userdata;
 
+    /*
+     * Optional reconciliation step after a successful savestate restore.
+     * Used for state that must follow current wall-clock time (for example,
+     * cartridge RTC memory) rather than the historical snapshot in the state.
+     */
+    flip_core_host_state_fn post_restore;
+    void *post_restore_userdata;
+
     flip_core_host_persistence_complete_fn persistence_complete;
     void *persistence_userdata;
 } flip_core_host_config_t;

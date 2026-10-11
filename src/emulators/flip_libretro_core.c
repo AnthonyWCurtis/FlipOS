@@ -589,6 +589,28 @@ static size_t libretro_save_memory_size(
     return retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
 }
 
+static void *libretro_rtc_memory_data(
+    void *userdata)
+{
+    flip_libretro_state_t *state = userdata;
+
+    if (!state->loaded)
+        return NULL;
+
+    return retro_get_memory_data(RETRO_MEMORY_RTC);
+}
+
+static size_t libretro_rtc_memory_size(
+    void *userdata)
+{
+    flip_libretro_state_t *state = userdata;
+
+    if (!state->loaded)
+        return 0;
+
+    return retro_get_memory_size(RETRO_MEMORY_RTC);
+}
+
 static flip_core_adapter_t adapter = {
     .userdata = &libretro_state,
     .init = libretro_init,
@@ -603,6 +625,8 @@ static flip_core_adapter_t adapter = {
     .unserialize = libretro_unserialize,
     .save_memory_data = libretro_save_memory_data,
     .save_memory_size = libretro_save_memory_size,
+    .rtc_memory_data = libretro_rtc_memory_data,
+    .rtc_memory_size = libretro_rtc_memory_size,
 };
 
 flip_core_adapter_t *flip_libretro_core_adapter(

@@ -10,6 +10,7 @@
 
 #define DEFAULT_VOLUME 30
 #define DEFAULT_BRIGHTNESS 200
+#define DEFAULT_BATTERY_PERCENT_VISIBLE 1
 
 /*
  * Wait this long after the most recent change
@@ -22,6 +23,9 @@ static int current_volume =
 
 static int current_brightness =
     DEFAULT_BRIGHTNESS;
+
+static int current_battery_percent_visible =
+    DEFAULT_BATTERY_PERCENT_VISIBLE;
 
 static int settings_dirty = 0;
 static int settings_ready = 0;
@@ -111,6 +115,9 @@ static int load_settings(
     settings->brightness =
         DEFAULT_BRIGHTNESS;
 
+    settings->battery_percent_visible =
+        DEFAULT_BATTERY_PERCENT_VISIBLE;
+
     FILE *f =
         fopen(
             FLIP_SETTINGS_FILE,
@@ -125,6 +132,9 @@ static int load_settings(
 
             current_brightness =
                 DEFAULT_BRIGHTNESS;
+
+            current_battery_percent_visible =
+                DEFAULT_BATTERY_PERCENT_VISIBLE;
 
             settings_dirty = 0;
 
@@ -165,6 +175,19 @@ static int load_settings(
             settings->brightness =
                 clamp_brightness(
                     brightness);
+
+            continue;
+        }
+
+        int battery_percent_visible;
+
+        if (sscanf(
+                line,
+                "battery_percent_visible=%d",
+                &battery_percent_visible) == 1) {
+
+            settings->battery_percent_visible =
+                battery_percent_visible ? 1 : 0;
         }
     }
 
@@ -176,13 +199,17 @@ static int load_settings(
     current_brightness =
         settings->brightness;
 
+    current_battery_percent_visible =
+        settings->battery_percent_visible ? 1 : 0;
+
     settings_dirty = 0;
 
     fprintf(
         stderr,
-        "SETTINGS: loaded volume=%d brightness=%d\n",
+        "SETTINGS: loaded volume=%d brightness=%d battery_percent=%d\n",
         current_volume,
-        current_brightness);
+        current_brightness,
+        current_battery_percent_visible);
 
     return 1;
 }
@@ -242,6 +269,11 @@ static int save_settings(
         clamp_brightness(
             settings->brightness));
 
+    fprintf(
+        f,
+        "battery_percent_visible=%d\n",
+        settings->battery_percent_visible ? 1 : 0);
+
     fflush(f);
 
     if (fsync(
@@ -292,13 +324,17 @@ static int save_settings(
         clamp_brightness(
             settings->brightness);
 
+    current_battery_percent_visible =
+        settings->battery_percent_visible ? 1 : 0;
+
     settings_dirty = 0;
 
     fprintf(
         stderr,
-        "SETTINGS: saved volume=%d brightness=%d\n",
+        "SETTINGS: saved volume=%d brightness=%d battery_percent=%d\n",
         current_volume,
-        current_brightness);
+        current_brightness,
+        current_battery_percent_visible);
 
     return 0;
 }
@@ -317,9 +353,10 @@ int flip_settings_init(void)
 
     fprintf(
         stderr,
-        "SETTINGS: initialized volume=%d brightness=%d\n",
+        "SETTINGS: initialized volume=%d brightness=%d battery_percent=%d\n",
         current_volume,
-        current_brightness);
+        current_brightness,
+        current_battery_percent_visible);
 
     return 0;
 }
@@ -387,6 +424,30 @@ int flip_settings_set_brightness(
     return 0;
 }
 
+int flip_settings_get_battery_percent_visible(void)
+{
+    return current_battery_percent_visible;
+}
+
+int flip_settings_set_battery_percent_visible(
+    int visible)
+{
+    visible = visible ? 1 : 0;
+
+    if (visible == current_battery_percent_visible)
+        return 0;
+
+    current_battery_percent_visible = visible;
+    mark_dirty();
+
+    fprintf(
+        stderr,
+        "SETTINGS: battery_percent_visible=%d dirty\n",
+        current_battery_percent_visible);
+
+    return 0;
+}
+
 int flip_settings_flush(void)
 {
     if (!settings_dirty)
@@ -397,7 +458,10 @@ int flip_settings_flush(void)
             current_volume,
 
         .brightness =
-            current_brightness
+            current_brightness,
+
+        .battery_percent_visible =
+            current_battery_percent_visible
     };
 
     if (save_settings(

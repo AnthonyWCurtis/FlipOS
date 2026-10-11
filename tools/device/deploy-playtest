@@ -7,9 +7,16 @@ BOOT_UPDATER=/mnt/SDCARD/.tmp_update/updater
 
 required=(
     build/flip-frontend
+    build/flip-gb
+    build/flip-gba
     build/flip_opp_voltage.ko
     build/flip_opp_runtime_profile.ko
     build/flip_tsadc_recovery.ko
+    build/flip_rk817_charger.ko
+    build/flip-charge-service
+    build/umtprd
+    tools/device/flip-usb-mtp
+    tools/device/umtprd.conf
     build/flip-optimizer-supervisor
     build/flip-optimizer-deadman
     build/flip-optimizer-guard
@@ -20,6 +27,8 @@ required=(
     build/flip-optimizer-validation-progress
     build/flip-optimizer-runtime
     tools/device/updater-playtest
+    tools/update/flip-update-install
+    tools/update/flip-update-fetch
 )
 
 for path in "${required[@]}"; do
@@ -30,14 +39,27 @@ for path in "${required[@]}"; do
 done
 
 "$ADB" get-state >/dev/null
-"$ADB" shell "mkdir -p /mnt/SDCARD/.tmp_update '$ROOT/bin' '$ROOT/lib'"
+"$ADB" shell "mkdir -p /mnt/SDCARD/.tmp_update '$ROOT/bin' '$ROOT/lib' '$ROOT/etc' '$ROOT/state/setup'"
+
+# Developer/playtest installs predate the first-boot wizard. Mark them migrated so
+# routine deploy/reboot cycles do not unexpectedly enter onboarding. Fresh release
+# installs deliberately do not use this deployment helper and therefore have no
+# completion marker.
+"$ADB" shell "if [ ! -f '$ROOT/state/setup/complete' ]; then printf 'version=1\n' > '$ROOT/state/setup/complete'; rm -f '$ROOT/state/setup/in-progress'; fi"
 
 "$ADB" shell "if [ -f '$BOOT_UPDATER' ]; then rm -f '$BOOT_UPDATER.previous'; cp '$BOOT_UPDATER' '$BOOT_UPDATER.previous'; fi"
 
 "$ADB" push build/flip-frontend "$ROOT/bin/flip-frontend" >/dev/null
+"$ADB" push build/flip-gb "$ROOT/bin/flip-gb" >/dev/null
+"$ADB" push build/flip-gba "$ROOT/bin/flip-gba" >/dev/null
 "$ADB" push build/flip_opp_voltage.ko "$ROOT/lib/flip_opp_voltage.ko" >/dev/null
 "$ADB" push build/flip_opp_runtime_profile.ko "$ROOT/lib/flip_opp_runtime_profile.ko" >/dev/null
 "$ADB" push build/flip_tsadc_recovery.ko "$ROOT/lib/flip_tsadc_recovery.ko" >/dev/null
+"$ADB" push build/flip_rk817_charger.ko "$ROOT/lib/flip_rk817_charger.ko" >/dev/null
+"$ADB" push build/flip-charge-service "$ROOT/bin/flip-charge-service" >/dev/null
+"$ADB" push build/umtprd "$ROOT/bin/umtprd" >/dev/null
+"$ADB" push tools/device/flip-usb-mtp "$ROOT/bin/flip-usb-mtp" >/dev/null
+"$ADB" push tools/device/umtprd.conf "$ROOT/etc/umtprd.conf" >/dev/null
 "$ADB" push build/flip-optimizer-supervisor "$ROOT/bin/flip-optimizer-supervisor" >/dev/null
 "$ADB" push build/flip-optimizer-deadman "$ROOT/bin/flip-optimizer-deadman" >/dev/null
 "$ADB" push build/flip-optimizer-guard "$ROOT/bin/flip-optimizer-guard" >/dev/null
@@ -49,12 +71,21 @@ done
 "$ADB" push build/flip-optimizer-runtime "$ROOT/bin/flip-optimizer-runtime" >/dev/null
 
 "$ADB" push tools/device/updater-playtest "$ROOT/updater-playtest" >/dev/null
+"$ADB" push tools/update/flip-update-install "$ROOT/bin/flip-update-install" >/dev/null
+"$ADB" push tools/update/flip-update-fetch "$ROOT/bin/flip-update-fetch" >/dev/null
 "$ADB" push tools/device/updater-playtest "$BOOT_UPDATER" >/dev/null
 
 "$ADB" shell "
     chmod 755 \
         '$BOOT_UPDATER' \
         '$ROOT/updater-playtest' \
+        '$ROOT/bin/flip-gb' \
+        '$ROOT/bin/flip-gba' \
+        '$ROOT/bin/flip-charge-service' \
+        '$ROOT/bin/umtprd' \
+        '$ROOT/bin/flip-usb-mtp' \
+        '$ROOT/bin/flip-update-install' \
+        '$ROOT/bin/flip-update-fetch' \
         '$ROOT/bin/flip-optimizer-supervisor' \
         '$ROOT/bin/flip-optimizer-deadman' \
         '$ROOT/bin/flip-optimizer-guard' \
@@ -67,7 +98,8 @@ done
     chmod 644 \
         '$ROOT/lib/flip_opp_voltage.ko' \
         '$ROOT/lib/flip_opp_runtime_profile.ko' \
-        '$ROOT/lib/flip_tsadc_recovery.ko'
+        '$ROOT/lib/flip_tsadc_recovery.ko' \
+        '$ROOT/lib/flip_rk817_charger.ko'
     sync
     echo DEPLOY_PLAYTEST_OK
     sha256sum '$BOOT_UPDATER' '$ROOT/updater-playtest'

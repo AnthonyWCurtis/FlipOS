@@ -1,8 +1,11 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "flip_controls.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static void clear_input(
     flip_input_state_t *input)
@@ -171,6 +174,17 @@ int main(void)
         &out);
 
     assert(out.system.volume_step == 0);
+
+    /* volume hold repeats after initial delay */
+    struct timespec repeat_wait = { .tv_sec = 0, .tv_nsec = 500000000L };
+    nanosleep(&repeat_wait, NULL);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.volume_step == 1);
 
     clear_input(
         &input);

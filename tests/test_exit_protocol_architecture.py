@@ -27,6 +27,8 @@ assert "exit_code == 20" not in adapter_c
 assert '#include "flip_exit_protocol.h"' in session_c
 assert "flip_exit_protocol_classify(" in session_c
 assert "FLIP_EXIT_PROTOCOL_ERROR" in session_c
+assert "FLIP_EXIT_PROTOCOL_LOW_BATTERY" in session_c
+assert "FLIP_SESSION_ACTION_LOW_BATTERY" in session_c
 assert 'session_state =\n            "error";' in session_c
 
 assert "$(BUILD)/flip_exit_protocol.o" in makefile

@@ -1,6 +1,7 @@
 #include "flip_telemetry.h"
 #include "flip_settings.h"
 #include "flip_osd.h"
+#include "flip_log.h"
 #include "flip_video.h"
 
 #include <string.h>
@@ -58,4 +59,21 @@ int flip_settings_init(void)
 
 void flip_osd_init(void)
 {
+}
+
+void flip_osd_show_status(const char *text)
+{
+    (void)text;
+}
+
+int flip_log_write(
+    flip_log_level_t level,
+    const char *subsystem,
+    const char *format,
+    ...)
+{
+    (void)level;
+    (void)subsystem;
+    (void)format;
+    return 0;
 }

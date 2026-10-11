@@ -9,6 +9,18 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/*
+ * Save Safety restore/undo is intentionally hidden for Beta until its
+ * user-facing recovery workflow has completed release hardening.
+ * Internal save rotation remains active.
+ */
+#define FLIP_SAVE_SAFETY_USER_ENABLED 0
+
+int flip_save_safety_user_enabled(void)
+{
+    return FLIP_SAVE_SAFETY_USER_ENABLED;
+}
+
 static flip_save_safety_health_t parse_health(const char *text)
 {
     if (!text)
@@ -73,7 +85,8 @@ static int run_management_command(
     char *output,
     size_t output_size)
 {
-    if (!flip_save_safety_supported(system) ||
+    if (!flip_save_safety_user_enabled() ||
+        !flip_save_safety_supported(system) ||
         !rom_path ||
         !rom_path[0] ||
         !action ||

@@ -26,6 +26,15 @@ static int video_gpu_perf_active = 0;
 
 #define FLIP_GPU_SERVICE_PATH "/mnt/SDCARD/flipos-dev/bin/flip-gpu-service"
 
+/*
+ * The shared GPU scanout helper currently reaches LISTENING on RK3566 but
+ * the emulator-side client can still miss the Function/DRM handoff and wait
+ * for its five-second startup timeout. Keep the implementation available for
+ * development, but use the proven direct DRM path for Beta so game launches
+ * never pay that timeout.
+ */
+#define FLIP_VIDEO_GPU_HOST_ENABLED 0
+
 static int perf_overlay_enabled = 0;
 static flip_telemetry_snapshot_t perf_overlay_snapshot;
 
@@ -373,7 +382,8 @@ int flip_video_open(void)
         sizeof(video_perf_diag));
     video_perf_interval_start_us = 0;
 
-    if (flip_gpu_client_launch(
+    if (FLIP_VIDEO_GPU_HOST_ENABLED &&
+        flip_gpu_client_launch(
             &video_gpu,
             FLIP_GPU_SERVICE_PATH,
             1) == 0) {
@@ -407,7 +417,8 @@ int flip_video_open(void)
 
     fprintf(
         stderr,
-        "VIDEO: GPU host unavailable; falling back to CPU/DRM\n");
+        "VIDEO: direct CPU/DRM path gpu_host=%s\n",
+        FLIP_VIDEO_GPU_HOST_ENABLED ? "enabled-fallback" : "disabled-beta");
 
     video_gpu_active = 0;
 

@@ -17,6 +17,7 @@
 #define RUNTIME_CONTROL "/sys/module/flip_opp_runtime_profile/parameters/control"
 #define CPU_OPP_ROOT "/sys/kernel/debug/opp/cpu0"
 #define CPUINFO_PATH "/proc/cpuinfo"
+#define DT_SERIAL_PATH "/sys/firmware/devicetree/base/serial-number"
 #define SESSION_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/auto-session"
 #define UI_RETURN_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/ui-return"
 #define RUNTIME_ACTIVE_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/runtime-profile-active"
@@ -103,6 +104,34 @@ static int write_text(const char *path, const char *value)
 
 static int read_device_id(char *device_id, size_t size)
 {
+    /* Rockchip's /proc/cpuinfo Serial is not stable on this firmware; it can
+     * change across otherwise normal boots. The DT serial-number is derived
+     * from the board/SoC identity and remains stable, so prefer it for binding
+     * a device-specific voltage profile. Keep cpuinfo only as a legacy
+     * fallback for boards whose DT lacks serial-number. */
+    if (device_id && size >= 2) {
+        FILE *dt = fopen(DT_SERIAL_PATH, "rb");
+        if (dt) {
+            size_t n = fread(device_id, 1, size - 1, dt);
+            fclose(dt);
+            if (n > 0) {
+                device_id[n] = '\0';
+                for (size_t i = 0; i < n; ++i) {
+                    if (device_id[i] == '\0' ||
+                        device_id[i] == '\r' ||
+                        device_id[i] == '\n' ||
+                        device_id[i] == ' ' ||
+                        device_id[i] == '\t') {
+                        device_id[i] = '\0';
+                        break;
+                    }
+                }
+                if (device_id[0])
+                    return 0;
+            }
+        }
+    }
+
     FILE *f = fopen(CPUINFO_PATH, "r");
     char line[256];
 

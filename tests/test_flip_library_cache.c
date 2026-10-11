@@ -161,6 +161,34 @@ int main(void)
     assert(status.state == FLIP_LIBRARY_CACHE_MISS);
     assert(status.live_rom_count == 2);
 
+    char title[256];
+    assert(flip_library_clean_display_title(
+        "Pokemon - FireRed Version (USA, Europe) (Rev 1).gba",
+        title, sizeof(title)) == 0);
+    assert(strcmp(title, "Pokemon - FireRed Version") == 0);
+
+    assert(flip_library_clean_display_title(
+        "Golden Sun - The Lost Age (USA, Europe).gba",
+        title, sizeof(title)) == 0);
+    assert(strcmp(title, "Golden Sun - The Lost Age") == 0);
+
+    assert(flip_library_clean_display_title(
+        "Mother 3 (Tr).gba", title, sizeof(title)) == 0);
+    assert(strcmp(title, "Mother 3") == 0);
+
+    assert(flip_library_clean_display_title(
+        "Example Game (Special Edition) (USA) [!].gb",
+        title, sizeof(title)) == 0);
+    assert(strcmp(title, "Example Game (Special Edition)") == 0);
+
+    assert(flip_library_clean_display_title(
+        "Game [h1].gb", title, sizeof(title)) == 0);
+    assert(strcmp(title, "Game") == 0);
+
+    assert(flip_library_clean_display_title(
+        "Game (Anniversary Edition).gb", title, sizeof(title)) == 0);
+    assert(strcmp(title, "Game (Anniversary Edition)") == 0);
+
     cleanup();
 
     puts("flip_library cache service tests passed");

@@ -1,0 +1,90 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+VERSION=${1:-}
+OUT_DIR=${2:-$ROOT_DIR/dist}
+
+if [ -z "$VERSION" ]; then
+    echo "usage: $0 <version> [output-dir]" >&2
+    exit 2
+fi
+
+BUILD_ID=${FLIP_BUILD_ID:-$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)}
+WORK="$OUT_DIR/.flipos-release-work"
+PACKAGE="$WORK/FlipOSUpdate"
+PAYLOAD="$PACKAGE/payload"
+ARCHIVE="$OUT_DIR/FlipOSUpdate.tar.gz"
+
+required='build/flip-frontend build/flip-gb build/flip-gba build/flip-charge-service build/umtprd build/flip-optimizer-supervisor build/flip-optimizer-deadman build/flip-optimizer-guard build/flip-optimizer-calibration build/flip-optimizer-candidate build/flip-optimizer-session build/flip-optimizer-progress build/flip-optimizer-validation-progress build/flip-optimizer-runtime tools/device/flip-usb-mtp tools/device/umtprd.conf tools/update/flip-update-install tools/update/flip-update-fetch tools/device/updater-playtest'
+for rel in $required; do
+    [ -f "$ROOT_DIR/$rel" ] || {
+        echo "missing release input: $rel" >&2
+        exit 1
+    }
+done
+
+rm -rf "$WORK"
+mkdir -p "$PAYLOAD/bin" "$PAYLOAD/lib" "$PAYLOAD/etc" "$PAYLOAD/licenses" "$OUT_DIR"
+
+cp "$ROOT_DIR/build/flip-frontend" "$PAYLOAD/bin/flip-frontend"
+cp "$ROOT_DIR/build/flip-gb" "$PAYLOAD/bin/flip-gb"
+cp "$ROOT_DIR/build/flip-gba" "$PAYLOAD/bin/flip-gba"
+cp "$ROOT_DIR/build/flip-charge-service" "$PAYLOAD/bin/flip-charge-service"
+cp "$ROOT_DIR/build/umtprd" "$PAYLOAD/bin/umtprd"
+cp "$ROOT_DIR/tools/device/flip-usb-mtp" "$PAYLOAD/bin/flip-usb-mtp"
+cp "$ROOT_DIR/tools/device/umtprd.conf" "$PAYLOAD/etc/umtprd.conf"
+cp "$ROOT_DIR/external/gambatte-libretro/COPYING" "$PAYLOAD/licenses/Gambatte-GPL-2.0.txt"
+cp "$ROOT_DIR/external/mgba/LICENSE" "$PAYLOAD/licenses/mGBA-MPL-2.0.txt"
+cp "$ROOT_DIR/external/uMTP-Responder/LICENSE" "$PAYLOAD/licenses/uMTP-Responder-GPL-3.0.txt"
+cp "$ROOT_DIR/external/uMTP-Responder/FLIPOS_UPSTREAM" "$PAYLOAD/licenses/uMTP-Responder-UPSTREAM.txt"
+cp "$ROOT_DIR/docs/THIRD_PARTY_NOTICES.md" "$PAYLOAD/licenses/THIRD_PARTY_NOTICES.md"
+cp "$ROOT_DIR/build/flip-optimizer-supervisor" "$PAYLOAD/bin/flip-optimizer-supervisor"
+cp "$ROOT_DIR/build/flip-optimizer-deadman" "$PAYLOAD/bin/flip-optimizer-deadman"
+cp "$ROOT_DIR/build/flip-optimizer-guard" "$PAYLOAD/bin/flip-optimizer-guard"
+cp "$ROOT_DIR/build/flip-optimizer-calibration" "$PAYLOAD/bin/flip-optimizer-calibration"
+cp "$ROOT_DIR/build/flip-optimizer-candidate" "$PAYLOAD/bin/flip-optimizer-candidate"
+cp "$ROOT_DIR/build/flip-optimizer-session" "$PAYLOAD/bin/flip-optimizer-session"
+cp "$ROOT_DIR/build/flip-optimizer-progress" "$PAYLOAD/bin/flip-optimizer-progress"
+cp "$ROOT_DIR/build/flip-optimizer-validation-progress" "$PAYLOAD/bin/flip-optimizer-validation-progress"
+cp "$ROOT_DIR/build/flip-optimizer-runtime" "$PAYLOAD/bin/flip-optimizer-runtime"
+cp "$ROOT_DIR/tools/update/flip-update-install" "$PAYLOAD/bin/flip-update-install"
+cp "$ROOT_DIR/tools/update/flip-update-fetch" "$PAYLOAD/bin/flip-update-fetch"
+cp "$ROOT_DIR/tools/device/updater-playtest" "$PAYLOAD/updater-playtest"
+
+for module in \
+    flip_opp_voltage.ko \
+    flip_opp_runtime_profile.ko \
+    flip_tsadc_recovery.ko \
+    flip_rk817_charger.ko; do
+    [ -f "$ROOT_DIR/build/$module" ] || {
+        echo "missing release module: build/$module" >&2
+        exit 1
+    }
+    cp "$ROOT_DIR/build/$module" "$PAYLOAD/lib/$module"
+done
+
+printf '%s\n' "$VERSION" > "$PAYLOAD/VERSION"
+cat > "$PACKAGE/manifest" <<EOF
+format=1
+target=miyoo-flip-rk3566
+version=$VERSION
+build_id=$BUILD_ID
+EOF
+
+(
+    cd "$PAYLOAD"
+    find . -type f -print | sed 's#^./##' | sort | while IFS= read -r rel; do
+        sha256sum "$rel"
+    done
+) > "$PACKAGE/SHA256SUMS"
+
+rm -f "$ARCHIVE"
+(
+    cd "$WORK"
+    tar -czf "$ARCHIVE" FlipOSUpdate
+)
+sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+rm -rf "$WORK"
+
+echo "FLIP_RELEASE_PACKAGE_OK $ARCHIVE"

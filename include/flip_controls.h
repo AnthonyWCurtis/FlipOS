@@ -66,6 +66,8 @@ typedef struct {
     int previous_select;
     int previous_vol_up;
     int previous_vol_down;
+    uint64_t vol_up_repeat_at_ms;
+    uint64_t vol_down_repeat_at_ms;
 
     int previous_lid_ready;
     int previous_lid_closed;

@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "flip_hotkeys.h"
 
 #include "flip_audio.h"
@@ -7,6 +9,38 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+#define FLIP_HOTKEY_REPEAT_INITIAL_MS 450ULL
+#define FLIP_HOTKEY_REPEAT_INTERVAL_MS 120ULL
+
+static uint64_t monotonic_ms(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+    return (uint64_t)now.tv_sec * 1000ULL + (uint64_t)now.tv_nsec / 1000000ULL;
+}
+
+static int held_repeat_due(int down, int previous, uint64_t *repeat_at_ms, uint64_t now_ms)
+{
+    if (!down) {
+        *repeat_at_ms = 0;
+        return 0;
+    }
+
+    if (!previous) {
+        *repeat_at_ms = now_ms + FLIP_HOTKEY_REPEAT_INITIAL_MS;
+        return 1;
+    }
+
+    if (*repeat_at_ms != 0 && now_ms >= *repeat_at_ms) {
+        *repeat_at_ms = now_ms + FLIP_HOTKEY_REPEAT_INTERVAL_MS;
+        return 1;
+    }
+
+    return 0;
+}
 
 void flip_hotkeys_init(
     flip_hotkeys_t *hotkeys)
@@ -57,15 +91,27 @@ int flip_hotkeys_apply_actions(
 
     if (actions->brightness_step != 0) {
 
+        int current_percent =
+            flip_power_brightness_to_percent(
+                flip_settings_get_brightness());
+
+        int brightness_percent;
+
+        if (actions->brightness_step > 0) {
+            brightness_percent =
+                ((current_percent / 10) + 1) * 10;
+            if (brightness_percent > 100)
+                brightness_percent = 100;
+        } else {
+            brightness_percent =
+                current_percent > 0
+                    ? ((current_percent - 1) / 10) * 10
+                    : 0;
+        }
+
         int brightness =
-            flip_settings_get_brightness() +
-            actions->brightness_step * 20;
-
-        if (brightness > 255)
-            brightness = 255;
-
-        if (brightness < 10)
-            brightness = 10;
+            flip_power_percent_to_brightness(
+                brightness_percent);
 
         if (flip_power_set_brightness(
                 brightness) == 0) {
@@ -126,24 +172,34 @@ int flip_hotkeys_handle(
         input->down[
             FLIP_BTN_VOL_DOWN];
 
-    if (vol_up_now &&
-        !hotkeys->previous_vol_up) {
+    uint64_t now_ms = monotonic_ms();
 
-        if (menu_now) {
+    int vol_up_step =
+        held_repeat_due(
+            vol_up_now,
+            hotkeys->previous_vol_up,
+            &hotkeys->vol_up_repeat_at_ms,
+            now_ms);
+
+    int vol_down_step =
+        held_repeat_due(
+            vol_down_now,
+            hotkeys->previous_vol_down,
+            &hotkeys->vol_down_repeat_at_ms,
+            now_ms);
+
+    if (vol_up_step && !vol_down_now) {
+        if (menu_now)
             actions.brightness_step += 1;
-        } else {
+        else
             actions.volume_step += 1;
-        }
     }
 
-    if (vol_down_now &&
-        !hotkeys->previous_vol_down) {
-
-        if (menu_now) {
+    if (vol_down_step && !vol_up_now) {
+        if (menu_now)
             actions.brightness_step -= 1;
-        } else {
+        else
             actions.volume_step -= 1;
-        }
     }
 
     hotkeys->previous_vol_up =

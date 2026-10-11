@@ -34,7 +34,7 @@ for token in required_adapter:
 
 required_frontend = [
     "RESUME GAME",
-    "START NORMALLY",
+    "START WITHOUT RESUME",
     "SAVE SAFETY",
     "RESTORE PREVIOUS SAVE",
     "UNDO LAST RESTORE",
@@ -92,5 +92,11 @@ if errors:
     for error in errors:
         print(error)
     raise SystemExit(1)
+
+ui_source = Path("src/frontend/flip_save_safety_ui.c").read_text()
+launch_source = Path("src/frontend/flip_save_safety_launch.c").read_text()
+assert "#define FLIP_SAVE_SAFETY_USER_ENABLED 0" in ui_source
+assert "flip_save_safety_user_enabled()" in launch_source
+assert "safety_enabled && selected == safety_index" in launch_source
 
 print("frontend Save Safety architecture passed")

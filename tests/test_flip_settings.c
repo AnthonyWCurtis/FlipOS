@@ -22,6 +22,7 @@ static void write_settings(int volume, int brightness)
     fprintf(f, "version=1\n");
     fprintf(f, "volume=%d\n", volume);
     fprintf(f, "brightness=%d\n", brightness);
+    fprintf(f, "battery_percent_visible=1\n");
     assert(fclose(f) == 0);
 }
 
@@ -35,6 +36,7 @@ static void overwrite_settings(int volume, int brightness)
     fprintf(f, "version=1\n");
     fprintf(f, "volume=%d\n", volume);
     fprintf(f, "brightness=%d\n", brightness);
+    fprintf(f, "battery_percent_visible=1\n");
     assert(fclose(f) == 0);
 }
 
@@ -47,6 +49,7 @@ int main(void)
     assert(flip_settings_is_ready() == 1);
     assert(flip_settings_get_volume() == 17);
     assert(flip_settings_get_brightness() == 123);
+    assert(flip_settings_get_battery_percent_visible() == 1);
 
     overwrite_settings(88, 244);
 
@@ -56,6 +59,8 @@ int main(void)
 
     assert(flip_settings_set_volume(22) == 0);
     assert(flip_settings_set_brightness(210) == 0);
+    assert(flip_settings_set_battery_percent_visible(0) == 0);
+    assert(flip_settings_get_battery_percent_visible() == 0);
     assert(flip_settings_tick() == 0);
 
     struct timespec wait = {
@@ -82,6 +87,7 @@ int main(void)
     persisted[persisted_size] = '\0';
     assert(strstr(persisted, "volume=22\n") != NULL);
     assert(strstr(persisted, "brightness=210\n") != NULL);
+    assert(strstr(persisted, "battery_percent_visible=0\n") != NULL);
 
     assert(system("rm -rf /tmp/flipos-settings-service-test") == 0);
 

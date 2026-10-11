@@ -19,6 +19,7 @@ typedef struct {
 } flip_save_safety_status_t;
 
 int flip_save_safety_supported(const flip_system_t *system);
+int flip_save_safety_user_enabled(void);
 
 int flip_save_safety_build_start_normal(
     const flip_system_t *system,

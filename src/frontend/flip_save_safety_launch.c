@@ -54,9 +54,9 @@ static void draw_action_menu(
     flip_draw_clear(drm, BG);
     flip_draw_text(
         drm,
-        centred_text_x("GAME OPTIONS", 4),
+        centred_text_x("PLAY OPTIONS", 4),
         38,
-        "GAME OPTIONS",
+        "PLAY OPTIONS",
         4,
         FG);
 
@@ -66,9 +66,11 @@ static void draw_action_menu(
         row++;
     }
 
-    draw_row(drm, "START NORMALLY", 145 + row * 58, selected == row);
+    draw_row(drm, "START WITHOUT RESUME", 145 + row * 58, selected == row);
     row++;
-    draw_row(drm, "SAVE SAFETY", 145 + row * 58, selected == row);
+
+    if (flip_save_safety_user_enabled())
+        draw_row(drm, "SAVE SAFETY", 145 + row * 58, selected == row);
 
     flip_draw_text(
         drm,
@@ -120,7 +122,7 @@ static void draw_save_safety(
         draw_status_line(drm, 105, "PREVIOUS", flip_save_safety_health_name(status->previous));
         draw_status_line(drm, 125, "RECOVERY", flip_save_safety_health_name(status->recovery));
         draw_status_line(drm, 145, "RESUME", status->resume_blocked ? "BLOCKED" : "AVAILABLE");
-        draw_status_line(drm, 165, "UNDO STATE", undo_state_name(status->undo_state));
+        draw_status_line(drm, 165, "UNDO RESTORE", undo_state_name(status->undo_state));
     } else {
         flip_draw_text(
             drm,
@@ -334,7 +336,9 @@ static int choose_launch_mode(
     const char *rom_path)
 {
     const int can_resume = flip_system_resume_available(system, rom_path);
-    const int count = can_resume ? 3 : 2;
+    const int safety_enabled = flip_save_safety_user_enabled();
+    const int count =
+        (can_resume ? 2 : 1) + (safety_enabled ? 1 : 0);
     int selected = 0;
 
     wait_for_action_buttons_release();
@@ -374,7 +378,7 @@ static int choose_launch_mode(
             if (selected == start_index)
                 return 2;
 
-            if (selected == safety_index) {
+            if (safety_enabled && selected == safety_index) {
                 if (run_save_safety_menu(drm, system, rom_path) < 0)
                     return -1;
                 wait_for_action_buttons_release();

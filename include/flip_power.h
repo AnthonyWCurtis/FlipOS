@@ -55,4 +55,7 @@ int flip_power_set_brightness(
 
 int flip_power_get_brightness(void);
 
+int flip_power_brightness_to_percent(int brightness);
+int flip_power_percent_to_brightness(int percent);
+
 #endif

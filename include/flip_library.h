@@ -13,6 +13,15 @@ typedef enum {
     FLIP_LIBRARY_CACHE_CHANGED = 2
 } flip_library_cache_state_t;
 
+/*
+ * Derive a user-facing title from a ROM filename without renaming the file.
+ * Only recognised trailing ROM-set metadata groups are removed.
+ */
+int flip_library_clean_display_title(
+    const char *filename,
+    char *out,
+    size_t out_size);
+
 typedef struct {
     flip_library_cache_state_t state;
     uint64_t live_fingerprint;

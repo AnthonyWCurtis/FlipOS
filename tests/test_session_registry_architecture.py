@@ -19,7 +19,7 @@ assert "flip_session_reconcile_registry()" in frontend
 assert '"interrupted"' in session
 assert '"SESSION_REGISTRY: pruned state=%s system=%s rom=%s\\n"' in session
 assert '"SESSION_REGISTRY: recovered interrupted system=%s rom=%s\\n"' in session
-assert '"RECOVER"' in frontend
+assert '"RESTORE"' in frontend
 assert "gameswitcher_confirm_system" in frontend
 assert "flip_session_close_registered(" in frontend
 assert "flip_session_remove_recent(\n                        target_system" in frontend

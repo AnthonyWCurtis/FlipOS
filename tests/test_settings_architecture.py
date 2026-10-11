@@ -20,6 +20,9 @@ assert "flip_settings_load(" not in audio
 
 assert "flip_settings_get_volume()" in audio
 assert "flip_settings_get_brightness()" in frontend
+assert "flip_settings_get_battery_percent_visible(void);" in header
+assert "flip_settings_set_battery_percent_visible(" in header
+assert "flip_settings_get_battery_percent_visible()" in frontend
 
 assert "test-settings" in makefile
 assert "test_settings_architecture.py" in makefile

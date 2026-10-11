@@ -20,6 +20,15 @@ required = [
     '"$ROOT/bin/flip-optimizer-session" boot-resume',
     'runtime stock-safe remains authoritative',
     'if [ "$SD_WRITABLE" -eq 1 ] &&',
+    'raise-profile-voltage "$LAST_FREQ" 25000',
+    'RETRY_COUNT',
+    'targeted_recheck=120s',
+    'validate-profile-frequency "$TARGET_SECONDS" "$TARGET_FREQ"',
+    'VALIDATION_MANUAL_STOP',
+    'RECOVERY_ARMED',
+    'LAST_PHASE',
+    'hard recovery auto-adjusted',
+    'retry=$NEXT_RETRY/2',
     '"$ROOT/bin/flip-frontend" >> "$LOG_TARGET" 2>&1',
 ]
 

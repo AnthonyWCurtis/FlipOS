@@ -29,6 +29,11 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_paths.o \
 	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_battery.o \
+	$(BUILD)/flip_power_policy.o \
+	$(BUILD)/flip_wifi.o \
+	$(BUILD)/flip_keyboard.o \
+	$(BUILD)/flip_setup.o \
+	$(BUILD)/flip_time.o \
 	$(BUILD)/flip_performance.o \
 	$(BUILD)/flip_cpu_policy.o \
 	$(BUILD)/flip_cpu_profile.o \
@@ -50,6 +55,7 @@ FRONTEND_OBJS := \
 	$(BUILD)/flip_frontend.o \
 	$(BUILD)/flip_save_safety_ui.o \
 	$(BUILD)/flip_save_safety_launch.o \
+	$(BUILD)/flip_bios.o \
 	$(RUNTIME_OBJS) \
 	$(COMMON_OBJS)
 
@@ -70,6 +76,7 @@ EMULATOR_OBJS := \
 	$(BUILD)/flip_paths.o \
 	$(BUILD)/flip_log.o \
 	$(BUILD)/flip_battery.o \
+	$(BUILD)/flip_power_policy.o \
 	$(BUILD)/flip_performance.o \
 	$(BUILD)/flip_cpu_policy.o \
 	$(BUILD)/flip_cpu_dynamic.o \
@@ -115,13 +122,21 @@ PERF_CAPTURE_OBJS := \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_battery.o
 
+UMTP_SOURCES := \
+	$(wildcard external/uMTP-Responder/src/*.c) \
+	$(wildcard external/uMTP-Responder/src/mtp_operations/*.c)
+
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool opp-voltage-module runtime-profile-module tsadc-recovery-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
-all: frontend gb gba
+all: frontend gb gba mtp-responder
 
 frontend: $(BUILD)/flip-frontend
+
+charge-service: $(BUILD)/flip-charge-service
+
+mtp-responder: $(BUILD)/umtprd
 
 gb: $(BUILD)/flip-gb
 
@@ -153,11 +168,15 @@ optimizer-validation-progress-tool: $(BUILD)/flip-optimizer-validation-progress
 
 optimizer-runtime-tool: $(BUILD)/flip-optimizer-runtime
 
+wifi-tool: $(BUILD)/flip-wifi-tool
+
 opp-voltage-module: $(BUILD)/flip_opp_voltage.ko
 
 runtime-profile-module: $(BUILD)/flip_opp_runtime_profile.ko
 
 tsadc-recovery-module: $(BUILD)/flip_tsadc_recovery.ko
+
+rk817-charger-module: $(BUILD)/flip_rk817_charger.ko
 
 verify:
 	@log=/tmp/flipos-verify.log; \
@@ -170,6 +189,14 @@ verify:
 		$(MAKE) test-paths && \
 		$(MAKE) test-log && \
 		$(MAKE) test-battery && \
+		$(MAKE) test-power-policy && \
+		$(MAKE) test-charger && \
+		$(MAKE) test-wifi && \
+		$(MAKE) test-keyboard && \
+		$(MAKE) test-setup && \
+		$(MAKE) test-update-installer && \
+		$(MAKE) test-update-fetch && \
+		$(MAKE) test-release-package && \
 		$(MAKE) test-performance && \
 		$(MAKE) test-cpu-policy && \
 		$(MAKE) test-cpu-profile && \
@@ -248,6 +275,30 @@ test-log: $(BUILD)/test-flip-log
 
 test-battery: $(BUILD)/test-flip-battery
 	$(BUILD)/test-flip-battery
+
+test-power-policy: $(BUILD)/test-flip-power-policy
+	$(BUILD)/test-flip-power-policy
+
+test-charger: $(BUILD)/test-flip-charger
+	$(BUILD)/test-flip-charger
+
+test-wifi: $(BUILD)/test-flip-wifi
+	$(BUILD)/test-flip-wifi
+
+test-keyboard: $(BUILD)/test-flip-keyboard
+	$(BUILD)/test-flip-keyboard
+
+test-setup: $(BUILD)/test-flip-setup
+	$(BUILD)/test-flip-setup
+
+test-update-installer:
+	python3 tests/test_update_installer.py
+
+test-update-fetch:
+	python3 tests/test_update_fetch.py
+
+test-release-package:
+	python3 tests/test_release_package.py
 
 test-performance: $(BUILD)/test-flip-performance
 	$(BUILD)/test-flip-performance
@@ -376,11 +427,21 @@ test-architecture:
 	python3 tests/test_paths_architecture.py
 	python3 tests/test_logging_architecture.py
 	python3 tests/test_battery_architecture.py
+	python3 tests/test_rk817_charger_module_architecture.py
 	python3 tests/test_performance_architecture.py
 	python3 tests/test_bios_architecture.py
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
+	python3 tests/test_frontend_ux_architecture.py
+	python3 tests/test_ui_scale_architecture.py
+	python3 tests/test_keyboard_case_architecture.py
+	python3 tests/test_settings_navigation_architecture.py
+	python3 tests/test_first_boot_architecture.py
+	python3 tests/test_time_architecture.py
+	python3 tests/test_usb_mtp_architecture.py
+	python3 tests/test_update_architecture.py
+	python3 tests/test_playtest_deploy_architecture.py
 	python3 tests/test_library_cache_architecture.py
 	python3 tests/test_save_manager_architecture.py
 	python3 tests/test_exit_protocol_architecture.py
@@ -423,9 +484,43 @@ $(BUILD)/test-flip-log: tests/test_flip_log.c src/runtime/flip_log.c src/runtime
 $(BUILD)/test-flip-battery: tests/test_flip_battery.c src/runtime/flip_battery.c include/flip_battery.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_POSIX_C_SOURCE=200809L \
-		-DFLIP_BATTERY_ROOT='"/tmp/flipos-battery-service-test"' -Iinclude \
+		-DFLIP_BATTERY_ROOT='"/tmp/flipos-battery-service-test"' \
+		-DFLIP_AC_ROOT='"/tmp/flipos-battery-service-test-ac"' \
+		-DFLIP_USB_ROOT='"/tmp/flipos-battery-service-test-usb"' -Iinclude \
 		tests/test_flip_battery.c src/runtime/flip_battery.c \
 		-o $@
+
+$(BUILD)/test-flip-power-policy: tests/test_flip_power_policy.c src/runtime/flip_power_policy.c include/flip_power_policy.h include/flip_battery.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_power_policy.c src/runtime/flip_power_policy.c \
+		-o $@
+
+$(BUILD)/test-flip-charger: tests/test_flip_charger.c src/runtime/flip_charger.c src/runtime/flip_power_policy.c include/flip_charger.h include/flip_power_policy.h include/flip_battery.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		-DFLIP_CHARGER_CURRENT_LIMIT_PATH='"/tmp/flipos-charger-test/current_limit_ma"' \
+		-DFLIP_CHARGER_STOCK_CURRENT_PATH='"/tmp/flipos-charger-test/stock_current_ma"' \
+		tests/test_flip_charger.c src/runtime/flip_charger.c src/runtime/flip_power_policy.c \
+		-o $@
+
+$(BUILD)/test-flip-wifi: tests/test_flip_wifi.c src/runtime/flip_wifi.c include/flip_wifi.h include/flip_paths.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_WIFI_CONFIG_DIR='"/tmp/flipos-wifi-test/network"' \
+		-DFLIP_WIFI_CONFIG_FILE='"/tmp/flipos-wifi-test/network/wpa_supplicant.conf"' \
+		-DFLIP_WIFI_WPA_PASSPHRASE='"/tmp/flipos-wifi-test/wpa_passphrase"' \
+		-Iinclude tests/test_flip_wifi.c src/runtime/flip_wifi.c \
+		-o $@
+
+$(BUILD)/test-flip-keyboard: tests/test_flip_keyboard.c src/runtime/flip_keyboard.c include/flip_keyboard.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/test_flip_keyboard.c src/runtime/flip_keyboard.c -o $@
+
+$(BUILD)/test-flip-setup: tests/test_flip_setup.c src/runtime/flip_setup.c include/flip_setup.h include/flip_paths.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
+		-DFLIP_SETUP_ROOT='"/tmp/flipos-setup-test/setup"' \
+		-DFLIP_SETUP_COMPLETE_FILE='"/tmp/flipos-setup-test/setup/complete"' \
+		-DFLIP_SETUP_PROGRESS_FILE='"/tmp/flipos-setup-test/setup/in-progress"' \
+		-Iinclude tests/test_flip_setup.c src/runtime/flip_setup.c -o $@
 
 $(BUILD)/test-flip-performance: tests/test_flip_performance.c src/runtime/flip_performance.c include/flip_performance.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
@@ -575,11 +670,12 @@ $(BUILD)/test-flip-core: tests/test_flip_core.c src/runtime/flip_core.c include/
 		tests/test_flip_core.c src/runtime/flip_core.c \
 		-o $@
 
-$(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c include/flip_core_host.h include/flip_perf_diag.h include/flip_cpu_dynamic.h include/flip_cpu_policy.h | $(BUILD)
+$(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c src/runtime/flip_battery.c src/runtime/flip_power_policy.c include/flip_core_host.h include/flip_perf_diag.h include/flip_cpu_dynamic.h include/flip_cpu_policy.h include/flip_battery.h include/flip_power_policy.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -Iinclude \
 		tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c \
 		src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c \
 		src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c \
+		src/runtime/flip_battery.c src/runtime/flip_power_policy.c \
 		-o $@
 
 $(BUILD)/test-flip-video-layout: tests/test_flip_video_layout.c src/runtime/flip_video_layout.c include/flip_video_layout.h | $(BUILD)
@@ -775,6 +871,24 @@ $(BUILD)/flip_session.o: src/runtime/flip_session.c include/flip_session.h inclu
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Dflip_session_launch=flip_session_launch_legacy -c $< -o $@
 
 $(BUILD)/flip_recovery.o: src/runtime/flip_recovery.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_power_policy.o: src/runtime/flip_power_policy.c include/flip_power_policy.h include/flip_battery.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_charger.o: src/runtime/flip_charger.c include/flip_charger.h include/flip_power_policy.h include/flip_battery.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_wifi.o: src/runtime/flip_wifi.c include/flip_wifi.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_keyboard.o: src/runtime/flip_keyboard.c include/flip_keyboard.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_setup.o: src/runtime/flip_setup.c include/flip_setup.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_time.o: src/runtime/flip_time.c include/flip_time.h include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_power.o: src/runtime/flip_power.c | $(BUILD)
@@ -986,6 +1100,17 @@ $(BUILD)/flip_opp_runtime_profile.ko: tools/kernel/flip_opp_runtime_profile/flip
 		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
 	cp $(BUILD)/opp-runtime-profile-module/flip_opp_runtime_profile.ko $@
 
+$(BUILD)/flip_rk817_charger.ko: tools/kernel/flip_rk817_charger/flip_rk817_charger.c tools/kernel/flip_rk817_charger/Makefile | $(BUILD)
+	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
+	rm -rf $(BUILD)/rk817-charger-module $(BUILD)/kernel-python-shim
+	mkdir -p $(BUILD)/rk817-charger-module $(BUILD)/kernel-python-shim
+	cp tools/kernel/flip_rk817_charger/flip_rk817_charger.c tools/kernel/flip_rk817_charger/Makefile $(BUILD)/rk817-charger-module/
+	ln -sf "$$(command -v python3)" $(BUILD)/kernel-python-shim/python
+	PATH="$(CURDIR)/$(BUILD)/kernel-python-shim:$$PATH" \
+		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/rk817-charger-module" \
+		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
+	cp $(BUILD)/rk817-charger-module/flip_rk817_charger.ko $@
+
 $(BUILD)/flip_tsadc_recovery.ko: tools/kernel/flip_tsadc_recovery/flip_tsadc_recovery.c tools/kernel/flip_tsadc_recovery/Makefile | $(BUILD)
 	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
 	rm -rf $(BUILD)/tsadc-recovery-module $(BUILD)/kernel-python-shim
@@ -1011,6 +1136,22 @@ $(BUILD)/flip-gpu-sender: \
 		src/runtime/flip_gpu_client.c \
 		src/runtime/flip_gpu_protocol.c \
 		-o $@
+
+$(BUILD)/flip-wifi-tool: src/hwtest/flip_wifi_tool.c src/runtime/flip_wifi.c include/flip_wifi.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -static -Iinclude \
+		src/hwtest/flip_wifi_tool.c src/runtime/flip_wifi.c -o $@
+
+$(BUILD)/flip-charge-service: src/runtime/flip_charge_service.c src/runtime/flip_charger.c src/runtime/flip_power_policy.c src/runtime/flip_battery.c src/runtime/flip_log.c src/runtime/flip_paths.c include/flip_charger.h include/flip_power_policy.h include/flip_battery.h include/flip_log.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -static -Iinclude \
+		src/runtime/flip_charge_service.c src/runtime/flip_charger.c \
+		src/runtime/flip_power_policy.c src/runtime/flip_battery.c \
+		src/runtime/flip_log.c src/runtime/flip_paths.c -o $@
+
+$(BUILD)/umtprd: $(UMTP_SOURCES) external/uMTP-Responder/LICENSE | $(BUILD)
+	$(CC) -O3 -Wall -DFLIPOS_NO_POSIX_MQUEUE \
+		-Iexternal/uMTP-Responder/inc -static \
+		$(UMTP_SOURCES) -pthread -lrt -o $@
+	$(CROSS)strip $@
 
 $(BUILD)/flip-frontend: $(FRONTEND_OBJS)
 	$(CC) -static -o $@ $(FRONTEND_OBJS) -pthread -lm

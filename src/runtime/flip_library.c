@@ -1,6 +1,7 @@
 #include "flip_library.h"
 #include "flip_paths.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -76,6 +77,161 @@ static int compare_entries(
     return strcasecmp(
         ea->name,
         eb->name);
+}
+
+
+static int library_metadata_group(const char *text)
+{
+    static const char *exact[] = {
+        "USA", "EUROPE", "JAPAN", "WORLD", "AUSTRALIA",
+        "FRANCE", "GERMANY", "SPAIN", "ITALY", "KOREA",
+        "CANADA", "BRAZIL", "CHINA", "TAIWAN",
+        "EN", "FR", "DE", "ES", "IT", "JA", "KO", "TR",
+        "BETA", "PROTO", "PROTOTYPE", "DEMO", "SAMPLE",
+        "PREVIEW", "PRE-RELEASE"
+    };
+
+    if (!text || !text[0])
+        return 0;
+
+    char upper[96];
+    size_t n = strlen(text);
+    if (n >= sizeof(upper))
+        return 0;
+
+    for (size_t i = 0; i < n; ++i)
+        upper[i] = (char)toupper((unsigned char)text[i]);
+    upper[n] = '\0';
+
+    for (size_t i = 0; i < sizeof(exact) / sizeof(exact[0]); ++i) {
+        if (strcmp(upper, exact[i]) == 0)
+            return 1;
+    }
+
+    if (strchr(upper, ',')) {
+        char copy[96];
+        snprintf(copy, sizeof(copy), "%s", upper);
+        char *save = NULL;
+        int parts = 0;
+        for (char *part = strtok_r(copy, ",", &save);
+             part;
+             part = strtok_r(NULL, ",", &save)) {
+            while (*part == ' ')
+                ++part;
+            char *tail = part + strlen(part);
+            while (tail > part && tail[-1] == ' ')
+                *--tail = '\0';
+            if (!library_metadata_group(part))
+                return 0;
+            parts++;
+        }
+        return parts > 0;
+    }
+
+    return strncmp(upper, "REV ", 4) == 0 ||
+        strncmp(upper, "REVISION ", 9) == 0 ||
+        strncmp(upper, "DISC ", 5) == 0 ||
+        strncmp(upper, "DISK ", 5) == 0 ||
+        strncmp(upper, "SIDE ", 5) == 0 ||
+        strncmp(upper, "PART ", 5) == 0;
+}
+
+static int library_dump_flag(const char *text)
+{
+    if (!text || !text[0])
+        return 0;
+
+    char upper[32];
+    size_t n = strlen(text);
+    if (n >= sizeof(upper))
+        return 0;
+    for (size_t i = 0; i < n; ++i)
+        upper[i] = (char)toupper((unsigned char)text[i]);
+    upper[n] = '\0';
+
+    if (strcmp(upper, "!") == 0)
+        return 1;
+
+    static const char *prefixes[] = {"B", "H", "F", "T", "TR", "O", "U", "A"};
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); ++i) {
+        size_t p = strlen(prefixes[i]);
+        if (strncmp(upper, prefixes[i], p) != 0)
+            continue;
+        const char *rest = upper + p;
+        if (!*rest)
+            return 1;
+        int numeric = 1;
+        for (; *rest; ++rest) {
+            if (!isdigit((unsigned char)*rest)) {
+                numeric = 0;
+                break;
+            }
+        }
+        if (numeric)
+            return 1;
+    }
+    return 0;
+}
+
+int flip_library_clean_display_title(
+    const char *filename,
+    char *out,
+    size_t out_size)
+{
+    if (!filename || !out || out_size < 2)
+        return -1;
+
+    size_t n = strlen(filename);
+    if (n >= out_size)
+        n = out_size - 1;
+    memcpy(out, filename, n);
+    out[n] = '\0';
+
+    char *slash = strrchr(out, '/');
+    char *base = slash ? slash + 1 : out;
+    if (slash)
+        memmove(out, base, strlen(base) + 1);
+
+    char *dot = strrchr(out, '.');
+    if (dot && dot != out)
+        *dot = '\0';
+
+    for (;;) {
+        n = strlen(out);
+        while (n > 0 && isspace((unsigned char)out[n - 1]))
+            out[--n] = '\0';
+        if (n < 3)
+            break;
+
+        char close = out[n - 1];
+        char open = close == ')' ? '(' : close == ']' ? '[' : '\0';
+        if (!open)
+            break;
+
+        char *group = strrchr(out, open);
+        if (!group || group >= out + n - 1)
+            break;
+
+        char metadata[96];
+        size_t length = (size_t)((out + n - 1) - (group + 1));
+        if (length == 0 || length >= sizeof(metadata))
+            break;
+        memcpy(metadata, group + 1, length);
+        metadata[length] = '\0';
+
+        int recognized = open == '['
+            ? (library_dump_flag(metadata) || library_metadata_group(metadata))
+            : library_metadata_group(metadata);
+        if (!recognized)
+            break;
+        *group = '\0';
+    }
+
+    n = strlen(out);
+    while (n > 0 && isspace((unsigned char)out[n - 1]))
+        out[--n] = '\0';
+
+    return out[0] ? 0 : -1;
 }
 
 int flip_library_fingerprint(

@@ -9,6 +9,9 @@ for token in [
     'strcmp(argv[1], "apply-validation")',
     'apply_profile(0)',
     'runtime_marker_written=%d',
+    'Keep cpuinfo only as a legacy',
+    'fopen(DT_SERIAL_PATH, "rb")',
+    'DT_SERIAL_PATH "/sys/firmware/devicetree/base/serial-number"',
 ]:
     if token not in source:
         errors.append(f"runtime validation apply support missing: {token}")

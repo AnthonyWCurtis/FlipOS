@@ -119,7 +119,7 @@ static void test_missing_bioses(void)
         TEST_GBA_DIR "/gba_bios.bin") == 0);
 }
 
-static void test_valid_exact_sizes(void)
+static void test_exact_size_wrong_hashes(void)
 {
     flip_bios_info_t info;
 
@@ -131,8 +131,12 @@ static void test_valid_exact_sizes(void)
         FLIP_BIOS_GB_DMG,
         &info) == 0);
 
-    assert(info.status == FLIP_BIOS_VALID);
+    assert(info.status == FLIP_BIOS_INVALID);
     assert(info.actual_size == 256);
+    assert(info.actual_sha256[0] != '\0');
+    assert(strcmp(
+        info.expected_sha256,
+        "cf053eccb4ccafff9e67339d4e78e98dce7d1ed59be819d2a1ba2232c6fce1c7") == 0);
 
     write_sized_file(
         TEST_GB_DIR "/gbc_bios.bin",
@@ -142,8 +146,9 @@ static void test_valid_exact_sizes(void)
         FLIP_BIOS_GB_CGB,
         &info) == 0);
 
-    assert(info.status == FLIP_BIOS_VALID);
+    assert(info.status == FLIP_BIOS_INVALID);
     assert(info.actual_size == 2304);
+    assert(info.actual_sha256[0] != '\0');
 
     write_sized_file(
         TEST_GBA_DIR "/gba_bios.bin",
@@ -153,8 +158,9 @@ static void test_valid_exact_sizes(void)
         FLIP_BIOS_GBA,
         &info) == 0);
 
-    assert(info.status == FLIP_BIOS_VALID);
+    assert(info.status == FLIP_BIOS_INVALID);
     assert(info.actual_size == 16384);
+    assert(info.actual_sha256[0] != '\0');
 }
 
 static void test_wrong_sizes(void)
@@ -225,7 +231,7 @@ int main(void)
 
     cleanup_fixture();
     ensure_fixture();
-    test_valid_exact_sizes();
+    test_exact_size_wrong_hashes();
 
     cleanup_fixture();
     ensure_fixture();

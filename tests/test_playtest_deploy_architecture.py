@@ -11,6 +11,13 @@ required = [
     "rm -f '$BOOT_UPDATER.previous'",
     "$ROOT/updater-playtest",
     "$BOOT_UPDATER",
+    "flip_rk817_charger.ko",
+    "flip-charge-service",
+    "umtprd",
+    "flip-usb-mtp",
+    "umtprd.conf",
+    "flip-update-install",
+    "flip-update-fetch",
     "flip-optimizer-supervisor",
     "flip-optimizer-deadman",
     "flip-optimizer-guard",
@@ -28,5 +35,9 @@ if errors:
     for error in errors:
         print(error)
     raise SystemExit(1)
+
+assert "state/setup/complete" in source
+assert "version=1" in source
+assert "first-boot wizard" in source
 
 print("playtest deploy architecture passed")

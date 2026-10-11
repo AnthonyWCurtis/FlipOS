@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #define FLIP_DEADMAN_MIN_SECONDS 5U
-#define FLIP_DEADMAN_MAX_SECONDS 180U
+#define FLIP_DEADMAN_MAX_SECONDS 4200U
 #define FLIP_DEADMAN_STACK_TOUCH_BYTES (64U * 1024U)
 
 static unsigned char locked_probe[FLIP_DEADMAN_STACK_TOUCH_BYTES];

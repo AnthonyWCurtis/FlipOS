@@ -179,10 +179,10 @@ int main(void)
     flip_draw_text(
         &drm,
         centred_text_x(
-            "TESTING DEVICE-SPECIFIC SAFE VOLTAGES",
+            "FINDING SAFE SETTINGS FOR THIS DEVICE",
             1),
         282,
-        "TESTING DEVICE-SPECIFIC SAFE VOLTAGES",
+        "FINDING SAFE SETTINGS FOR THIS DEVICE",
         1,
         DIM);
 
@@ -219,10 +219,10 @@ int main(void)
     flip_draw_text(
         &drm,
         centred_text_x(
-            "OPTIMIZATION WILL RESUME AUTOMATICALLY",
+            "PROGRESS IS SAVED AUTOMATICALLY",
             1),
         425,
-        "OPTIMIZATION WILL RESUME AUTOMATICALLY",
+        "PROGRESS IS SAVED AUTOMATICALLY",
         1,
         DIM);
 

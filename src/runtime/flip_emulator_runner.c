@@ -58,7 +58,7 @@ static int load_battery_save(
     case FLIP_SAVE_LOAD_NO_SAVE:
     case FLIP_SAVE_LOAD_CURRENT:
     case FLIP_SAVE_LOAD_PREVIOUS:
-        return 0;
+        return flip_rtc_load(core, context);
 
     case FLIP_SAVE_LOAD_UNUSABLE:
     case FLIP_SAVE_LOAD_ERROR:
@@ -72,7 +72,25 @@ static int commit_battery_save(
     void *userdata)
 {
     flip_save_context_t *context = userdata;
-    return flip_save_commit(core, context);
+
+    if (flip_save_commit(core, context) < 0)
+        return -1;
+
+    return flip_rtc_commit(core, context);
+}
+
+static int reconcile_rtc_after_resume(
+    flip_core_adapter_t *core,
+    void *userdata)
+{
+    flip_save_context_t *context = userdata;
+
+    /*
+     * A savestate contains the emulated cartridge RTC snapshot from the moment
+     * it was taken. Reapply the separately persisted RTC immediately after a
+     * state restore so current wall-clock progression wins over that snapshot.
+     */
+    return flip_rtc_load(core, context);
 }
 
 static int persistence_complete(void *userdata)
@@ -313,6 +331,8 @@ int flip_emulator_run(
             ? NULL
             : load_resume_state,
         .state_userdata = &state_context,
+        .post_restore = reconcile_rtc_after_resume,
+        .post_restore_userdata = &save_context,
         .persistence_complete = persistence_complete,
         .persistence_userdata = &recovery_context,
     };

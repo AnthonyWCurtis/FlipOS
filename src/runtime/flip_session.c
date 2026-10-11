@@ -971,6 +971,11 @@ int flip_session_launch(
                 FLIP_SESSION_ACTION_SUSPEND;
             break;
 
+        case FLIP_EXIT_PROTOCOL_LOW_BATTERY:
+            result->action =
+                FLIP_SESSION_ACTION_LOW_BATTERY;
+            break;
+
         case FLIP_EXIT_PROTOCOL_NORMAL:
             result->action =
                 FLIP_SESSION_ACTION_EXIT;
@@ -1016,9 +1021,13 @@ int flip_session_launch(
             "signaled";
 
     } else if (
-        result->action ==
-            FLIP_SESSION_ACTION_SUSPEND) {
+        result->action == FLIP_SESSION_ACTION_SUSPEND ||
+        result->action == FLIP_SESSION_ACTION_LOW_BATTERY) {
 
+        /*
+         * Low-battery exits are deliberately recoverable: the emulator has
+         * already committed SRAM + resume state before requesting poweroff.
+         */
         session_state =
             "suspended";
 

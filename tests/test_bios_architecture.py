@@ -37,6 +37,10 @@ for token in [
     "FLIP_BIOS_GB_DMG", "FLIP_BIOS_GB_CGB", "FLIP_BIOS_GBA",
     '"gb_bios.bin"', '"gbc_bios.bin"', '"gba_bios.bin"',
     "256", "2304", "16384",
+    "cf053eccb4ccafff9e67339d4e78e98dce7d1ed59be819d2a1ba2232c6fce1c7",
+    "b4f2e416a35eef52cba161b159c7c8523a92594facb924b3ede0d722867c50c7",
+    "fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570",
+    "expected_sha256", "actual_sha256",
 ]:
     if token not in bios_header + bios_source:
         errors.append(f"BIOS Manager missing metadata/contract: {token}")

@@ -9,6 +9,8 @@
 #define FLIP_SAVE_CURRENT_SUFFIX ".sav"
 #define FLIP_SAVE_PREVIOUS_SUFFIX ".sav.prev"
 #define FLIP_SAVE_RECOVERY_SUFFIX ".sav.recovery"
+#define FLIP_RTC_CURRENT_SUFFIX ".rtc"
+#define FLIP_RTC_PREVIOUS_SUFFIX ".rtc.prev"
 
 typedef struct {
     const char *system_id;
@@ -65,6 +67,14 @@ int flip_save_restore_previous(
     const flip_save_context_t *context);
 
 int flip_save_restore_recovery(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context);
+
+int flip_rtc_load(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context);
+
+int flip_rtc_commit(
     flip_core_adapter_t *core,
     const flip_save_context_t *context);
 

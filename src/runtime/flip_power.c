@@ -18,6 +18,11 @@
     "/sys/power/state"
 #endif
 
+#define FLIP_DEV_LID_OVERRIDE "/tmp/flipos-dev-lid-override"
+#define FLIP_DEV_LID_AUTO_OPEN "/tmp/flipos-dev-lid-auto-open-after-resume"
+#define FLIP_BRIGHTNESS_MIN 10
+#define FLIP_BRIGHTNESS_MAX 255
+
 static int read_backlight_brightness(void)
 {
     FILE *f =
@@ -104,6 +109,20 @@ flip_power_lid_state_t flip_power_refresh_lid_state(
     return state->lid_closed
         ? FLIP_POWER_LID_CLOSED
         : FLIP_POWER_LID_OPEN;
+}
+
+static void dev_lid_auto_open_after_resume(void)
+{
+    if (access(FLIP_DEV_LID_AUTO_OPEN, F_OK) != 0)
+        return;
+
+    FILE *f = fopen(FLIP_DEV_LID_OVERRIDE, "w");
+    if (f) {
+        if (fputs("open\n", f) >= 0)
+            (void)fflush(f);
+        (void)fclose(f);
+    }
+    (void)unlink(FLIP_DEV_LID_AUTO_OPEN);
 }
 
 int flip_power_sleep_until_lid_open(
@@ -208,6 +227,10 @@ int flip_power_sleep_until_lid_open(
             stderr,
             "POWER: resumed\n");
 
+        /* Development automation can model a physical lid opening at wake
+         * while still exercising the real kernel suspend/resume path. */
+        dev_lid_auto_open_after_resume();
+
         if (flip_input_poll(
                 state,
                 0) < 0) {
@@ -263,61 +286,51 @@ int flip_power_sleep_until_lid_open(
 
 int flip_power_get_brightness(void)
 {
-    FILE *f =
-        fopen(
-            FLIP_BACKLIGHT_BRIGHTNESS,
-            "r");
-
-    if (!f)
-        return -1;
-
-    int brightness = -1;
-
-    if (fscanf(
-            f,
-            "%d",
-            &brightness) != 1) {
-
-        brightness = -1;
-    }
-
-    fclose(f);
-
-    return brightness;
+    return read_backlight_brightness();
 }
 
-int flip_power_set_brightness(
-    int brightness)
+int flip_power_brightness_to_percent(int brightness)
 {
-    if (brightness < 10)
-        brightness = 10;
+    if (brightness <= FLIP_BRIGHTNESS_MIN)
+        return 0;
+    if (brightness >= FLIP_BRIGHTNESS_MAX)
+        return 100;
 
-    if (brightness > 255)
-        brightness = 255;
+    return
+        ((brightness - FLIP_BRIGHTNESS_MIN) * 100 +
+         (FLIP_BRIGHTNESS_MAX - FLIP_BRIGHTNESS_MIN) / 2) /
+        (FLIP_BRIGHTNESS_MAX - FLIP_BRIGHTNESS_MIN);
+}
 
-    FILE *f =
-        fopen(
-            FLIP_BACKLIGHT_BRIGHTNESS,
-            "w");
+int flip_power_percent_to_brightness(int percent)
+{
+    if (percent <= 0)
+        return FLIP_BRIGHTNESS_MIN;
+    if (percent >= 100)
+        return FLIP_BRIGHTNESS_MAX;
 
-    if (!f)
-        return -1;
+    return
+        FLIP_BRIGHTNESS_MIN +
+        (percent * (FLIP_BRIGHTNESS_MAX - FLIP_BRIGHTNESS_MIN) + 50) /
+            100;
+}
 
-    int ok =
-        fprintf(
-            f,
-            "%d\n",
-            brightness);
+int flip_power_set_brightness(int brightness)
+{
+    if (brightness < FLIP_BRIGHTNESS_MIN)
+        brightness = FLIP_BRIGHTNESS_MIN;
 
-    fclose(f);
+    if (brightness > FLIP_BRIGHTNESS_MAX)
+        brightness = FLIP_BRIGHTNESS_MAX;
 
-    if (ok < 0)
+    if (write_backlight_brightness(brightness) < 0)
         return -1;
 
     fprintf(
         stderr,
-        "POWER: brightness=%d\n",
-        brightness);
+        "POWER: brightness=%d percent=%d\n",
+        brightness,
+        flip_power_brightness_to_percent(brightness));
 
     return 0;
 }

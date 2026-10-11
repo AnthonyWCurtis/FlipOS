@@ -10,5 +10,8 @@ flip_exit_protocol_classify(
     if (exit_code == FLIP_EXIT_CODE_SUSPEND)
         return FLIP_EXIT_PROTOCOL_SUSPEND;
 
+    if (exit_code == FLIP_EXIT_CODE_LOW_BATTERY)
+        return FLIP_EXIT_PROTOCOL_LOW_BATTERY;
+
     return FLIP_EXIT_PROTOCOL_ERROR;
 }

@@ -58,6 +58,11 @@ int main(void)
         "200\n");
 
     assert(flip_power_get_brightness() == 200);
+    assert(flip_power_brightness_to_percent(10) == 0);
+    assert(flip_power_brightness_to_percent(255) == 100);
+    assert(flip_power_percent_to_brightness(0) == 10);
+    assert(flip_power_percent_to_brightness(50) == 133);
+    assert(flip_power_percent_to_brightness(100) == 255);
 
     assert(flip_power_set_brightness(0) == 0);
     assert(read_int(

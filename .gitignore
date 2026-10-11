@@ -17,6 +17,8 @@
 # Release/package output
 # =========================================================
 /releases/
+/dist/
+/tmp/
 *.zip
 *.tar
 *.tar.gz

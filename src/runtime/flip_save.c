@@ -22,6 +22,62 @@ static uint64_t flip_save_path_hash(const char *text)
     return hash;
 }
 
+int flip_save_test_build_legacy_path(
+    const flip_save_context_t *context,
+    const char *suffix,
+    char *path,
+    size_t path_size)
+{
+    if (!context ||
+        !context->system_id ||
+        !context->rom_path ||
+        !suffix ||
+        !path ||
+        path_size == 0)
+        return -1;
+
+    uint64_t hash = flip_save_path_hash(context->rom_path);
+    int written = snprintf(
+        path,
+        path_size,
+        FLIP_SAVE_ROOT "/%s/%016llx%s",
+        context->system_id,
+        (unsigned long long)hash,
+        suffix);
+
+    if (written < 0 || (size_t)written >= path_size)
+        return -1;
+
+    return 0;
+}
+
+static int flip_save_rom_stem(
+    const flip_save_context_t *context,
+    char *stem,
+    size_t stem_size)
+{
+    if (!context || !context->rom_path || !stem || stem_size == 0)
+        return -1;
+
+    const char *name = strrchr(context->rom_path, '/');
+    name = name ? name + 1 : context->rom_path;
+    if (!*name)
+        return -1;
+
+    const char *dot = strrchr(name, '.');
+    size_t length =
+        dot && dot != name
+            ? (size_t)(dot - name)
+            : strlen(name);
+
+    if (length == 0 || length >= stem_size)
+        return -1;
+
+    memcpy(stem, name, length);
+    stem[length] = '\0';
+    return 0;
+}
+
 void flip_save_context_init(
     flip_save_context_t *context,
     const char *system_id,
@@ -48,13 +104,16 @@ int flip_save_test_build_path(
         path_size == 0)
         return -1;
 
-    uint64_t hash = flip_save_path_hash(context->rom_path);
+    char stem[384];
+    if (flip_save_rom_stem(context, stem, sizeof(stem)) < 0)
+        return -1;
+
     int written = snprintf(
         path,
         path_size,
-        FLIP_SAVE_ROOT "/%s/%016llx%s",
+        FLIP_SAVE_ROOT "/%s/%s%s",
         context->system_id,
-        (unsigned long long)hash,
+        stem,
         suffix);
 
     if (written < 0 || (size_t)written >= path_size)
@@ -135,6 +194,68 @@ static int ensure_save_directories(const flip_save_context_t *context)
         return -1;
 
     return ensure_directory(system_dir);
+}
+
+static int migrate_legacy_path(
+    const flip_save_context_t *context,
+    const char *suffix)
+{
+    char readable_path[512];
+    char legacy_path[512];
+    struct stat st;
+
+    if (flip_save_test_build_path(
+            context,
+            suffix,
+            readable_path,
+            sizeof(readable_path)) < 0 ||
+        flip_save_test_build_legacy_path(
+            context,
+            suffix,
+            legacy_path,
+            sizeof(legacy_path)) < 0)
+        return -1;
+
+    if (stat(readable_path, &st) == 0)
+        return 0;
+    if (errno != ENOENT)
+        return -1;
+
+    if (stat(legacy_path, &st) < 0)
+        return errno == ENOENT ? 0 : -1;
+    if (!S_ISREG(st.st_mode))
+        return -1;
+
+    if (ensure_save_directories(context) < 0)
+        return -1;
+
+    if (rename(legacy_path, readable_path) < 0)
+        return -1;
+
+    fprintf(
+        stderr,
+        "FLIP_SAVE: MIGRATED_LEGACY from=%s to=%s\n",
+        legacy_path,
+        readable_path);
+    return 0;
+}
+
+static int migrate_legacy_save_files(const flip_save_context_t *context)
+{
+    static const char *const suffixes[] = {
+        FLIP_SAVE_CURRENT_SUFFIX,
+        FLIP_SAVE_PREVIOUS_SUFFIX,
+        FLIP_SAVE_RECOVERY_SUFFIX,
+        FLIP_RTC_CURRENT_SUFFIX,
+        FLIP_RTC_PREVIOUS_SUFFIX,
+    };
+
+    for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); ++i) {
+        if (migrate_legacy_path(context, suffixes[i]) < 0)
+            return -1;
+    }
+
+    return 0;
 }
 
 static int verify_regular_file_size(const char *path, size_t expected_size)
@@ -331,6 +452,9 @@ flip_save_health_t flip_save_health(
     if (!core || !context || !suffix)
         return FLIP_SAVE_HEALTH_ERROR;
 
+    if (migrate_legacy_save_files(context) < 0)
+        return FLIP_SAVE_HEALTH_ERROR;
+
     size_t memory_size = flip_core_save_memory_size(core);
     if (memory_size == 0)
         return FLIP_SAVE_HEALTH_ERROR;
@@ -386,6 +510,9 @@ flip_save_load_result_t flip_save_load(
     const flip_save_context_t *context)
 {
     if (!core || !context || !context->system_id || !context->rom_path)
+        return FLIP_SAVE_LOAD_ERROR;
+
+    if (migrate_legacy_save_files(context) < 0)
         return FLIP_SAVE_LOAD_ERROR;
 
     void *memory = flip_core_save_memory_data(core);
@@ -471,6 +598,9 @@ int flip_save_commit(
     if (!core || !context || !context->system_id || !context->rom_path)
         return -1;
 
+    if (migrate_legacy_save_files(context) < 0)
+        return -1;
+
     void *memory = flip_core_save_memory_data(core);
     size_t memory_size = flip_core_save_memory_size(core);
 
@@ -547,6 +677,9 @@ int flip_save_restore_previous(
     if (!core || !context)
         return -1;
 
+    if (migrate_legacy_save_files(context) < 0)
+        return -1;
+
     size_t memory_size = flip_core_save_memory_size(core);
     if (memory_size == 0 || ensure_save_directories(context) < 0)
         return -1;
@@ -616,6 +749,9 @@ int flip_save_restore_recovery(
     if (!core || !context)
         return -1;
 
+    if (migrate_legacy_save_files(context) < 0)
+        return -1;
+
     size_t memory_size = flip_core_save_memory_size(core);
     if (memory_size == 0 || ensure_save_directories(context) < 0)
         return -1;
@@ -671,6 +807,190 @@ int flip_save_restore_recovery(
         stderr,
         "FLIP_SAVE: RESTORE_RECOVERY_OK size=%zu memory_size=%zu\n",
         recovery_size,
+        memory_size);
+    return 0;
+}
+static int load_exact_candidate(
+    const char *path,
+    void *memory,
+    size_t memory_size)
+{
+    struct stat st;
+    if (stat(path, &st) < 0)
+        return errno == ENOENT ? 0 : -1;
+
+    if (!S_ISREG(st.st_mode) ||
+        st.st_size < 0 ||
+        (size_t)st.st_size != memory_size)
+        return -1;
+
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return -1;
+
+    int ok = fread(memory, 1, memory_size, file) == memory_size;
+    if (ok && fgetc(file) != EOF)
+        ok = 0;
+    if (fclose(file) != 0)
+        ok = 0;
+
+    return ok ? 1 : -1;
+}
+
+int flip_rtc_load(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context)
+{
+    if (!core || !context || !context->system_id || !context->rom_path)
+        return -1;
+
+    if (migrate_legacy_save_files(context) < 0)
+        return -1;
+
+    void *memory = flip_core_rtc_memory_data(core);
+    size_t memory_size = flip_core_rtc_memory_size(core);
+
+    if (!memory || memory_size == 0) {
+        fprintf(stderr, "FLIP_RTC: LOAD_NO_MEMORY\n");
+        return 0;
+    }
+
+    char current_path[512];
+    char previous_path[512];
+
+    if (flip_save_test_build_path(
+            context,
+            FLIP_RTC_CURRENT_SUFFIX,
+            current_path,
+            sizeof(current_path)) < 0 ||
+        flip_save_test_build_path(
+            context,
+            FLIP_RTC_PREVIOUS_SUFFIX,
+            previous_path,
+            sizeof(previous_path)) < 0)
+        return -1;
+
+    int current = load_exact_candidate(
+        current_path,
+        memory,
+        memory_size);
+    if (current == 1) {
+        fprintf(
+            stderr,
+            "FLIP_RTC: LOAD_CURRENT_OK path=%s size=%zu\n",
+            current_path,
+            memory_size);
+        return 0;
+    }
+
+    int previous = load_exact_candidate(
+        previous_path,
+        memory,
+        memory_size);
+    if (previous == 1) {
+        fprintf(
+            stderr,
+            "FLIP_RTC: LOAD_PREVIOUS_OK path=%s size=%zu\n",
+            previous_path,
+            memory_size);
+        return 0;
+    }
+
+    if (current < 0 || previous < 0) {
+        fprintf(stderr, "FLIP_RTC: LOAD_INVALID\n");
+        return -1;
+    }
+
+    fprintf(stderr, "FLIP_RTC: LOAD_NO_SAVE\n");
+    return 0;
+}
+
+int flip_rtc_commit(
+    flip_core_adapter_t *core,
+    const flip_save_context_t *context)
+{
+    if (!core || !context || !context->system_id || !context->rom_path)
+        return -1;
+
+    if (migrate_legacy_save_files(context) < 0)
+        return -1;
+
+    void *memory = flip_core_rtc_memory_data(core);
+    size_t memory_size = flip_core_rtc_memory_size(core);
+
+    if (!memory || memory_size == 0) {
+        fprintf(stderr, "FLIP_RTC: SAVE_NO_MEMORY\n");
+        return 0;
+    }
+
+    if (ensure_save_directories(context) < 0) {
+        fprintf(stderr, "FLIP_RTC: SAVE_FAILED stage=mkdir\n");
+        return -1;
+    }
+
+    char current_path[512];
+    char previous_path[512];
+    char current_tmp_path[512];
+    char previous_tmp_path[512];
+
+    if (flip_save_test_build_path(
+            context,
+            FLIP_RTC_CURRENT_SUFFIX,
+            current_path,
+            sizeof(current_path)) < 0 ||
+        flip_save_test_build_path(
+            context,
+            FLIP_RTC_PREVIOUS_SUFFIX,
+            previous_path,
+            sizeof(previous_path)) < 0 ||
+        flip_save_test_build_path(
+            context,
+            ".rtc.tmp",
+            current_tmp_path,
+            sizeof(current_tmp_path)) < 0 ||
+        flip_save_test_build_path(
+            context,
+            ".rtc.prev.tmp",
+            previous_tmp_path,
+            sizeof(previous_tmp_path)) < 0) {
+        fprintf(stderr, "FLIP_RTC: SAVE_FAILED stage=path\n");
+        return -1;
+    }
+
+    if (write_synced_file(
+            current_tmp_path,
+            memory,
+            memory_size) < 0) {
+        fprintf(stderr, "FLIP_RTC: SAVE_FAILED stage=write\n");
+        return -1;
+    }
+
+    struct stat st;
+    if (stat(current_path, &st) == 0 &&
+        S_ISREG(st.st_mode) &&
+        st.st_size >= 0 &&
+        (size_t)st.st_size == memory_size) {
+        if (copy_synced_file(
+                current_path,
+                previous_tmp_path,
+                previous_path,
+                memory_size) < 0) {
+            unlink(current_tmp_path);
+            fprintf(stderr, "FLIP_RTC: SAVE_FAILED stage=previous\n");
+            return -1;
+        }
+    }
+
+    if (rename(current_tmp_path, current_path) < 0) {
+        unlink(current_tmp_path);
+        fprintf(stderr, "FLIP_RTC: SAVE_FAILED stage=rename\n");
+        return -1;
+    }
+
+    fprintf(
+        stderr,
+        "FLIP_RTC: SAVE_OK path=%s size=%zu\n",
+        current_path,
         memory_size);
     return 0;
 }
