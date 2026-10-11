@@ -54,8 +54,8 @@ for rel in $required; do
     }
 done
 
-command -v zip >/dev/null 2>&1 || {
-    echo "zip is required to build the Beta install bundle" >&2
+command -v python3 >/dev/null 2>&1 || {
+    echo "python3 is required to build the Beta install bundle" >&2
     exit 1
 }
 
@@ -115,10 +115,24 @@ chmod 755 "$ROOT/.tmp_update/updater" "$FLIP/updater-playtest" "$FLIP/bin/"*
 chmod 644 "$FLIP/lib/"* "$FLIP/etc/umtprd.conf" "$FLIP/licenses/"*     "$FLIP/VERSION" "$FLIP/BUILD_ID" "$ROOT/README-FIRST.txt"
 
 rm -f "$ARCHIVE" "$ARCHIVE.sha256"
-(
-    cd "$ROOT"
-    zip -qr "$ARCHIVE" .tmp_update flipos-dev README-FIRST.txt
-)
+python3 - "$ROOT" "$ARCHIVE" <<'PY'
+import os
+import sys
+import zipfile
+
+root, archive = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    for current, dirs, files in os.walk(root):
+        dirs.sort()
+        files.sort()
+        rel_dir = os.path.relpath(current, root)
+        if rel_dir != "." and not files and not dirs:
+            zf.writestr(rel_dir.replace(os.sep, "/") + "/", "")
+        for name in files:
+            path = os.path.join(current, name)
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            zf.write(path, rel)
+PY
 sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
 
 rm -rf "$WORK"
