@@ -13,6 +13,7 @@
 
 #define CRU_GLB_RST_CON 0x00dc
 #define CRU_WDT_RESET_EXT BIT(7)
+#define CRU_PMU_SRST_WDT_DISABLE BIT(4)
 
 static void __iomem *tsadc_regs;
 static void __iomem *cru_regs;
@@ -22,7 +23,7 @@ static struct pinctrl_state *state_gpio;
 static struct pinctrl_state *state_otpout;
 
 static u32 original_route_bits;
-static u32 original_cru_wdt_reset_ext;
+static u32 original_cru_wdt_reset_bits;
 static bool armed;
 
 static int recovery_param_set(const char *val, const struct kernel_param *kp);
@@ -36,9 +37,9 @@ static const struct kernel_param_ops recovery_param_ops = {
 module_param_cb(recovery, &recovery_param_ops, NULL, 0600);
 MODULE_PARM_DESC(
     recovery,
-    "0=stock reset routing, 1=TSADC->PMIC + extended WDT reset");
+    "0=stock reset routing, 1=TSADC->PMIC + WDT PMU reset recovery");
 
-static int set_cru_wdt_reset_extension(bool enable)
+static int set_cru_wdt_recovery(bool enable)
 {
     u32 val;
 
@@ -46,35 +47,41 @@ static int set_cru_wdt_reset_extension(bool enable)
         return -ENODEV;
 
     /*
-     * CRU_GLB_RST_CON is ordinary R/W on this RK3566 board. Preserve every
-     * unrelated bit and change only wdt_reset_ext_en.
+     * CRU_GLB_RST_CON bit 7 extends watchdog reset and bit 4 controls
+     * whether watchdog reset reaches the PMU reset domain. Bit 4 is
+     * active-low. Deep-undervolt recovery needs the broadest watchdog reset
+     * route available, while normal operation must get the exact boot-time
+     * register state back. Preserve every unrelated bit.
      */
     val = readl_relaxed(cru_regs + CRU_GLB_RST_CON);
-    if (enable)
+    if (enable) {
         val |= CRU_WDT_RESET_EXT;
-    else
-        val &= ~CRU_WDT_RESET_EXT;
+        val &= ~CRU_PMU_SRST_WDT_DISABLE;
+    } else {
+        val &= ~(CRU_WDT_RESET_EXT | CRU_PMU_SRST_WDT_DISABLE);
+        val |= original_cru_wdt_reset_bits;
+    }
 
     writel_relaxed(val, cru_regs + CRU_GLB_RST_CON);
     mb();
+
+    val = readl_relaxed(cru_regs + CRU_GLB_RST_CON);
+    if (enable) {
+        if (!(val & CRU_WDT_RESET_EXT) ||
+            (val & CRU_PMU_SRST_WDT_DISABLE))
+            return -EIO;
+    } else if ((val &
+                (CRU_WDT_RESET_EXT | CRU_PMU_SRST_WDT_DISABLE)) !=
+               original_cru_wdt_reset_bits) {
+        return -EIO;
+    }
 
     return 0;
 }
 
-static int restore_cru_wdt_reset_extension(void)
+static int restore_cru_wdt_recovery(void)
 {
-    u32 val;
-
-    if (!cru_regs)
-        return -ENODEV;
-
-    val = readl_relaxed(cru_regs + CRU_GLB_RST_CON);
-    val &= ~CRU_WDT_RESET_EXT;
-    val |= original_cru_wdt_reset_ext;
-    writel_relaxed(val, cru_regs + CRU_GLB_RST_CON);
-    mb();
-
-    return 0;
+    return set_cru_wdt_recovery(false);
 }
 
 static int set_route(bool to_pmic)
@@ -86,7 +93,7 @@ static int set_route(bool to_pmic)
         return -ENODEV;
 
     if (to_pmic) {
-        ret = set_cru_wdt_reset_extension(true);
+        ret = set_cru_wdt_recovery(true);
         if (ret)
             return ret;
 
@@ -94,7 +101,7 @@ static int set_route(bool to_pmic)
             tsadc_pinctrl,
             state_otpout);
         if (ret) {
-            restore_cru_wdt_reset_extension();
+            restore_cru_wdt_recovery();
             return ret;
         }
 
@@ -104,6 +111,16 @@ static int set_route(bool to_pmic)
         writel_relaxed(val, tsadc_regs + TSADC_INT_EN);
         mb();
 
+        val = readl_relaxed(tsadc_regs + TSADC_INT_EN);
+        if ((val & (SHUT_GPIO_BITS | SHUT_CRU_BITS)) !=
+            SHUT_GPIO_BITS) {
+            (void)pinctrl_select_state(
+                tsadc_pinctrl,
+                state_gpio);
+            (void)restore_cru_wdt_recovery();
+            return -EIO;
+        }
+
         armed = true;
     } else {
         val = readl_relaxed(tsadc_regs + TSADC_INT_EN);
@@ -112,13 +129,18 @@ static int set_route(bool to_pmic)
         writel_relaxed(val, tsadc_regs + TSADC_INT_EN);
         mb();
 
+        val = readl_relaxed(tsadc_regs + TSADC_INT_EN);
+        if ((val & (SHUT_GPIO_BITS | SHUT_CRU_BITS)) !=
+            original_route_bits)
+            return -EIO;
+
         ret = pinctrl_select_state(
             tsadc_pinctrl,
             state_gpio);
         if (ret)
             return ret;
 
-        ret = restore_cru_wdt_reset_extension();
+        ret = restore_cru_wdt_recovery();
         if (ret)
             return ret;
 
@@ -167,13 +189,16 @@ static int recovery_param_get(
     return scnprintf(
         buf,
         PAGE_SIZE,
-        "%u int_en=0x%08x original_route=0x%08x "
-        "cru_glb_rst_con=0x%08x original_wdt_ext=0x%08x\n",
+        "armed=%u int_en=0x%08x original_route=0x%08x "
+        "cru_glb_rst_con=0x%08x wdt_ext=%u pmu_wdt_reset=%u "
+        "original_cru_wdt_bits=0x%08x\n",
         armed ? 1U : 0U,
         tsadc,
         original_route_bits,
         cru,
-        original_cru_wdt_reset_ext);
+        (cru & CRU_WDT_RESET_EXT) ? 1U : 0U,
+        (cru & CRU_PMU_SRST_WDT_DISABLE) ? 0U : 1U,
+        original_cru_wdt_reset_bits);
 }
 
 static void __iomem *map_compatible(
@@ -256,16 +281,19 @@ static int __init flip_tsadc_recovery_init(void)
         readl_relaxed(tsadc_regs + TSADC_INT_EN) &
         (SHUT_GPIO_BITS | SHUT_CRU_BITS);
 
-    original_cru_wdt_reset_ext =
+    original_cru_wdt_reset_bits =
         readl_relaxed(
             cru_regs + CRU_GLB_RST_CON) &
-        CRU_WDT_RESET_EXT;
+        (CRU_WDT_RESET_EXT | CRU_PMU_SRST_WDT_DISABLE);
 
     pr_info(
         "flip_tsadc_recovery: loaded route=0x%08x "
-        "wdt_ext=%u armed=0\n",
+        "wdt_ext=%u pmu_wdt_reset=%u armed=0\n",
         original_route_bits,
-        original_cru_wdt_reset_ext ? 1U : 0U);
+        (original_cru_wdt_reset_bits &
+         CRU_WDT_RESET_EXT) ? 1U : 0U,
+        (original_cru_wdt_reset_bits &
+         CRU_PMU_SRST_WDT_DISABLE) ? 0U : 1U);
 
     return 0;
 
@@ -306,4 +334,4 @@ module_exit(flip_tsadc_recovery_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION(
-    "FlipOS RK3566 TSADC recovery helper with extended watchdog reset");
+    "FlipOS RK3566 TSADC + watchdog PMU reset recovery helper");
