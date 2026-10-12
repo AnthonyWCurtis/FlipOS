@@ -22,6 +22,9 @@ assert '"PROFILE QUARANTINED"' not in SOURCE
 assert '"VALIDATION FAILED"' not in SOURCE
 assert '"DEVICE-SPECIFIC CPU VOLTAGE CALIBRATION"' not in SOURCE
 assert '"MENU + VOL -/+   BRIGHTNESS"' in SOURCE
+assert 'flip_controls_update(' in SOURCE
+assert 'flip_hotkeys_apply_actions(' in SOURCE
+assert 'flip_hotkeys_handle(' not in SOURCE
 
 safety = (ROOT / "src/frontend/flip_save_safety_launch.c").read_text()
 assert '"PLAY OPTIONS"' in safety

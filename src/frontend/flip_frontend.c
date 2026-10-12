@@ -3,6 +3,7 @@
 #include "flip_drm.h"
 #include "flip_draw.h"
 #include "flip_input.h"
+#include "flip_controls.h"
 #include "flip_hotkeys.h"
 #include "flip_keyboard.h"
 #include "flip_setup.h"
@@ -4695,10 +4696,10 @@ int main(void)
     int prev_right = 0;
     int prev_start = 0;
 
-    flip_hotkeys_t global_hotkeys;
+    flip_controls_t global_controls;
 
-    flip_hotkeys_init(
-        &global_hotkeys);
+    flip_controls_init(
+        &global_controls);
 
     /*
      * Tracks the previous OSD visibility state so the
@@ -4883,8 +4884,8 @@ int main(void)
                     0,
                     sizeof(state));
 
-                flip_hotkeys_init(
-                    &global_hotkeys);
+                flip_controls_init(
+                    &global_controls);
 
                 prev_up = 0;
                 prev_down = 0;
@@ -5078,11 +5079,15 @@ int main(void)
          * The frontend does not own the policy; it only
          * feeds input into the shared FlipOS hotkey layer.
          */
+        flip_controls_state_t global_control_state;
         flip_hotkeys_result_t hotkey_result;
 
-        if (flip_hotkeys_handle(
-                &global_hotkeys,
+        if (flip_controls_update(
+                &global_controls,
                 &state,
+                &global_control_state) < 0 ||
+            flip_hotkeys_apply_actions(
+                &global_control_state.system,
                 &hotkey_result) < 0) {
 
             fprintf(
@@ -6541,8 +6546,8 @@ int main(void)
                     0,
                     sizeof(state));
 
-                flip_hotkeys_init(
-                    &global_hotkeys);
+                flip_controls_init(
+                    &global_controls);
 
                 prev_up = 0;
                 prev_down = 0;
@@ -6631,8 +6636,8 @@ int main(void)
                     0,
                     sizeof(state));
 
-                flip_hotkeys_init(
-                    &global_hotkeys);
+                flip_controls_init(
+                    &global_controls);
 
                 prev_up = 0;
                 prev_down = 0;
