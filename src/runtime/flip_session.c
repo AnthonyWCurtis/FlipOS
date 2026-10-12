@@ -897,6 +897,12 @@ int flip_session_launch(
         _exit(127);
     }
 
+    struct timespec active_started;
+    int active_clock_valid =
+        clock_gettime(
+            CLOCK_MONOTONIC,
+            &active_started) == 0;
+
     result->launched = 1;
 
     update_recent_history(
@@ -949,6 +955,36 @@ int flip_session_launch(
             return -1;
 
         return -1;
+    }
+
+    if (active_clock_valid) {
+        struct timespec active_ended;
+
+        if (clock_gettime(
+                CLOCK_MONOTONIC,
+                &active_ended) == 0) {
+
+            time_t active_sec =
+                active_ended.tv_sec -
+                active_started.tv_sec;
+
+            long active_nsec =
+                active_ended.tv_nsec -
+                active_started.tv_nsec;
+
+            if (active_nsec < 0) {
+                active_sec--;
+                active_nsec += 1000000000L;
+            }
+
+            if (active_sec >= 0) {
+                result->active_seconds =
+                    (unsigned long long)active_sec;
+
+                if (active_nsec >= 500000000L)
+                    result->active_seconds++;
+            }
+        }
     }
 
     result->exited = 1;
