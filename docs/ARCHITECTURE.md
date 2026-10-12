@@ -140,8 +140,11 @@ cores do not implement separate suspend/GameSwitcher rules.
 
 Audio is handled by `src/audio/` and the shared Core Host. Core-rate audio is
 resampled to the hardware output rate and queued to a writer thread feeding the
-stock ALSA `aplay` path. RK817 routing and the confirmed deep-resume codec
-repair are kept in the audio hardware layer.
+stock ALSA `aplay` path. The PCM pipe is non-blocking: transport writes have a
+bounded deadline, and `aplay` shutdown escalates through bounded clean-exit,
+SIGTERM and SIGKILL waits so a wedged ALSA child cannot indefinitely hold game
+exit. RK817 routing and the confirmed deep-resume codec repair are kept in the
+audio hardware layer.
 
 Video is handled by `flip_video.c`, layout code and the GPU/DRM helpers.
 Low-level DRM drawing is also used by the frontend and optimizer progress

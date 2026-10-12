@@ -94,17 +94,31 @@ must therefore be done as a controlled development deployment with a known
 recovery path. Once that baseline is installed, subsequent update transactions
 use the boot-time recovery protocol.
 
-### High (likely, not yet reproduced) — A003: audio shutdown can wait indefinitely on a blocked writer
+### High — A003: audio shutdown can wait indefinitely on a blocked writer
 
-Affected file: `src/audio/flip_audio.c`.
+Affected files:
 
-The writer thread performs blocking writes to the `aplay` pipe.
-`flip_audio_close()` asks the thread to stop and joins it before closing the
-pipe or terminating `aplay`. If `aplay` is alive but no longer draining the
-pipe, the writer can remain inside `write()` and the join can block shutdown
-indefinitely.
+- `src/audio/flip_audio.c`;
+- `src/audio/flip_audio_transport.c`.
 
-A bounded shutdown/failure test is required before changing this path.
+Evidence: the original writer used a blocking pipe to `aplay`, while
+`flip_audio_close()` joined the writer before closing that pipe. If the child
+stopped draining PCM, the writer could remain inside `write()` and the join
+had no deadline. The later blocking `waitpid()` on `aplay` was also
+unbounded.
+
+Status: fixed on the audit branch, not yet hardware-accepted. The PCM pipe is
+now explicitly non-blocking and each complete transport write has a 250 ms
+monotonic deadline. A stalled transport is disabled rather than allowed to
+block shutdown. Child shutdown now has bounded clean-exit, SIGTERM and SIGKILL
+windows and never uses an unbounded `waitpid()`.
+
+A host regression test fills a non-blocking pipe until it cannot accept more
+data and verifies that the transport returns `ETIMEDOUT` within a bounded
+window. It also creates a child that ignores SIGTERM and verifies that the
+shutdown helper escalates to SIGKILL and reaps it within the deadline. This
+confirms the failure mechanics and the bounded recovery path on Linux; actual
+Miyoo Flip audio/suspend acceptance is still required before release.
 
 ### Medium — A004: `make verify` is not demonstrably clean-tree/release complete
 
@@ -222,8 +236,9 @@ compiler/static-analysis pass with warning triage.
 
 ### P3 — runtime robustness
 
-Completed: A005 release/asset association fix with a multi-release regression
-test. Remaining: reproduce and bound A003 audio shutdown, audit process/PID and
+Completed: A003 bounded audio transport/child shutdown with host stall tests;
+A005 release/asset association fix with a multi-release regression test.
+Remaining: physical audio/suspend acceptance for A003, audit process/PID and
 timeout handling, and audit atomic-write sites for filesystem-specific
 durability.
 
