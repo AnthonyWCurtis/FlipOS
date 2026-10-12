@@ -1,6 +1,6 @@
 # FlipOS v0.1.0-beta.4
 
-**Beta 4  Autonomous CPU optimization, verified tuned profiles, and live optimizer UX.**
+**Beta 4  -  Autonomous CPU optimization, verified tuned profiles, and live optimizer UX.**
 
 Beta 4 builds on the recovery work in Beta 3 and moves the RK3566 CPU
 optimizer from an engineering workflow into a self-contained FlipOS feature.
@@ -42,9 +42,9 @@ A calibrated profile is no longer treated as ready for normal use immediately.
 
 The UI now distinguishes:
 
-- **CALIBRATED**  optimization completed, Stability Test still required;
-- **VERIFIED**  the matching profile passed Stability Test;
-- **DISABLED**  the tuned profile is quarantined and stock settings remain in use.
+- **CALIBRATED**  -  optimization completed, Stability Test still required;
+- **VERIFIED**  -  the matching profile passed Stability Test;
+- **DISABLED**  -  the tuned profile is quarantined and stock settings remain in use.
 
 The normal gameplay runtime path independently checks the validation result,
 device identity, and calibration epoch before applying tuned voltages.
@@ -116,8 +116,8 @@ saves and report any optimizer, recovery, stability, or update problems.
 
 ## Downloads
 
-- **FlipOS-Fresh_Install.zip**  for a new SD-card installation.
-- **FlipOS-Update.tar.gz**  for updating an existing FlipOS installation.
+- **FlipOS-Fresh_Install.zip**  -  for a new SD-card installation.
+- **FlipOS-Update.tar.gz**  -  for updating an existing FlipOS installation.
 
 A legacy-named **FlipOSUpdate.tar.gz** copy is also included for compatibility
 with older Beta updater builds.
