@@ -13,6 +13,7 @@ BUILD := build
 
 COMMON_OBJS := \
 	$(BUILD)/flip_audio.o \
+	$(BUILD)/flip_audio_transport.o \
 	$(BUILD)/flip_audio_buffer.o \
 	$(BUILD)/flip_audio_queue.o \
 	$(BUILD)/flip_audio_resampler.o \
@@ -88,6 +89,7 @@ EMULATOR_OBJS := \
 	$(BUILD)/flip_perf_diag.o \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_audio.o \
+	$(BUILD)/flip_audio_transport.o \
 	$(BUILD)/flip_audio_buffer.o \
 	$(BUILD)/flip_audio_queue.o \
 	$(BUILD)/flip_audio_resampler.o \
@@ -148,7 +150,7 @@ UMTP_SOURCES := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-transport test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba mtp-responder
 
@@ -204,6 +206,7 @@ verify:
 		$(MAKE) test-controls && \
 		$(MAKE) test-timing && \
 		$(MAKE) test-audio && \
+		$(MAKE) test-audio-transport && \
 		$(MAKE) test-audio-queue && \
 		$(MAKE) test-audio-resampler && \
 		$(MAKE) test-paths && \
@@ -280,6 +283,9 @@ test-timing: $(BUILD)/test-flip-timing
 
 test-audio: $(BUILD)/test-flip-audio
 	$(BUILD)/test-flip-audio
+
+test-audio-transport: $(BUILD)/test-flip-audio-transport
+	$(BUILD)/test-flip-audio-transport
 
 test-audio-queue: $(BUILD)/test-flip-audio-queue
 	$(BUILD)/test-flip-audio-queue
@@ -670,6 +676,11 @@ $(BUILD)/test-flip-audio: tests/test_flip_audio_buffer.c src/audio/flip_audio_bu
 		tests/test_flip_audio_buffer.c src/audio/flip_audio_buffer.c \
 		-o $@
 
+$(BUILD)/test-flip-audio-transport: tests/test_flip_audio_transport.c src/audio/flip_audio_transport.c src/audio/flip_audio_transport.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Isrc/audio \
+		tests/test_flip_audio_transport.c src/audio/flip_audio_transport.c \
+		-o $@
+
 $(BUILD)/test-flip-audio-queue: tests/test_flip_audio_queue.c src/audio/flip_audio_queue.c src/audio/flip_audio_queue.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Isrc/audio \
 		tests/test_flip_audio_queue.c src/audio/flip_audio_queue.c \
@@ -815,8 +826,11 @@ $(BUILD)/flip_save_safety_ui.o: src/frontend/flip_save_safety_ui.c include/flip_
 $(BUILD)/flip_save_safety_launch.o: src/frontend/flip_save_safety_launch.c include/flip_save_safety_ui.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/flip_audio.o: src/audio/flip_audio.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+$(BUILD)/flip_audio.o: src/audio/flip_audio.c src/audio/flip_audio_transport.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Isrc/audio -c $< -o $@
+
+$(BUILD)/flip_audio_transport.o: src/audio/flip_audio_transport.c src/audio/flip_audio_transport.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Isrc/audio -c $< -o $@
 
 $(BUILD)/flip_audio_buffer.o: src/audio/flip_audio_buffer.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@

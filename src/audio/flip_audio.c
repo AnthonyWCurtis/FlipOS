@@ -4,10 +4,12 @@
 #include "flip_audio_buffer.h"
 #include "flip_audio_queue.h"
 #include "flip_audio_resampler.h"
+#include "flip_audio_transport.h"
 #include "flip_settings.h"
 
 #include <errno.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,8 +29,12 @@
 #define ALSA_NUMID_SPEAKER_SWITCH 7
 #define ALSA_PLAYBACK_PATH_OFF 0
 #define ALSA_PLAYBACK_PATH_SPK 2
+#define AUDIO_PIPE_WRITE_TIMEOUT_MS 250
+#define AUDIO_CHILD_EXIT_GRACE_MS 250
+#define AUDIO_CHILD_TERM_GRACE_MS 250
+#define AUDIO_CHILD_KILL_GRACE_MS 250
 
-static int audio_fd = -1;
+static atomic_int audio_fd = ATOMIC_VAR_INIT(-1);
 static int mixer_fd = -1;
 static pid_t audio_pid = -1;
 static int speaker_volume = 30;
@@ -330,19 +336,17 @@ static int audio_pipe_write(
 {
     (void)userdata;
 
-    if (audio_fd < 0 ||
+    int fd =
+        atomic_load_explicit(
+            &audio_fd,
+            memory_order_acquire);
+
+    if (fd < 0 ||
         !samples ||
         frames == 0)
         return -1;
 
-    /*
-     * Stereo S16_LE:
-     * 2 samples per frame, 2 bytes per sample.
-     */
-    const unsigned char *ptr =
-        (const unsigned char *)samples;
-
-    size_t remaining =
+    size_t bytes =
         frames *
         FLIP_AUDIO_BUFFER_CHANNELS *
         sizeof(int16_t);
@@ -350,51 +354,44 @@ static int audio_pipe_write(
     uint64_t transport_start_us =
         audio_diag_monotonic_us();
 
-    while (remaining > 0) {
+    if (flip_audio_transport_write_all(
+            fd,
+            samples,
+            bytes,
+            AUDIO_PIPE_WRITE_TIMEOUT_MS) < 0) {
 
-        ssize_t written =
-            write(
-                audio_fd,
-                ptr,
-                remaining);
+        int write_errno = errno;
 
-        if (written > 0) {
-            ptr += written;
-            remaining -= (size_t)written;
-            continue;
-        }
-
-        if (written < 0 &&
-            errno == EINTR)
-            continue;
-
-        if (written < 0 &&
-            errno == EPIPE) {
-
+        if (write_errno == ETIMEDOUT) {
+            fprintf(
+                stderr,
+                "flip_audio: aplay transport stalled for %d ms; disabling audio\n",
+                AUDIO_PIPE_WRITE_TIMEOUT_MS);
+        } else if (write_errno == EPIPE) {
             fprintf(
                 stderr,
                 "flip_audio: aplay pipe closed\n");
-
-            close(audio_fd);
-            audio_fd = -1;
-
-            audio_diag_record_transport_write(
-                transport_start_us);
-
-            return -1;
+        } else {
+            fprintf(
+                stderr,
+                "flip_audio: write failed: %s\n",
+                strerror(write_errno));
         }
 
-        fprintf(
-            stderr,
-            "flip_audio: write failed: %s\n",
-            strerror(errno));
-
-        close(audio_fd);
-        audio_fd = -1;
+        int expected_fd = fd;
+        if (atomic_compare_exchange_strong_explicit(
+                &audio_fd,
+                &expected_fd,
+                -1,
+                memory_order_acq_rel,
+                memory_order_acquire)) {
+            close(fd);
+        }
 
         audio_diag_record_transport_write(
             transport_start_us);
 
+        errno = write_errno;
         return -1;
     }
 
@@ -638,7 +635,7 @@ int flip_audio_open(
         return -1;
     }
 
-    if (audio_fd >= 0) {
+    if (atomic_load_explicit(&audio_fd, memory_order_acquire) >= 0) {
 
         if (audio_config.source_sample_rate ==
                 config->source_sample_rate &&
@@ -773,7 +770,32 @@ int flip_audio_open(
 
     close(pipefd[0]);
 
-    audio_fd = pipefd[1];
+    if (flip_audio_transport_set_nonblocking(pipefd[1]) < 0) {
+        fprintf(
+            stderr,
+            "flip_audio: could not make aplay pipe non-blocking: %s\n",
+            strerror(errno));
+
+        close(pipefd[1]);
+
+        int status = 0;
+        (void)flip_audio_transport_shutdown_child(
+            pid,
+            0,
+            AUDIO_CHILD_TERM_GRACE_MS,
+            AUDIO_CHILD_KILL_GRACE_MS,
+            &status);
+
+        flip_audio_resampler_reset(
+            &audio_resampler);
+
+        return -1;
+    }
+
+    atomic_store_explicit(
+        &audio_fd,
+        pipefd[1],
+        memory_order_release);
     audio_pid = pid;
     audio_config = *config;
 
@@ -783,19 +805,21 @@ int flip_audio_open(
     flip_audio_diag_reset();
 
     if (audio_writer_start() < 0) {
-        close(audio_fd);
-        audio_fd = -1;
+        int fd =
+            atomic_exchange_explicit(
+                &audio_fd,
+                -1,
+                memory_order_acq_rel);
+        if (fd >= 0)
+            close(fd);
 
-        (void)kill(
+        int status = 0;
+        (void)flip_audio_transport_shutdown_child(
             audio_pid,
-            SIGTERM);
-
-        while (waitpid(
-                   audio_pid,
-                   NULL,
-                   0) < 0 &&
-               errno == EINTR) {
-        }
+            0,
+            AUDIO_CHILD_TERM_GRACE_MS,
+            AUDIO_CHILD_KILL_GRACE_MS,
+            &status);
 
         audio_pid = -1;
 
@@ -845,7 +869,7 @@ size_t flip_audio_submit(
     const int16_t *samples,
     size_t frames)
 {
-    if (audio_fd < 0 ||
+    if (atomic_load_explicit(&audio_fd, memory_order_acquire) < 0 ||
         !samples ||
         frames == 0)
         return 0;
@@ -940,7 +964,7 @@ int flip_audio_set_source_rate(
      * If audio is not open yet, Core Host will use the latest rate from
      * the bridge when it creates the Audio Host.
      */
-    if (audio_fd < 0)
+    if (atomic_load_explicit(&audio_fd, memory_order_acquire) < 0)
         return 0;
 
     if (audio_config.source_sample_rate ==
@@ -978,7 +1002,7 @@ int flip_audio_set_source_rate(
 
 int flip_audio_end_frame(void)
 {
-    if (audio_fd < 0) {
+    if (atomic_load_explicit(&audio_fd, memory_order_acquire) < 0) {
         flip_audio_buffer_reset(
             &audio_buffer);
         flip_audio_resampler_reset(
@@ -1099,7 +1123,7 @@ int flip_audio_get_volume(void)
 
 void flip_audio_close(void)
 {
-    if (audio_fd >= 0) {
+    if (atomic_load_explicit(&audio_fd, memory_order_acquire) >= 0) {
 
         if (flip_audio_buffer_flush(
                 &audio_buffer,
@@ -1113,16 +1137,19 @@ void flip_audio_close(void)
     }
 
     /*
-     * Drain queued PCM on the writer thread before closing the pipe.
-     * This keeps shutdown deterministic without ever blocking normal
-     * frame execution on ALSA.
+     * Drain queued PCM while the transport remains healthy. The PCM pipe is
+     * non-blocking and each transport write has a hard deadline, so a wedged
+     * aplay/ALSA path cannot hold pthread_join() indefinitely.
      */
     audio_writer_stop_and_join();
 
-    if (audio_fd >= 0) {
-        close(audio_fd);
-        audio_fd = -1;
-    }
+    int fd =
+        atomic_exchange_explicit(
+            &audio_fd,
+            -1,
+            memory_order_acq_rel);
+    if (fd >= 0)
+        close(fd);
 
     flip_audio_buffer_reset(
         &audio_buffer);
@@ -1133,18 +1160,19 @@ void flip_audio_close(void)
 
         int status = 0;
 
-        while (waitpid(
-                   audio_pid,
-                   &status,
-                   0) < 0) {
+        if (flip_audio_transport_shutdown_child(
+                audio_pid,
+                AUDIO_CHILD_EXIT_GRACE_MS,
+                AUDIO_CHILD_TERM_GRACE_MS,
+                AUDIO_CHILD_KILL_GRACE_MS,
+                &status) < 0) {
 
-            if (errno == EINTR)
-                continue;
+            fprintf(
+                stderr,
+                "flip_audio: aplay could not be reaped within shutdown deadline: %s\n",
+                strerror(errno));
 
-            break;
-        }
-
-        if (WIFEXITED(status)) {
+        } else if (WIFEXITED(status)) {
             fprintf(
                 stderr,
                 "flip_audio: aplay exit=%d\n",
@@ -1156,6 +1184,11 @@ void flip_audio_close(void)
                 WTERMSIG(status));
         }
 
+        /*
+         * Never block emulator shutdown forever for a child stuck in an
+         * uninterruptible kernel state. If the bounded SIGKILL wait failed,
+         * init will reap the orphan when this emulator process exits.
+         */
         audio_pid = -1;
     }
 

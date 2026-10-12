@@ -12,6 +12,7 @@ required = [
     "test-state-recovery-health",
     "test-session-save-safety",
     "test-recovery",
+    "test-audio-transport",
     "test-architecture",
     "$(MAKE) all",
     "git diff --check",
