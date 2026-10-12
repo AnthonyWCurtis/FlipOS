@@ -79,6 +79,9 @@ assert 'flip_setup_mark_complete()' in SOURCE
 assert 'WI-FI IS OPTIONAL' in SOURCE
 
 assert '"SYSTEM UPDATE"' in SOURCE
+assert '#define FLIP_UPDATE_PROGRESS "/tmp/flipos-update-progress"' in SOURCE
+assert 'read_update_progress_message(' in SOURCE
+assert 'strncmp(line, "message=", 8)' in SOURCE
 assert 'SCREEN_UPDATE' in SOURCE
 assert 'run_update_installer()' in SOURCE
 assert 'UPDATE FAILED - CURRENT VERSION KEPT' in SOURCE

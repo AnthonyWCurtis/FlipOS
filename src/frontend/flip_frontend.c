@@ -66,6 +66,7 @@
 #define FLIP_UPDATE_MANIFEST FLIP_UPDATE_PACKAGE "/manifest"
 #define FLIP_UPDATE_INSTALLER FLIP_BIN_ROOT "/flip-update-install"
 #define FLIP_UPDATE_FETCHER FLIP_BIN_ROOT "/flip-update-fetch"
+#define FLIP_UPDATE_PROGRESS "/tmp/flipos-update-progress"
 #define FLIP_VERSION_FILE FLIP_STORAGE_ROOT "/VERSION"
 #define FLIP_UPDATE_AVAILABLE FLIP_STATE_DATA_ROOT "/update/available"
 
@@ -2478,6 +2479,35 @@ static int read_update_version(char *out, size_t out_size)
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, "version=", 8) != 0)
             continue;
+        char *value = line + 8;
+        value[strcspn(value, "\r\n")] = '\0';
+        snprintf(out, out_size, "%.*s", (int)out_size - 1, value);
+        fclose(f);
+        return out[0] ? 0 : -1;
+    }
+
+    fclose(f);
+    return -1;
+}
+
+static int read_update_progress_message(
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return -1;
+
+    out[0] = '\0';
+
+    FILE *f = fopen(FLIP_UPDATE_PROGRESS, "r");
+    if (!f)
+        return -1;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "message=", 8) != 0)
+            continue;
+
         char *value = line + 8;
         value[strcspn(value, "\r\n")] = '\0';
         snprintf(out, out_size, "%.*s", (int)out_size - 1, value);
@@ -5892,7 +5922,9 @@ int main(void)
                     snprintf(update_message, sizeof(update_message),
                         "YOU'RE ON THE LATEST RELEASE");
                 }
-            } else {
+            } else if (read_update_progress_message(
+                           update_message,
+                           sizeof(update_message)) < 0) {
                 snprintf(update_message, sizeof(update_message),
                     "GITHUB CHECK FAILED - TRY AGAIN LATER");
             }
@@ -6384,7 +6416,9 @@ int main(void)
                                 snprintf(update_message, sizeof(update_message),
                                     "YOU'RE ON THE LATEST RELEASE");
                             }
-                        } else {
+                        } else if (read_update_progress_message(
+                                       update_message,
+                                       sizeof(update_message)) < 0) {
                             snprintf(update_message, sizeof(update_message),
                                 "GITHUB CHECK FAILED - TRY AGAIN LATER");
                         }
