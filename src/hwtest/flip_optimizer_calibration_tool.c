@@ -306,6 +306,33 @@ static int read_cpu_opps(
         sizeof(opps[0]),
         compare_opps);
 
+    /*
+     * The Miyoo Flip CPU rail is supplied by an always-on RK860. A hard CPU
+     * undervolt can stop the SoC before Linux can run the RK860 shutdown/reset
+     * callback; the SoC watchdog can then reset successfully while the external
+     * regulator still holds the failed voltage. Do not make automatic
+     * calibration depend on deliberately finding that hard-failure boundary.
+     *
+     * For each tunable OPP, use the stock voltage of the next lower OPP as a
+     * conservative automatic floor. That voltage is already a board-defined
+     * operating point for the same silicon and keeps first-run optimization
+     * away from the deep-voltage search that produced unrecoverable black
+     * screens. The normal 25 mV guardband is still added when the result is
+     * published.
+     */
+    for (size_t i = 1; i < count; ++i) {
+        if (opps[i].frequency_khz <
+            FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ)
+            continue;
+
+        unsigned adjacent_stock_uv =
+            opps[i - 1].stock_uv;
+
+        if (adjacent_stock_uv > opps[i].floor_uv &&
+            adjacent_stock_uv <= opps[i].stock_uv)
+            opps[i].floor_uv = adjacent_stock_uv;
+    }
+
     *opp_count = count;
     return 0;
 }

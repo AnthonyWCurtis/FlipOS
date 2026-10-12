@@ -14,7 +14,8 @@ for token in [
     "SCREEN_SETTINGS",
     "SCREEN_OPTIMIZER",
     "CPU OPTIMIZATION",
-    "OPTIMIZE AGAIN",
+    "PROFILE OPTIMIZED",
+    "USE STABILITY TEST TO RECHECK PROFILE",
     "RESTORE DEFAULT SETTINGS",
     "optimizer_external_power_online()",
     "battery < 30",
@@ -173,6 +174,19 @@ init_end = caltool.find('strcmp(argv[1], "status")', init_start)
 init_block = caltool[init_start:init_end]
 if init_start < 0 or init_end < 0 or "apply_failure_history(&calibration)" not in init_block:
     errors.append("optimizer init must import persisted hard-failure history before saving")
+
+# A published profile must not invite another destructive boundary search.
+if "OPTIMIZE AGAIN" in frontend:
+    errors.append("completed optimizer profile must not expose automatic re-optimization")
+
+for token in [
+    "adjacent_stock_uv",
+    "opps[i - 1].stock_uv",
+    "opps[i].floor_uv = adjacent_stock_uv",
+    "FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ",
+]:
+    if token not in caltool:
+        errors.append(f"conservative RK3566 calibration floor missing: {token}")
 
 if errors:
     for error in errors:

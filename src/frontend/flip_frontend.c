@@ -3553,7 +3553,7 @@ static void draw_optimizer(
             optimizer_actions[i];
 
         if (i == 0 && have_result)
-            label = "OPTIMIZE AGAIN";
+            label = "PROFILE OPTIMIZED";
 
         if (i == 1 && !have_result)
             label = "VIEW RESULTS (NONE)";
@@ -6456,8 +6456,23 @@ int main(void)
                 optimizer_confirm == 0) {
 
                 if (optimizer_selected == 0) {
-                    optimizer_confirm = 1;
-                    optimizer_message[0] = '\0';
+                    flip_optimizer_result_t result;
+
+                    if (optimizer_result_load(&result)) {
+                        /*
+                         * A completed profile should be rechecked with the
+                         * non-destructive stability test. Re-entering
+                         * calibration used to discard a known-good profile
+                         * and search for another hard failure boundary.
+                         */
+                        snprintf(
+                            optimizer_message,
+                            sizeof(optimizer_message),
+                            "USE STABILITY TEST TO RECHECK PROFILE");
+                    } else {
+                        optimizer_confirm = 1;
+                        optimizer_message[0] = '\0';
+                    }
 
                 } else if (
                     optimizer_selected == 1) {
