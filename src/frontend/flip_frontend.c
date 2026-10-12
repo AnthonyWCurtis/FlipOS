@@ -3983,11 +3983,11 @@ static void draw_home(
             UI_SCALE_META,
             DIM);
 
-        char game_name[24];
+        char game_name[22];
         snprintf(
             game_name,
             sizeof(game_name),
-            "%.21s",
+            "%.19s",
             recent->display);
 
         flip_draw_text(
@@ -3998,7 +3998,6 @@ static void draw_home(
             UI_SCALE_SECTION,
             FG);
 
-        char system_line[80];
         const char *system_name =
             recent->system &&
             recent->system->display_name
@@ -4010,37 +4009,32 @@ static void draw_home(
                 recent->system,
                 recent->path);
 
-        snprintf(
-            system_line,
-            sizeof(system_line),
-            "%s%s",
-            system_name,
-            can_resume
-                ? "   RESUME READY"
-                : "");
-
         flip_draw_text(
             drm,
             panel_x + 18,
             panel_y + 84,
-            system_line,
+            system_name,
             UI_SCALE_META,
-            can_resume ? FG : DIM);
+            DIM);
+
+        if (can_resume) {
+            flip_draw_text(
+                drm,
+                panel_x + 18,
+                panel_y + 107,
+                "RESUME READY",
+                1,
+                FG);
+        }
 
         if (last_played_stats_valid) {
             char played[32];
-            char longest[32];
             char last_played[32];
 
             format_play_duration(
                 last_played_stats.total_play_seconds,
                 played,
                 sizeof(played));
-
-            format_play_duration(
-                last_played_stats.longest_session_seconds,
-                longest,
-                sizeof(longest));
 
             format_last_played(
                 last_played_stats.last_played_epoch,
@@ -4086,21 +4080,43 @@ static void draw_home(
                 UI_SCALE_SECTION,
                 FG);
 
-            char detail[96];
-            snprintf(
-                detail,
-                sizeof(detail),
-                "LONGEST %s   LAST %s",
-                longest,
-                last_played);
+            char last_session[32];
+            format_play_duration(
+                last_played_stats.last_session_seconds,
+                last_session,
+                sizeof(last_session));
 
             flip_draw_text(
                 drm,
                 panel_x + 18,
-                panel_y + 198,
-                detail,
-                UI_SCALE_META,
+                panel_y + 194,
+                "LAST SESSION",
+                1,
                 DIM);
+
+            flip_draw_text(
+                drm,
+                panel_x + 18,
+                panel_y + 214,
+                last_session,
+                UI_SCALE_BODY,
+                FG);
+
+            flip_draw_text(
+                drm,
+                panel_x + 186,
+                panel_y + 194,
+                "LAST PLAYED",
+                1,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                panel_x + 186,
+                panel_y + 214,
+                last_played,
+                UI_SCALE_BODY,
+                FG);
         } else {
             flip_draw_text(
                 drm,
@@ -4136,9 +4152,9 @@ static void draw_home(
         flip_draw_text(
             drm,
             panel_x + 18,
-            panel_y + 250,
+            panel_y + 257,
             all_stats,
-            UI_SCALE_META,
+            1,
             DIM);
     } else {
         flip_draw_text(
