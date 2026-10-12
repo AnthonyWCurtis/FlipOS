@@ -75,6 +75,7 @@ typedef enum {
     SCREEN_GAMES,
     SCREEN_RECENT,
     SCREEN_STATS,
+    SCREEN_GAME_DETAILS,
     SCREEN_SETTINGS,
     SCREEN_SETTINGS_CONNECTIVITY,
     SCREEN_SETTINGS_SYSTEM,
@@ -161,6 +162,9 @@ static flip_game_stats_t play_stats_top[PLAY_STATS_TOP_MAX];
 static size_t play_stats_top_count = 0;
 static flip_game_stats_t last_played_stats;
 static int last_played_stats_valid = 0;
+
+static rom_entry_t details_rom;
+static screen_t details_return_screen = SCREEN_HOME;
 
 static char suspended_rom_path[512];
 static int suspended_available = 0;
@@ -1294,6 +1298,7 @@ static const char *screen_name(screen_t screen)
     case SCREEN_GAMES: return "GAMES";
     case SCREEN_RECENT: return "GAMESWITCHER";
     case SCREEN_STATS: return "PLAY_STATS";
+    case SCREEN_GAME_DETAILS: return "GAME_DETAILS";
     case SCREEN_SETTINGS: return "SETTINGS";
     case SCREEN_SETTINGS_CONNECTIVITY: return "SETTINGS_CONNECTIVITY";
     case SCREEN_SETTINGS_SYSTEM: return "SETTINGS_SYSTEM";
@@ -3881,6 +3886,42 @@ static void format_last_played(
     }
 }
 
+
+static void format_played_date(
+    long long epoch,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    if (epoch <= 0) {
+        snprintf(out, out_size, "NOT YET");
+        return;
+    }
+
+    time_t when = (time_t)epoch;
+    struct tm local;
+
+    if (!localtime_r(&when, &local) ||
+        strftime(
+            out,
+            out_size,
+            "%d %b %Y",
+            &local) == 0) {
+        snprintf(out, out_size, "UNKNOWN");
+        return;
+    }
+
+    for (size_t i = 0;
+         out[i];
+         ++i) {
+        out[i] =
+            (char)toupper(
+                (unsigned char)out[i]);
+    }
+}
+
 static void draw_home(
     flip_drm_t *drm,
     int selected,
@@ -4566,6 +4607,322 @@ static void draw_stats(
     flip_drm_present(drm);
 }
 
+
+static void draw_game_details(
+    flip_drm_t *drm,
+    double poweroff_progress)
+{
+    flip_draw_clear(drm, BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "GAME DETAILS",
+            UI_SCALE_TITLE),
+        18,
+        "GAME DETAILS",
+        UI_SCALE_TITLE,
+        FG);
+
+    char game_name[32];
+    snprintf(
+        game_name,
+        sizeof(game_name),
+        "%.29s",
+        details_rom.display[0]
+            ? details_rom.display
+            : "GAME");
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            game_name,
+            UI_SCALE_SECTION),
+        63,
+        game_name,
+        UI_SCALE_SECTION,
+        FG);
+
+    const char *system_name =
+        details_rom.system &&
+        details_rom.system->display_name
+            ? details_rom.system->display_name
+            : "GAME";
+
+    int can_resume =
+        details_rom.system &&
+        flip_system_resume_available(
+            details_rom.system,
+            details_rom.path);
+
+    char system_status[96];
+    snprintf(
+        system_status,
+        sizeof(system_status),
+        "%s%s",
+        system_name,
+        can_resume
+            ? "   RESUME READY"
+            : "");
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            system_status,
+            UI_SCALE_META),
+        96,
+        system_status,
+        UI_SCALE_META,
+        can_resume ? FG : DIM);
+
+    flip_game_stats_t stats;
+    int have_stats =
+        details_rom.system &&
+        details_rom.system->id &&
+        flip_game_stats_load(
+            details_rom.system->id,
+            details_rom.path,
+            &stats) == 1;
+
+    if (!have_stats) {
+        flip_draw_rect(
+            drm,
+            84,
+            150,
+            472,
+            150,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            84,
+            150,
+            472,
+            150,
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "NO PLAY STATS YET",
+                UI_SCALE_SECTION),
+            181,
+            "NO PLAY STATS YET",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "PLAY THIS GAME TO START",
+                UI_SCALE_BODY),
+            231,
+            "PLAY THIS GAME TO START",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "BUILDING ITS HISTORY.",
+                UI_SCALE_BODY),
+            260,
+            "BUILDING ITS HISTORY.",
+            UI_SCALE_BODY,
+            DIM);
+    } else {
+        char played[32];
+        char last_session[32];
+        char longest[32];
+        char average[32];
+        char first_played[32];
+        char last_played[32];
+
+        format_play_duration(
+            stats.total_play_seconds,
+            played,
+            sizeof(played));
+
+        format_play_duration(
+            stats.last_session_seconds,
+            last_session,
+            sizeof(last_session));
+
+        format_play_duration(
+            stats.longest_session_seconds,
+            longest,
+            sizeof(longest));
+
+        unsigned long long average_seconds =
+            stats.launches > 0
+                ? stats.total_play_seconds /
+                    stats.launches
+                : 0;
+
+        format_play_duration(
+            average_seconds,
+            average,
+            sizeof(average));
+
+        format_played_date(
+            stats.first_played_epoch,
+            first_played,
+            sizeof(first_played));
+
+        format_last_played(
+            stats.last_played_epoch,
+            last_played,
+            sizeof(last_played));
+
+        const int card_y = 125;
+        const int card_w = 250;
+
+        flip_draw_rect(
+            drm,
+            58,
+            card_y,
+            card_w,
+            82,
+            PANEL);
+        flip_draw_rect_outline(
+            drm,
+            58,
+            card_y,
+            card_w,
+            82,
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            78,
+            card_y + 14,
+            "TOTAL PLAY TIME",
+            UI_SCALE_META,
+            DIM);
+        flip_draw_text(
+            drm,
+            78,
+            card_y + 42,
+            played,
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_rect(
+            drm,
+            332,
+            card_y,
+            card_w,
+            82,
+            PANEL);
+        flip_draw_rect_outline(
+            drm,
+            332,
+            card_y,
+            card_w,
+            82,
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            352,
+            card_y + 14,
+            "LAUNCHES",
+            UI_SCALE_META,
+            DIM);
+
+        char launches[32];
+        snprintf(
+            launches,
+            sizeof(launches),
+            "%llu",
+            stats.launches);
+
+        flip_draw_text(
+            drm,
+            352,
+            card_y + 42,
+            launches,
+            UI_SCALE_SECTION,
+            FG);
+
+        static const char *labels[] = {
+            "LAST SESSION",
+            "LONGEST SESSION",
+            "AVERAGE SESSION",
+            "FIRST PLAYED",
+            "LAST PLAYED"
+        };
+
+        const char *values[] = {
+            last_session,
+            longest,
+            average,
+            first_played,
+            last_played
+        };
+
+        for (int i = 0;
+             i < 5;
+             ++i) {
+
+            int y =
+                229 + i * 34;
+
+            flip_draw_text(
+                drm,
+                74,
+                y,
+                labels[i],
+                UI_SCALE_META,
+                DIM);
+
+            int value_width =
+                (int)strlen(values[i]) *
+                6 *
+                UI_SCALE_META;
+
+            flip_draw_text(
+                drm,
+                566 - value_width,
+                y,
+                values[i],
+                UI_SCALE_META,
+                FG);
+        }
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "Y FROM LIBRARY OR GAMESWITCHER OPENS DETAILS",
+            1),
+        420,
+        "Y FROM LIBRARY OR GAMESWITCHER OPENS DETAILS",
+        1,
+        DIM);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "B BACK",
+            UI_SCALE_HINT),
+        452,
+        "B BACK",
+        UI_SCALE_HINT,
+        DIM);
+
+    draw_battery_indicator(drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(drm);
+    flip_drm_present(drm);
+}
+
 static void draw_systems(
     flip_drm_t *drm,
     int selected,
@@ -4855,10 +5212,10 @@ static void draw_games(
     flip_draw_text(
         drm,
         centred_text_x(
-            "A LAUNCH   B BACK",
+            "A LAUNCH   Y DETAILS   B BACK",
             1),
         452,
-        "A LAUNCH   B BACK",
+        "A LAUNCH   Y DETAILS   B BACK",
         1,
         DIM);
 
@@ -5094,18 +5451,18 @@ static void draw_recent(
         if (is_recoverable) {
 
             recent_help =
-                "A RESUME   X END   B BACK";
+                "A RESUME   X END   Y DETAILS   B BACK";
 
         } else if (
             can_resume) {
 
             recent_help =
-                "A RESUME   X REMOVE   B BACK";
+                "A RESUME   X REMOVE   Y DETAILS   B BACK";
 
         } else {
 
             recent_help =
-                "A LAUNCH   X REMOVE   B BACK";
+                "A LAUNCH   X REMOVE   Y DETAILS   B BACK";
         }
     }
 
@@ -5813,6 +6170,14 @@ int main(void)
 
                 } else if (
                     screen ==
+                        SCREEN_GAME_DETAILS) {
+
+                    draw_game_details(
+                        &drm,
+                        0.0);
+
+                } else if (
+                    screen ==
                         SCREEN_SETTINGS) {
 
                     draw_settings(
@@ -6251,6 +6616,44 @@ int main(void)
             redraw = 1;
         }
 
+        if (y_button &&
+            !prev_y &&
+            gameswitcher_confirm ==
+                GAMESWITCHER_CONFIRM_NONE &&
+            screen == SCREEN_GAMES &&
+            rom_count > 0) {
+
+            details_rom =
+                roms[game_selected];
+
+            details_return_screen =
+                SCREEN_GAMES;
+
+            screen =
+                SCREEN_GAME_DETAILS;
+
+            redraw = 1;
+        }
+
+        if (y_button &&
+            !prev_y &&
+            gameswitcher_confirm ==
+                GAMESWITCHER_CONFIRM_NONE &&
+            screen == SCREEN_RECENT &&
+            recent_count > 0) {
+
+            details_rom =
+                recent_roms[recent_selected];
+
+            details_return_screen =
+                SCREEN_RECENT;
+
+            screen =
+                SCREEN_GAME_DETAILS;
+
+            redraw = 1;
+        }
+
         if (screen == SCREEN_WIFI_PASSWORD &&
             x && !prev_x) {
             flip_keyboard_toggle_reveal(&wifi_keyboard);
@@ -6460,6 +6863,13 @@ int main(void)
             } else if (screen == SCREEN_FIRST_BOOT_READY) {
 
                 screen = SCREEN_FIRST_BOOT_BIOS;
+                redraw = 1;
+
+            } else if (screen == SCREEN_GAME_DETAILS) {
+
+                screen =
+                    details_return_screen;
+
                 redraw = 1;
 
             } else if (screen == SCREEN_UPDATE) {
@@ -7657,6 +8067,14 @@ int main(void)
 
             } else if (
                 screen ==
+                    SCREEN_GAME_DETAILS) {
+
+                draw_game_details(
+                    &drm,
+                    progress);
+
+            } else if (
+                screen ==
                     SCREEN_SETTINGS) {
 
                 draw_settings(
@@ -7788,6 +8206,14 @@ int main(void)
                     SCREEN_STATS) {
 
                 draw_stats(
+                    &drm,
+                    0.0);
+
+            } else if (
+                screen ==
+                    SCREEN_GAME_DETAILS) {
+
+                draw_game_details(
                     &drm,
                     0.0);
 
