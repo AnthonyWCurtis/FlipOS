@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 
 #include "flip_game_stats.h"
 #include "flip_paths.h"
@@ -47,7 +47,7 @@ static unsigned long long stats_hash(
     const char *system_id,
     const char *rom_path)
 {
-    const unsigned long long offset = 1469598103934665603ULL;
+    const unsigned long long offset = 14695981039346656037ULL;
     const unsigned long long prime = 1099511628211ULL;
     unsigned long long hash = offset;
 
