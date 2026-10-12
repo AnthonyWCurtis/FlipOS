@@ -59,22 +59,35 @@ case "$HTTP_CODE" in
 esac
 
 # GitHub's releases list includes prereleases but excludes drafts for anonymous
-# callers. Pick the first matching release asset, which gives Beta builds the
-# same update path as stable releases.
-# GitHub returns compact JSON, often as one very long line. Split fields on
-# commas before extracting URLs/tags so greedy sed matching cannot accidentally
-# select a later sidecar asset such as FlipOSUpdate.tar.gz.sha256.
-ASSET_URL=$(tr ',' '\n' < "$RELEASES" \
-    | grep '"browser_download_url"' \
-    | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
-    | grep "/$ASSET_NAME$" \
-    | head -n 1)
-TAG=$(tr ',' '\n' < "$RELEASES" \
-    | grep '"tag_name"' \
-    | head -n 1 \
-    | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+# callers. Walk fields in release order and keep the current tag beside its
+# assets. This matters when the newest release does not contain this updater's
+# requested asset: the selected URL and tag must always come from the same
+# release.
+FIELDS="$WORK/releases.fields"
+tr ',' '\n' < "$RELEASES" > "$FIELDS"
+TAG=""
+ASSET_URL=""
+while IFS= read -r field || [ -n "$field" ]; do
+    case "$field" in
+        *'"tag_name"'*)
+            TAG=$(printf '%s\n' "$field" \
+                | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            ;;
+        *'"browser_download_url"'*)
+            url=$(printf '%s\n' "$field" \
+                | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            case "$url" in
+                */"$ASSET_NAME")
+                    ASSET_URL=$url
+                    break
+                    ;;
+            esac
+            ;;
+    esac
+done < "$FIELDS"
 
 [ -n "$ASSET_URL" ] || fail "NO FLIPOS UPDATE ASSET FOUND"
+[ -n "$TAG" ] || fail "UPDATE RELEASE TAG MISSING"
 
 installed_version=""
 if [ -f "$INSTALLED_VERSION" ]; then

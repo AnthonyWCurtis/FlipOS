@@ -37,18 +37,29 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
 
         def do_GET(self):
             if self.path.startswith("/api"):
-                body = json.dumps([{
-                    "tag_name": "v0.1.0-beta.1",
-                    "prerelease": True,
-                    "assets": [
-                        {
-                            "browser_download_url": f"http://127.0.0.1:{port}/FlipOS-Update.tar.gz.sha256"
-                        },
-                        {
-                            "browser_download_url": f"http://127.0.0.1:{port}/FlipOS-Update.tar.gz"
-                        },
-                    ]
-                }]).encode()
+                body = json.dumps([
+                    {
+                        "tag_name": "v0.1.0-beta.2",
+                        "prerelease": True,
+                        "assets": [
+                            {
+                                "browser_download_url": f"http://127.0.0.1:{port}/Different-Update.tar.gz"
+                            },
+                        ],
+                    },
+                    {
+                        "tag_name": "v0.1.0-beta.1",
+                        "prerelease": True,
+                        "assets": [
+                            {
+                                "browser_download_url": f"http://127.0.0.1:{port}/FlipOS-Update.tar.gz.sha256"
+                            },
+                            {
+                                "browser_download_url": f"http://127.0.0.1:{port}/FlipOS-Update.tar.gz"
+                            },
+                        ],
+                    },
+                ]).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -77,6 +88,7 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
         assert (dest / "payload/VERSION").read_text() == "beta-test\n"
         assert "phase=ready" in (base / "progress").read_text()
         assert "FLIP_UPDATE_FETCH_OK" in result.stdout
+        assert "tag=v0.1.0-beta.1" in result.stdout
 
         # When the installed version already matches the latest release tag,
         # report success without presenting the staged package as an update.

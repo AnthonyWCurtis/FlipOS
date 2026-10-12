@@ -34,9 +34,12 @@ assert 'sha256sum -c' in fetcher
 assert 'run_update_fetcher()' in frontend
 
 assert 'FLIPOS RELEASES ARE NOT PUBLIC YET' in fetcher
-assert 'grep "/$ASSET_NAME$"' in fetcher
+assert 'FIELDS="$WORK/releases.fields"' in fetcher
+assert 'while IFS= read -r field || [ -n "$field" ]; do' in fetcher
+assert '*/"$ASSET_NAME")' in fetcher
+assert '[ -n "$TAG" ] || fail "UPDATE RELEASE TAG MISSING"' in fetcher
 assert 'gzip -dc "$ARCHIVE" | tar -xf -' in fetcher
-assert "tr ',' '\\n' < \"$RELEASES\"" in fetcher
+assert "tr ',' '\\n' < \"$RELEASES\" > \"$FIELDS\"" in fetcher
 assert 'trap cleanup EXIT' not in fetcher
 assert "trap 'cleanup; exit 1' HUP INT TERM" in fetcher
 assert 'AVAILABLE="$STATE/available"' in fetcher
