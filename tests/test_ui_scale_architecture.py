@@ -17,6 +17,7 @@ for token in (
 for function in (
     "draw_first_boot",
     "draw_home",
+    "draw_stats",
     "draw_systems",
     "draw_games",
     "draw_recent",
