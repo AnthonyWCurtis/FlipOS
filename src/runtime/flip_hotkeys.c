@@ -6,14 +6,11 @@
 #include "flip_settings.h"
 
 #include <stdio.h>
-#include <string.h>
 
 int flip_hotkeys_apply_actions(
-    const flip_system_actions_t *actions,
-    flip_hotkeys_result_t *result)
+    const flip_system_actions_t *actions)
 {
-    if (!actions ||
-        !result)
+    if (!actions)
         return -1;
 
     if (flip_settings_tick() < 0) {
@@ -21,11 +18,6 @@ int flip_hotkeys_apply_actions(
             stderr,
             "HOTKEYS: settings flush failed\n");
     }
-
-    memset(
-        result,
-        0,
-        sizeof(*result));
 
     if (actions->volume_step != 0) {
 
@@ -35,8 +27,6 @@ int flip_hotkeys_apply_actions(
 
         if (flip_audio_set_volume(
                 volume) == 0) {
-
-            result->volume_changed = 1;
 
             flip_osd_show_volume(
                 flip_audio_get_volume());
@@ -78,11 +68,7 @@ int flip_hotkeys_apply_actions(
                     "HOTKEYS: brightness persistence failed\n");
 
             } else {
-
-                result->brightness_changed = 1;
             }
-
-            result->menu_consumed = 1;
 
             flip_osd_show_brightness(
                 brightness);

@@ -5080,15 +5080,13 @@ int main(void)
          * feeds input into the shared FlipOS hotkey layer.
          */
         flip_controls_state_t global_control_state;
-        flip_hotkeys_result_t hotkey_result;
 
         if (flip_controls_update(
                 &global_controls,
                 &state,
                 &global_control_state) < 0 ||
             flip_hotkeys_apply_actions(
-                &global_control_state.system,
-                &hotkey_result) < 0) {
+                &global_control_state.system) < 0) {
 
             fprintf(
                 stderr,

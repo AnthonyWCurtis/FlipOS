@@ -485,8 +485,7 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
                 perf_overlay_enabled ? "ON" : "OFF");
         }
 
-        flip_hotkeys_result_t hotkey_result;
-        if (flip_hotkeys_apply_actions(&control_state.system, &hotkey_result) < 0)
+        if (flip_hotkeys_apply_actions(&control_state.system) < 0)
             fprintf(stderr, "FLIP_CORE_HOST: global hotkey handling failed\n");
 
         flip_lifecycle_result_t lifecycle_after_frame;
