@@ -10,12 +10,18 @@ Release baseline:
 - cleanup baseline: `79b2755d1995` — three cleanup commits on top of Beta 3.
 - audit branch: `audit/full-engineering-2026-10-12`.
 
-The cleanup commits are intentionally **not** on `main` and are not considered
-validated until the complete build/test suite runs.
+The cleanup/audit commits are intentionally **not** on `main`.
 
-The connected development MSI is currently offline, so this initial pass is a
-source/history/build-graph audit only. No build, host test or physical-device
-result is claimed in this document until it has actually run.
+Baseline verification on 2026-10-12 used a separate clean worktree and the
+prepared matching Rockchip 5.10.160 kernel tree. After fixing one stale Core
+Host test stub left by the hotkey refactor, a true `rm -rf build` rebuild and
+`make KERNEL_DIR=... verify` completed with `VERIFY: PASS`. This includes host
+unit tests, architecture tests, release packaging, AArch64 userspace builds and
+the four release kernel-module targets.
+
+The live device was queried read-only and reports Linux 5.10.160 on
+`MIYOO RK3566 355 V10 Board`; no audit runtime was deployed to hardware during
+this baseline step.
 
 ## Initial assessment
 
@@ -49,9 +55,11 @@ recovery directory/filesystem becomes unwritable), the function returns an
 error after the cartridge save has already changed. The old current savestate
 can still remain eligible for resume, creating a mismatched save/state timeline.
 
-Required fix: establish the durable resume block before mutating the cartridge
-save, then cleanly unwind the marker if save promotion itself fails. Add a
-failure-path regression test.
+Status: fixed on the audit branch. The durable resume block is now created
+before cartridge-save promotion. If a later recovery step fails, the marker is
+left in place deliberately so resume fails closed rather than reusing a state
+from the wrong save timeline. A regression test forces marker creation to fail
+and verifies that the active save/state pair remains unchanged.
 
 ### High — A002: interrupted update can leave a mixed runtime without automatic rollback
 
@@ -94,8 +102,11 @@ artifacts exist. The release test itself asserts that prebuilt binaries/modules
 are already present. On a clean checkout this makes verification dependent on
 previous build state instead of fully declaring its prerequisites.
 
-Required fix: express release build inputs as dependencies and make the release
-packaging test self-contained.
+Status: fixed on the audit branch. Release-build artifacts are now explicit
+prerequisites of the release-package test, and `make clean` removes the entire
+generated `build/` tree instead of maintaining a fragile hand-written file
+list. A fully clean rebuild with the matching kernel tree completed with
+`VERIFY: PASS`.
 
 ### Medium — A005: updater can associate a tag with a different release asset
 
@@ -139,6 +150,24 @@ currently enforces it for every change. There is also no dedicated sanitizer or
 static-analysis target.
 
 Add CI only after the clean-tree `verify` path is made deterministic.
+
+### Medium — A009: external kernel-module verification lacks symbol metadata
+
+The matching prepared Rockchip 5.10.160 tree builds the FlipOS modules, but
+`modpost` reports that the kernel `Module.symvers`/vmlinux symbol information is
+missing and therefore skips unresolved-symbol checking. Both the prepared tree
+and the live device report `CONFIG_MODVERSIONS` disabled, so this is not a
+module-version CRC problem, but the build still loses a useful compatibility
+check.
+
+Before release automation is considered complete, preserve or reproduce a
+fully built matching kernel tree (or equivalent symbol metadata) so module
+undefined-symbol checks are meaningful. Do not paper over this warning.
+
+The remaining compiler warnings observed during the clean verification are in
+vendored Gambatte/mGBA sources or linker/LTO diagnostics, not original FlipOS C
+sources. They should be tracked separately and not "fixed" by style-editing
+vendor code.
 
 ## Performance and power status
 
