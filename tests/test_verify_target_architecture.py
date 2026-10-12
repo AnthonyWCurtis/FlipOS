@@ -18,6 +18,14 @@ required = [
     "/tmp/flipos-verify.log",
     'echo "VERIFY: PASS"',
     'echo "VERIFY: FAIL"',
+    "RELEASE_BUILD_ARTIFACTS :=",
+    "test-release-package: $(RELEASE_BUILD_ARTIFACTS)",
+    "$(BUILD)/flip-charge-service",
+    "$(BUILD)/flip-optimizer-runtime",
+    "$(BUILD)/flip_opp_voltage.ko",
+    "$(BUILD)/flip_opp_runtime_profile.ko",
+    "$(BUILD)/flip_tsadc_recovery.ko",
+    "$(BUILD)/flip_rk817_charger.ko",
 ]
 
 for token in required:

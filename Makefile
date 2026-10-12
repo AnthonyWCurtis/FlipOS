@@ -122,6 +122,26 @@ PERF_CAPTURE_OBJS := \
 	$(BUILD)/flip_telemetry.o \
 	$(BUILD)/flip_battery.o
 
+RELEASE_BUILD_ARTIFACTS := \
+	$(BUILD)/flip-frontend \
+	$(BUILD)/flip-gb \
+	$(BUILD)/flip-gba \
+	$(BUILD)/flip-charge-service \
+	$(BUILD)/umtprd \
+	$(BUILD)/flip-optimizer-supervisor \
+	$(BUILD)/flip-optimizer-deadman \
+	$(BUILD)/flip-optimizer-guard \
+	$(BUILD)/flip-optimizer-calibration \
+	$(BUILD)/flip-optimizer-candidate \
+	$(BUILD)/flip-optimizer-session \
+	$(BUILD)/flip-optimizer-progress \
+	$(BUILD)/flip-optimizer-validation-progress \
+	$(BUILD)/flip-optimizer-runtime \
+	$(BUILD)/flip_opp_voltage.ko \
+	$(BUILD)/flip_opp_runtime_profile.ko \
+	$(BUILD)/flip_tsadc_recovery.ko \
+	$(BUILD)/flip_rk817_charger.ko
+
 UMTP_SOURCES := \
 	$(wildcard external/uMTP-Responder/src/*.c) \
 	$(wildcard external/uMTP-Responder/src/mtp_operations/*.c)
@@ -297,7 +317,7 @@ test-update-installer:
 test-update-fetch:
 	python3 tests/test_update_fetch.py
 
-test-release-package:
+test-release-package: $(RELEASE_BUILD_ARTIFACTS)
 	python3 tests/test_release_package.py
 
 test-performance: $(BUILD)/test-flip-performance
