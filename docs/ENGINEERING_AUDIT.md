@@ -199,42 +199,55 @@ vendored Gambatte/mGBA sources or linker/LTO diagnostics, not original FlipOS C
 sources. They should be tracked separately and not "fixed" by style-editing
 vendor code.
 
-### High — A010: hard undervolt lockups are not recovered by the watchdog
+### High — A010: automatic calibration can strand the external CPU regulator at a failed voltage
 
 Affected files:
 
+- `src/hwtest/flip_optimizer_calibration_tool.c`;
 - `src/hwtest/flip_optimizer_candidate_tool.c`;
 - `src/runtime/flip_optimizer_hw_watchdog.c`;
-- `tools/kernel/flip_tsadc_recovery/flip_tsadc_recovery.c`.
+- `tools/kernel/flip_tsadc_recovery/flip_tsadc_recovery.c`;
+- `src/frontend/flip_frontend.c`.
 
 Device evidence: several deliberately unstable calibration candidates stop at
 `LIVE_BEGIN` and leave the handheld with a green LED and black display. The
 candidate had already logged an 11-second hardware watchdog and a 50-second
-userspace deadman, yet recovery did not occur within either deadline. One
-1608 MHz / 812500 uV trial started around 21:01 UTC and the next recorded boot
-was not until 04:49 UTC. Other failures at 1992 MHz / 850000 uV, 1800 MHz /
-825000 uV and 1800 MHz / 837500 uV show the same pattern. On the next manual
-boot, the guard correctly identifies the unconfirmed trial and rolls it back.
+userspace deadman, yet recovery did not occur within either deadline. Failures
+were recorded at 1992 MHz / 850000 uV, 1800 MHz / 825000 uV, 1608 MHz /
+812500 uV and 1800 MHz / 837500 uV. On a later manual power cycle, the durable
+guard correctly identifies the unconfirmed trial and rolls it back.
 
-Probable cause found in source: the recovery helper enabled watchdog reset
-extension (CRU_GLB_RST_CON bit 7) but did not explicitly enable watchdog reset
-as a PMU reset source. The Rockchip register defines bit 4 as active-low:
-0 enables WDT reset into the PMU reset domain and 1 disables it. That omission
-can leave a watchdog reset narrower than the optimizer's deep-undervolt
-recovery design requires.
+Controlled hardware testing narrowed the cause. A raw watchdog-expiry probe at
+stock CPU voltage successfully rebooted the Flip automatically after heartbeats
+were stopped. Live CRU readback also showed watchdog reset was already enabled
+as a PMU reset source on this board. The earlier bit-4 correction therefore
+remains useful defensive programming and readback validation, but is not the
+root cause of the black-screen failure.
 
-Status: source fix implemented on the audit branch, not hardware-accepted. The
-recovery helper now clears bit 4 while armed, preserves/restores its exact
-boot-time state afterward, and verifies both the CRU reset bits and TSADC route
-by register readback before reporting success. The existing persistent guard
-remains the final protection if an experimental candidate fails.
+The stronger board-specific cause is the external always-on RK860 regulator.
+The Rockchip RK860 driver only issues the regulator CONTROL reset from its
+orderly kernel shutdown callback. A CPU that hard-locks at an unstable voltage
+cannot execute that callback. The SoC watchdog can therefore reset the RK3566
+while the RK860 still holds the failed voltage, leaving the next boot unable to
+run far enough to restore the rail. This matches the observed difference
+between successful stock-voltage watchdog expiry and failed deep-undervolt
+trials.
 
-There is a second hardware-level possibility still to prove: the external
-RK860 CPU regulator may retain the failed voltage across a watchdog-only reset.
-Normal reboot logs show the RK860 driver explicitly resetting the regulator
-during orderly shutdown; a hard CPU lock cannot execute that path. Therefore
-the first hardware acceptance test must be a stock-voltage watchdog recovery
-probe, not another undervolt search.
+The software design bug is that automatic calibration deliberately searches
+downward until it finds the first unstable voltage. On this board, discovering
+that boundary can itself create an unrecoverable-until-power-cycle state.
+
+Status: fixed and host-verified on the audit branch, awaiting a later
+conservative hardware acceptance run. Automatic calibration now raises each
+tunable OPP's search floor to the stock voltage of the next lower OPP,
+while retaining the existing 25 mV result guardband. This keeps calibration
+inside board-defined operating points instead of intentionally searching for a
+deep hard-failure boundary. A completed profile is no longer presented as
+`OPTIMIZE AGAIN`; the UI directs the user to the non-destructive stability
+test. Full recalibration requires deliberately restoring defaults first.
+
+The persistent guard and boot rollback remain in place as independent safety
+layers.
 
 ## Performance and power status
 
@@ -261,11 +274,12 @@ audio/volume, saves and update-screen behavior.
 
 Completed: A001 Save Safety ordering fix and regression test; A002
 write-ahead update transaction, boot-time recovery and interruption
-fault-injection coverage; A010 source-level watchdog-to-PMU recovery correction
-with register-readback checks. Remaining: explicit failed-write/failed-rename,
-read-only-transition and no-space fault injection, controlled updater hardware
-acceptance, and a stock-voltage watchdog recovery probe for A010 before any
-further undervolt calibration is allowed.
+fault-injection coverage; A010 watchdog-route hardening plus a successful
+stock-voltage watchdog-expiry hardware probe and conservative calibration
+policy. Remaining: explicit failed-write/failed-rename, read-only-transition
+and no-space fault injection, controlled updater hardware acceptance, and a
+later conservative optimizer hardware acceptance run after the new policy is
+deployed.
 
 ### P2 — build/release quality
 

@@ -192,6 +192,15 @@ reset domain. The optimizer's durable guard is intentionally independent of
 those live mechanisms so an unconfirmed trial can still be rejected after a
 manual recovery boot.
 
+The Miyoo Flip's CPU rail uses an external always-on RK860 regulator. A hard
+CPU lock can prevent Linux from executing the RK860 driver's orderly shutdown
+reset before the SoC watchdog fires. Automatic calibration therefore must not
+depend on intentionally discovering a hard undervolt boundary. For each
+tunable OPP, FlipOS uses the next lower stock OPP voltage as the automatic
+search floor and retains the result guardband. Existing optimized profiles are
+rechecked through the non-destructive stability-test path rather than silently
+discarded and recalibrated.
+
 ## Updates
 
 The update path is:
