@@ -311,28 +311,10 @@ int flip_audio_get_volume(void)
 }
 
 int flip_hotkeys_apply_actions(
-    const flip_system_actions_t *actions,
-    flip_hotkeys_result_t *result)
+    const flip_system_actions_t *actions)
 {
     (void)actions;
-    memset(result, 0, sizeof(*result));
     event("hotkeys");
-    return 0;
-}
-
-void flip_hotkeys_init(flip_hotkeys_t *hotkeys)
-{
-    memset(hotkeys, 0, sizeof(*hotkeys));
-}
-
-int flip_hotkeys_handle(
-    flip_hotkeys_t *hotkeys,
-    const flip_input_state_t *input,
-    flip_hotkeys_result_t *result)
-{
-    (void)hotkeys;
-    (void)input;
-    (void)result;
     return 0;
 }
 
