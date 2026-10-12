@@ -26,6 +26,7 @@ required = [
     "$(BUILD)/flip_opp_runtime_profile.ko",
     "$(BUILD)/flip_tsadc_recovery.ko",
     "$(BUILD)/flip_rk817_charger.ko",
+    "rm -rf $(BUILD)",
 ]
 
 for token in required:
