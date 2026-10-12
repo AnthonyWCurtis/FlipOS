@@ -543,79 +543,6 @@ static int append_history_boundary(
     return append_history_line(line);
 }
 
-static unsigned history_highest_unstable_uv(
-    const char *device_id,
-    unsigned frequency_khz)
-{
-    FILE *f = fopen(OPTIMIZER_HISTORY_FILE, "r");
-    if (!f)
-        return 0;
-
-    unsigned highest = 0;
-    char line[768];
-
-    while (fgets(line, sizeof(line), f)) {
-        char event[32] = {0};
-        char recorded_device[FLIP_OPTIMIZER_DEVICE_ID_MAX] = {0};
-        unsigned recorded_khz = 0;
-        unsigned voltage_uv = 0;
-
-        if (sscanf(
-                line,
-                "event=%31s device_id=%63s frequency_khz=%u voltage_uv=%u",
-                event,
-                recorded_device,
-                &recorded_khz,
-                &voltage_uv) != 4)
-            continue;
-
-        if (strcmp(event, "unstable") != 0 ||
-            strcmp(recorded_device, device_id) != 0 ||
-            recorded_khz != frequency_khz)
-            continue;
-
-        if (voltage_uv > highest)
-            highest = voltage_uv;
-    }
-
-    fclose(f);
-    return highest;
-}
-
-static int apply_failure_history(
-    flip_optimizer_calibration_t *calibration)
-{
-    if (!calibration)
-        return -1;
-
-    for (size_t i = 0; i < calibration->opp_count; ++i) {
-        flip_optimizer_calibration_opp_t *opp =
-            &calibration->opps[i];
-
-        if (opp->complete)
-            continue;
-
-        unsigned known_failed_uv =
-            history_highest_unstable_uv(
-                calibration->device_id,
-                opp->frequency_khz);
-
-        if (!known_failed_uv ||
-            known_failed_uv < opp->floor_uv ||
-            known_failed_uv >= opp->stock_uv)
-            continue;
-
-        opp->highest_unstable_uv = known_failed_uv;
-
-        printf(
-            "history_seeded frequency_khz=%u highest_unstable_uv=%u\n",
-            opp->frequency_khz,
-            known_failed_uv);
-    }
-
-    return flip_optimizer_calibration_validate(calibration);
-}
-
 static int make_live_calibration(
     flip_optimizer_calibration_t *calibration)
 {
@@ -1143,8 +1070,11 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "init") == 0) {
         flip_optimizer_calibration_t calibration;
 
+        /*
+         * Every optimization run is intentionally fresh. Historical boundary
+         * records are diagnostics only and must never seed a new calibration.
+         */
         if (make_live_calibration(&calibration) < 0 ||
-            apply_failure_history(&calibration) < 0 ||
             flip_optimizer_calibration_save(
                 &calibration) < 0)
             return EXIT_FAILURE;

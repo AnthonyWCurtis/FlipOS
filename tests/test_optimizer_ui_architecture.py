@@ -172,8 +172,14 @@ if min(validation_active_pos, runtime_stale_pos) < 0 or validation_active_pos >=
 init_start = caltool.find('strcmp(argv[1], "init")')
 init_end = caltool.find('strcmp(argv[1], "status")', init_start)
 init_block = caltool[init_start:init_end]
-if init_start < 0 or init_end < 0 or "apply_failure_history(&calibration)" not in init_block:
-    errors.append("optimizer init must import persisted hard-failure history before saving")
+if init_start < 0 or init_end < 0:
+    errors.append("optimizer init command missing")
+if "apply_failure_history" in caltool or "history_seeded" in caltool:
+    errors.append("fresh optimizer run must not seed calibration from prior history")
+if 'fopen(OPTIMIZER_HISTORY_FILE, "r")' in caltool:
+    errors.append("optimizer history must remain diagnostic-only, never calibration input")
+if "Historical boundary" not in init_block:
+    errors.append("fresh-run isolation intent must remain explicit at optimizer init")
 
 # A published profile must not invite another destructive boundary search.
 if "OPTIMIZE AGAIN" in frontend:
