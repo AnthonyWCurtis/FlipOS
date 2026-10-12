@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 
+MODE=install
+if [ "${1:-}" = "--recover-interrupted" ]; then
+    MODE=recover
+    shift
+fi
+
 PACKAGE=${1:-/mnt/SDCARD/FlipOSUpdate}
 ROOT=${FLIP_UPDATE_ROOT:-/mnt/SDCARD/flipos-dev}
 META="$PACKAGE/manifest"
@@ -11,8 +17,10 @@ AVAILABLE="$STATE/available"
 LOCK="$STATE/lock"
 STAGE="$ROOT/.update-stage"
 ROLLBACK="$ROOT/.update-rollback/current"
-BOOT_UPDATER=/mnt/SDCARD/.tmp_update/updater
+BOOT_UPDATER=${FLIP_UPDATE_BOOT_UPDATER:-/mnt/SDCARD/.tmp_update/updater}
 PROGRESS=${FLIP_UPDATE_PROGRESS:-/tmp/flipos-update-progress}
+FILES=""
+TRANSACTION_DIRTY=0
 
 progress() {
     phase=$1
@@ -29,45 +37,173 @@ progress() {
 
 fail() {
     reason=$1
-    progress failed 0 "$reason"
+    progress failed 0 "$reason" 2>/dev/null || true
     echo "FLIP_UPDATE: $reason" >&2
     exit 1
 }
 
-cleanup() {
-    rm -rf "$STAGE" 2>/dev/null || true
+clear_lock() {
+    rm -f "$LOCK/transaction" 2>/dev/null || true
     rmdir "$LOCK" 2>/dev/null || true
 }
 
-rollback_install() {
-    progress rollback 90 "RESTORING PREVIOUS VERSION"
-    if [ -f "$ROLLBACK/installed.list" ]; then
-        while IFS= read -r rel; do
-            [ -n "$rel" ] || continue
-            dest="$ROOT/$rel"
-            backup="$ROLLBACK/files/$rel"
-            if [ -f "$backup" ]; then
-                mkdir -p "$(dirname "$dest")"
-                cp "$backup" "${dest}.rollback"
-                mv -f "${dest}.rollback" "$dest"
-            else
-                rm -f "$dest"
-            fi
-        done < "$ROLLBACK/installed.list"
+cleanup() {
+    rm -rf "$STAGE" 2>/dev/null || true
+    if [ -n "${FILES:-}" ]; then
+        rm -f "$FILES" 2>/dev/null || true
+    fi
 
-        if [ -f "$ROLLBACK/boot-updater" ]; then
-            mkdir -p "$(dirname "$BOOT_UPDATER")"
-            cp "$ROLLBACK/boot-updater" "$BOOT_UPDATER.rollback"
-            chmod 755 "$BOOT_UPDATER.rollback" || true
-            mv -f "$BOOT_UPDATER.rollback" "$BOOT_UPDATER"
-        elif [ -f "$ROLLBACK/boot-updater.missing" ]; then
-            rm -f "$BOOT_UPDATER"
-        fi
-        sync
+    # Once live files may have changed, a surviving lock is the boot-time
+    # recovery signal. Never erase it merely because this shell is exiting.
+    if [ "$TRANSACTION_DIRTY" -eq 0 ]; then
+        clear_lock
     fi
 }
 
-trap 'cleanup' EXIT HUP INT TERM
+interrupted() {
+    progress interrupted 0 "UPDATE INTERRUPTED - RECOVERY REQUIRED" 2>/dev/null || true
+    exit 130
+}
+
+fault_inject() {
+    [ "${FLIP_UPDATE_TEST_FAULT:-}" = "$1" ] || return 0
+    echo "FLIP_UPDATE_TEST_FAULT $1" >&2
+    kill -KILL $$
+}
+
+rollback_install() {
+    progress rollback 90 "RESTORING PREVIOUS VERSION" 2>/dev/null || true
+    rollback_ok=1
+
+    if [ -f "$ROLLBACK/installed.list" ]; then
+        while IFS= read -r rel || [ -n "$rel" ]; do
+            [ -n "$rel" ] || continue
+            dest="$ROOT/$rel"
+            backup="$ROLLBACK/files/$rel"
+
+            rm -f "${dest}.new" "${dest}.rollback" 2>/dev/null || true
+            if [ -f "$backup" ]; then
+                if ! mkdir -p "$(dirname "$dest")" ||
+                   ! cp "$backup" "${dest}.rollback" ||
+                   ! mv -f "${dest}.rollback" "$dest"; then
+                    rollback_ok=0
+                    rm -f "${dest}.rollback" 2>/dev/null || true
+                else
+                    case "$rel" in
+                        bin/*|updater-playtest) chmod 755 "$dest" 2>/dev/null || rollback_ok=0 ;;
+                        lib/*.ko|etc/umtprd.conf|licenses/*|VERSION) chmod 644 "$dest" 2>/dev/null || rollback_ok=0 ;;
+                    esac
+                fi
+            else
+                rm -f "$dest" 2>/dev/null || rollback_ok=0
+            fi
+        done < "$ROLLBACK/installed.list"
+    fi
+
+    # A .new file may exist for a path that was copied but not yet journaled
+    # when power disappeared. files.list is written before live mutation.
+    if [ -f "$ROLLBACK/files.list" ]; then
+        while IFS= read -r rel || [ -n "$rel" ]; do
+            [ -n "$rel" ] || continue
+            rm -f "$ROOT/$rel.new" 2>/dev/null || true
+        done < "$ROLLBACK/files.list"
+    fi
+
+    rm -f "$BOOT_UPDATER.new" "$BOOT_UPDATER.rollback" 2>/dev/null || true
+    if [ -f "$ROLLBACK/boot-updater.touched" ]; then
+        if [ -f "$ROLLBACK/boot-updater" ]; then
+            if ! mkdir -p "$(dirname "$BOOT_UPDATER")" ||
+               ! cp "$ROLLBACK/boot-updater" "$BOOT_UPDATER.rollback" ||
+               ! chmod 755 "$BOOT_UPDATER.rollback" ||
+               ! mv -f "$BOOT_UPDATER.rollback" "$BOOT_UPDATER"; then
+                rollback_ok=0
+                rm -f "$BOOT_UPDATER.rollback" 2>/dev/null || true
+            fi
+        elif [ -f "$ROLLBACK/boot-updater.missing" ]; then
+            rm -f "$BOOT_UPDATER" 2>/dev/null || rollback_ok=0
+        else
+            rollback_ok=0
+        fi
+    fi
+
+    sync || rollback_ok=0
+    [ "$rollback_ok" -eq 1 ]
+}
+
+fail_with_rollback() {
+    reason=$1
+    if rollback_install; then
+        TRANSACTION_DIRTY=0
+        fail "$reason"
+    fi
+    fail "$reason - AUTOMATIC ROLLBACK INCOMPLETE"
+}
+
+recover_interrupted() {
+    if [ ! -d "$LOCK" ]; then
+        echo "FLIP_UPDATE_RECOVERY_NOT_NEEDED"
+        return 0
+    fi
+
+    # Keep the lock across any recovery failure or second interruption.
+    TRANSACTION_DIRTY=1
+    progress recovery 10 "RECOVERING INTERRUPTED UPDATE" 2>/dev/null || true
+
+    transaction_format=$(sed -n 's/^format=//p' "$LOCK/transaction" 2>/dev/null | head -n 1)
+    if [ "$transaction_format" != "1" ]; then
+        progress failed 0 "UNKNOWN UPDATE TRANSACTION - BOOT STOCK SYSTEM" 2>/dev/null || true
+        echo "FLIP_UPDATE_RECOVERY_UNKNOWN_TRANSACTION" >&2
+        return 1
+    fi
+
+    # The commit marker is written and synced only after the new runtime,
+    # boot hook and last-good metadata are durable. A crash after that point
+    # needs finalization, not rollback.
+    if [ -f "$ROLLBACK/committed" ]; then
+        TRANSACTION_DIRTY=0
+        rm -rf "$STAGE" 2>/dev/null || true
+        clear_lock
+        progress complete 100 "UPDATE COMPLETE - RECOVERY FINALIZED" 2>/dev/null || true
+        echo "FLIP_UPDATE_RECOVERY_FINALIZED_COMMIT"
+        return 0
+    fi
+
+    # A lock can survive a crash during validation/staging/backup. No live
+    # file is changed until prepared has been written and synced.
+    if [ ! -f "$ROLLBACK/prepared" ]; then
+        TRANSACTION_DIRTY=0
+        rm -rf "$STAGE" 2>/dev/null || true
+        clear_lock
+        progress recovered 100 "INTERRUPTED UPDATE CLEARED - NO FILES CHANGED" 2>/dev/null || true
+        echo "FLIP_UPDATE_RECOVERY_CLEARED_PREINSTALL"
+        return 0
+    fi
+
+    TRANSACTION_DIRTY=1
+    if rollback_install; then
+        : > "$ROLLBACK/recovered"
+        sync
+        TRANSACTION_DIRTY=0
+        clear_lock
+        progress recovered 100 "PREVIOUS VERSION RESTORED" 2>/dev/null || true
+        echo "FLIP_UPDATE_RECOVERY_OK"
+        return 0
+    fi
+
+    progress failed 0 "UPDATE RECOVERY FAILED - BOOT STOCK SYSTEM" 2>/dev/null || true
+    echo "FLIP_UPDATE_RECOVERY_FAILED" >&2
+    return 1
+}
+
+trap 'cleanup' EXIT
+trap 'interrupted' HUP INT TERM
+
+mkdir -p "$STATE"
+
+if [ "$MODE" = recover ]; then
+    recover_interrupted
+    exit $?
+fi
 
 [ -d "$PACKAGE" ] || fail "UPDATE PACKAGE NOT FOUND"
 [ -f "$META" ] || fail "UPDATE MANIFEST MISSING"
@@ -84,88 +220,104 @@ build_id=$(sed -n 's/^build_id=//p' "$META" | head -n 1)
 [ -n "$version" ] || fail "UPDATE VERSION MISSING"
 [ -n "$build_id" ] || fail "UPDATE BUILD ID MISSING"
 
-mkdir -p "$STATE"
+# A stale lock is never treated as a second live updater. First restore or
+# finalize the previous transaction, then start the new one.
+if [ -d "$LOCK" ]; then
+    recover_interrupted || fail "PREVIOUS UPDATE RECOVERY FAILED"
+fi
+
 if ! mkdir "$LOCK" 2>/dev/null; then
     fail "ANOTHER UPDATE IS ALREADY RUNNING"
 fi
+cat > "$LOCK/transaction" <<EOF
+format=1
+version=$version
+build_id=$build_id
+EOF
+sync
 
 progress validate 5 "CHECKING UPDATE PACKAGE"
 
 FILES="$STATE/files.$$"
 : > "$FILES"
 count=0
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
     [ -n "$line" ] || continue
     case "$line" in
         [0-9a-fA-F]*'  '*) ;;
-        *) rm -f "$FILES"; fail "INVALID CHECKSUM MANIFEST" ;;
+        *) fail "INVALID CHECKSUM MANIFEST" ;;
     esac
     rel=${line#*  }
     case "$rel" in
-        /*|*'..'*|*'//'*) rm -f "$FILES"; fail "UNSAFE UPDATE PATH" ;;
+        /*|*'..'*|*'//'*) fail "UNSAFE UPDATE PATH" ;;
         bin/*|lib/*.ko|etc/umtprd.conf|licenses/*|updater-playtest|VERSION) ;;
-        *) rm -f "$FILES"; fail "UPDATE CONTAINS DISALLOWED FILE" ;;
+        *) fail "UPDATE CONTAINS DISALLOWED FILE" ;;
     esac
-    [ -f "$PAYLOAD/$rel" ] || { rm -f "$FILES"; fail "UPDATE FILE MISSING"; }
-    [ ! -L "$PAYLOAD/$rel" ] || { rm -f "$FILES"; fail "SYMLINKS ARE NOT ALLOWED"; }
+    [ -f "$PAYLOAD/$rel" ] || fail "UPDATE FILE MISSING"
+    [ ! -L "$PAYLOAD/$rel" ] || fail "SYMLINKS ARE NOT ALLOWED"
     printf '%s\n' "$rel" >> "$FILES"
     count=$((count + 1))
-    [ "$count" -le 128 ] || { rm -f "$FILES"; fail "UPDATE HAS TOO MANY FILES"; }
+    [ "$count" -le 128 ] || fail "UPDATE HAS TOO MANY FILES"
 done < "$SUMS"
 
-[ "$count" -gt 0 ] || { rm -f "$FILES"; fail "UPDATE PAYLOAD IS EMPTY"; }
+[ "$count" -gt 0 ] || fail "UPDATE PAYLOAD IS EMPTY"
 
 (
     cd "$PAYLOAD"
     sha256sum -c "$SUMS"
-) >/dev/null 2>&1 || { rm -f "$FILES"; fail "UPDATE CHECKSUM FAILED"; }
+) >/dev/null 2>&1 || fail "UPDATE CHECKSUM FAILED"
 
 progress stage 20 "STAGING UPDATE"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
-while IFS= read -r rel; do
+while IFS= read -r rel || [ -n "$rel" ]; do
     mkdir -p "$STAGE/$(dirname "$rel")"
-    cp "$PAYLOAD/$rel" "$STAGE/$rel"
+    cp "$PAYLOAD/$rel" "$STAGE/$rel" || fail "UPDATE STAGING COPY FAILED"
 done < "$FILES"
 
 # Verify the staged bytes too. This catches copy/media errors before installation.
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
     rel=${line#*  }
     expected=${line%%  *}
     actual=$(sha256sum "$STAGE/$rel" | awk '{print $1}')
-    [ "$expected" = "$actual" ] || { rm -f "$FILES"; fail "STAGED UPDATE CHECKSUM FAILED"; }
+    [ "$expected" = "$actual" ] || fail "STAGED UPDATE CHECKSUM FAILED"
 done < "$SUMS"
 
 progress backup 40 "PREPARING ROLLBACK"
 rm -rf "$ROLLBACK"
 mkdir -p "$ROLLBACK/files"
-cp "$META" "$ROLLBACK/manifest.new"
+cp "$META" "$ROLLBACK/manifest.new" || fail "ROLLBACK METADATA BACKUP FAILED"
+cp "$FILES" "$ROLLBACK/files.list" || fail "ROLLBACK FILE LIST BACKUP FAILED"
 : > "$ROLLBACK/installed.list"
 
 if [ -f "$BOOT_UPDATER" ]; then
-    cp "$BOOT_UPDATER" "$ROLLBACK/boot-updater"
+    cp "$BOOT_UPDATER" "$ROLLBACK/boot-updater" || fail "BOOT UPDATER BACKUP FAILED"
 else
     : > "$ROLLBACK/boot-updater.missing"
 fi
 
-while IFS= read -r rel; do
+while IFS= read -r rel || [ -n "$rel" ]; do
     dest="$ROOT/$rel"
     if [ -f "$dest" ]; then
         mkdir -p "$ROLLBACK/files/$(dirname "$rel")"
-        cp "$dest" "$ROLLBACK/files/$rel"
+        cp "$dest" "$ROLLBACK/files/$rel" || fail "ROLLBACK FILE BACKUP FAILED"
     fi
 done < "$FILES"
+
+# prepared is the point after which boot recovery must assume live files may
+# have changed. It is synced before the first write-ahead journal entry.
+: > "$ROLLBACK/prepared"
 sync
+TRANSACTION_DIRTY=1
+fault_inject after-prepare
 
 progress install 60 "INSTALLING UPDATE"
 installed=0
-while IFS= read -r rel; do
+while IFS= read -r rel || [ -n "$rel" ]; do
     dest="$ROOT/$rel"
     mkdir -p "$(dirname "$dest")"
     if ! cp "$STAGE/$rel" "${dest}.new"; then
-        rollback_install
-        rm -f "$FILES"
-        fail "UPDATE COPY FAILED"
+        fail_with_rollback "UPDATE COPY FAILED"
     fi
 
     case "$rel" in
@@ -173,41 +325,52 @@ while IFS= read -r rel; do
         lib/*.ko|etc/umtprd.conf|licenses/*|VERSION) chmod 644 "${dest}.new" || true ;;
     esac
 
-    if ! mv -f "${dest}.new" "$dest"; then
-        rm -f "${dest}.new"
-        rollback_install
-        rm -f "$FILES"
-        fail "UPDATE INSTALL FAILED"
+    # Write-ahead rollback journal: recovery learns that this path may change
+    # before the atomic rename can make the new bytes live.
+    printf '%s\n' "$rel" >> "$ROLLBACK/installed.list"
+    sync
+    if [ "$installed" -eq 0 ]; then
+        fault_inject after-first-journal
     fi
 
-    printf '%s\n' "$rel" >> "$ROLLBACK/installed.list"
+    if ! mv -f "${dest}.new" "$dest"; then
+        rm -f "${dest}.new" 2>/dev/null || true
+        fail_with_rollback "UPDATE INSTALL FAILED"
+    fi
+
     installed=$((installed + 1))
+    if [ "$installed" -eq 1 ]; then
+        fault_inject after-first-install
+    fi
+
     percent=$((60 + (installed * 25 / count)))
     progress install "$percent" "INSTALLING UPDATE"
 done < "$FILES"
 
 sync
+fault_inject before-boot-updater
 
-# Keep the SD boot hook in lockstep with the installed runtime. The package
-# installs updater-playtest under the FlipOS root first so this copy is taken
-# only after the validated runtime payload has landed.
+# Keep the SD boot hook in lockstep with the installed runtime. Its rollback
+# marker is also write-ahead so power loss around the rename is recoverable.
 if [ -f "$ROOT/updater-playtest" ]; then
     mkdir -p "$(dirname "$BOOT_UPDATER")"
     if ! cp "$ROOT/updater-playtest" "$BOOT_UPDATER.new"; then
-        rollback_install
-        rm -f "$FILES"
-        fail "BOOT UPDATER INSTALL FAILED"
+        fail_with_rollback "BOOT UPDATER INSTALL FAILED"
     fi
     chmod 755 "$BOOT_UPDATER.new" || true
+
+    : > "$ROLLBACK/boot-updater.touched"
+    sync
+    fault_inject after-boot-journal
+
     if ! mv -f "$BOOT_UPDATER.new" "$BOOT_UPDATER"; then
-        rm -f "$BOOT_UPDATER.new"
-        rollback_install
-        rm -f "$FILES"
-        fail "BOOT UPDATER INSTALL FAILED"
+        rm -f "$BOOT_UPDATER.new" 2>/dev/null || true
+        fail_with_rollback "BOOT UPDATER INSTALL FAILED"
     fi
     sync
 fi
 
+fault_inject before-commit
 progress commit 90 "FINALIZING UPDATE"
 cat > "$STATE/last-good.tmp" <<EOF
 format=1
@@ -220,7 +383,14 @@ mv -f "$ROLLBACK/manifest.new" "$ROLLBACK/installed-manifest"
 rm -f "$AVAILABLE"
 sync
 
-rm -f "$FILES"
+# committed is the durable decision point. Recovery must keep the new version
+# if power disappears after this marker reaches storage.
+: > "$ROLLBACK/committed"
+sync
+fault_inject after-commit
+
+TRANSACTION_DIRTY=0
+clear_lock
 progress complete 100 "UPDATE COMPLETE - RESTART TO FINISH"
 echo "FLIP_UPDATE_OK version=$version build_id=$build_id"
 exit 0

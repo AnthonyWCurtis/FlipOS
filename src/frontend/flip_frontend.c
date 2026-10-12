@@ -69,6 +69,7 @@
 #define FLIP_UPDATE_PROGRESS "/tmp/flipos-update-progress"
 #define FLIP_VERSION_FILE FLIP_STORAGE_ROOT "/VERSION"
 #define FLIP_UPDATE_AVAILABLE FLIP_STATE_DATA_ROOT "/update/available"
+#define FLIP_UPDATE_LOCK FLIP_STATE_DATA_ROOT "/update/lock"
 
 typedef enum {
     SCREEN_HOME = 0,
@@ -6436,7 +6437,12 @@ int main(void)
                             update_complete = 1;
                             snprintf(update_message, sizeof(update_message),
                                 "UPDATE VERIFIED AND INSTALLED");
-                        } else {
+                        } else if (access(FLIP_UPDATE_LOCK, F_OK) == 0) {
+                            snprintf(update_message, sizeof(update_message),
+                                "UPDATE INTERRUPTED - RESTART TO RECOVER");
+                        } else if (read_update_progress_message(
+                                       update_message,
+                                       sizeof(update_message)) < 0) {
                             snprintf(update_message, sizeof(update_message),
                                 "UPDATE FAILED - CURRENT VERSION KEPT");
                         }

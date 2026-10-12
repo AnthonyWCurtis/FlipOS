@@ -6,6 +6,29 @@ PREV="$ROOT/logs/frontend.previous.log"
 RAM_LOG=/tmp/flipos-frontend.log
 SUPERVISOR="$ROOT/bin/flip-optimizer-supervisor"
 RAM_STOCK_SAFE=/tmp/flipos-optimizer-stock-safe
+UPDATE_INSTALLER="$ROOT/bin/flip-update-install"
+UPDATE_LOCK="$ROOT/state/update/lock"
+UPDATE_RECOVERY_LOG=/tmp/flipos-update-recovery.log
+
+# A power loss can leave an update transaction intentionally locked. Recover
+# it before executing any potentially mixed FlipOS runtime component. If the
+# SD card is read-only, the recovery helper is missing, or rollback fails, boot
+# the stock launcher instead of gambling on a partially installed runtime.
+if [ -d "$UPDATE_LOCK" ]; then
+    if awk '
+        $2 == "/mnt/sdcard" && $4 ~ /(^|,)rw(,|$)/ { writable=1 }
+        END { exit writable ? 0 : 1 }
+    ' /proc/mounts 2>/dev/null && [ -x "$UPDATE_INSTALLER" ]; then
+        if ! FLIP_UPDATE_PROGRESS=/tmp/flipos-update-progress \
+             "$UPDATE_INSTALLER" --recover-interrupted > "$UPDATE_RECOVERY_LOG" 2>&1; then
+            exec /usr/miyoo/bin/runmiyoo-original.sh
+        fi
+    else
+        printf '%s\n' "FLIP_UPDATE_RECOVERY: unavailable; booting stock launcher" \
+            > "$UPDATE_RECOVERY_LOG"
+        exec /usr/miyoo/bin/runmiyoo-original.sh
+    fi
+fi
 
 # Optimizer safety must be decided before any SD-card write is attempted.
 # The supervisor only reads durable trial state and enforces its decision with

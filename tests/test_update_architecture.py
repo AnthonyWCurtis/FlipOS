@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 installer = (ROOT / "tools/update/flip-update-install").read_text()
 deploy = (ROOT / "tools/device/deploy-playtest").read_text()
+boot_hook = (ROOT / "tools/device/updater-playtest").read_text()
 
 for token in (
     'miyoo-flip-rk3566',
@@ -12,6 +13,19 @@ for token in (
     'ROLLBACK=',
     'rollback_install()',
     'installed.list',
+    'files.list',
+    'prepared',
+    'committed',
+    '--recover-interrupted',
+    'cat > "$LOCK/transaction"',
+    'FLIP_UPDATE_RECOVERY_UNKNOWN_TRANSACTION',
+    'TRANSACTION_DIRTY=1',
+    'fault_inject after-prepare',
+    'fault_inject after-first-journal',
+    'fault_inject after-first-install',
+    'fault_inject after-boot-journal',
+    'fault_inject before-commit',
+    'fault_inject after-commit',
     'last-good',
     'UPDATE COMPLETE - RESTART TO FINISH',
 ):
@@ -20,11 +34,19 @@ for token in (
 assert 'state/settings' not in installer.split('case "$rel" in', 1)[1].split('esac', 1)[0]
 assert 'flip-update-install' in deploy
 
-print("update architecture tests passed")
+for token in (
+    'UPDATE_LOCK="$ROOT/state/update/lock"',
+    '"$UPDATE_INSTALLER" --recover-interrupted',
+    'UPDATE_RECOVERY_LOG=/tmp/flipos-update-recovery.log',
+    'exec /usr/miyoo/bin/runmiyoo-original.sh',
+):
+    assert token in boot_hook, token
 
 frontend = (ROOT / "src/frontend/flip_frontend.c").read_text()
 assert 'SCREEN_UPDATE' in frontend
 assert 'run_update_installer()' in frontend
+assert 'FLIP_UPDATE_LOCK' in frontend
+assert 'UPDATE INTERRUPTED - RESTART TO RECOVER' in frontend
 assert 'UPDATE FAILED - CURRENT VERSION KEPT' in frontend
 fetcher = (ROOT / "tools/update/flip-update-fetch").read_text()
 assert 'api.github.com/repos/AnthonyWCurtis/FlipOS/releases?per_page=10' in fetcher
