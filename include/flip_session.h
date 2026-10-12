@@ -33,6 +33,12 @@ typedef struct {
     int signaled;
     int signal_number;
 
+    /*
+     * Actual emulator child runtime for this launch segment. This excludes
+     * frontend launch menus and time spent in lid sleep between segments.
+     */
+    unsigned long long active_seconds;
+
     flip_session_action_t action;
 } flip_session_result_t;
 
