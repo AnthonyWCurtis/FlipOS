@@ -5,6 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 frontend = (ROOT / "src/frontend/flip_frontend.c").read_text()
 stats = (ROOT / "src/runtime/flip_game_stats.c").read_text()
 header = (ROOT / "include/flip_game_stats.h").read_text()
+session_h = (ROOT / "include/flip_session.h").read_text()
+session = (ROOT / "src/runtime/flip_session.c").read_text()
 makefile = (ROOT / "Makefile").read_text()
 
 for token in (
@@ -27,8 +29,18 @@ for token in (
     "refresh_play_stats",
     "flip_game_stats_record_launch(",
     "flip_game_stats_record_session(",
+    "result.launched",
+    "!automatic_resume",
+    "result.active_seconds",
 ):
     assert token in frontend, token
+
+for token in (
+    "active_seconds",
+    "CLOCK_MONOTONIC",
+    "clock_gettime(",
+):
+    assert token in session_h or token in session, token
 
 assert "$(BUILD)/flip_game_stats.o" in makefile
 assert "test-game-stats" in makefile
