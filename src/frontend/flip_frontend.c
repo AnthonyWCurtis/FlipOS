@@ -5243,16 +5243,27 @@ static int launch_game_once(
          * not another launch. A deliberate launch or GameSwitcher resume is
          * counted once when the emulator child genuinely starts.
          */
-        if (!automatic_resume &&
-            flip_game_stats_record_launch(
-                system->id,
-                rom->path,
-                (long long)time(NULL)) < 0) {
+        if (!automatic_resume) {
+            long long launch_epoch =
+                (long long)time(NULL);
 
-            fprintf(
-                stderr,
-                "FRONTEND_STATS launch write failed rom=%s\n",
-                rom->path);
+            if (launch_epoch > 0 &&
+                result.active_seconds <=
+                    (unsigned long long)launch_epoch) {
+                launch_epoch -=
+                    (long long)result.active_seconds;
+            }
+
+            if (flip_game_stats_record_launch(
+                    system->id,
+                    rom->path,
+                    launch_epoch) < 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_STATS launch write failed rom=%s\n",
+                    rom->path);
+            }
         }
     }
 
