@@ -101,6 +101,61 @@
 #define FLIP_OPTIMIZER_INTEGRITY_WORDS 4096U
 #define FLIP_OPTIMIZER_INTEGRITY_ROUNDS 48U
 #define FLIP_OPTIMIZER_VALIDATION_RETRY_STEP_UV 25000U
+#define FLIP_OPTIMIZER_PROGRESS_RAM_FILE \
+    "/tmp/flipos-optimizer-progress-state"
+#define FLIP_OPTIMIZER_PROGRESS_RAM_TMP \
+    "/tmp/flipos-optimizer-progress-state.tmp"
+
+static unsigned long long optimizer_monotonic_ms(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return 0;
+    return (unsigned long long)now.tv_sec * 1000ULL +
+        (unsigned long long)now.tv_nsec / 1000000ULL;
+}
+
+/*
+ * Progress telemetry is tmpfs-only. Never write progress to the SD/FAT
+ * volume while a deliberately marginal CPU voltage is active.
+ */
+static void optimizer_progress_stage(
+    const char *phase,
+    unsigned frequency_khz,
+    unsigned candidate_uv,
+    unsigned duration_seconds)
+{
+    if (!phase || !phase[0])
+        return;
+
+    FILE *f = fopen(FLIP_OPTIMIZER_PROGRESS_RAM_TMP, "w");
+    if (!f)
+        return;
+
+    int failed = 0;
+    failed |= fprintf(f, "version=1\n") < 0;
+    failed |= fprintf(f, "phase=%s\n", phase) < 0;
+    failed |= fprintf(f, "frequency_khz=%u\n", frequency_khz) < 0;
+    failed |= fprintf(f, "candidate_uv=%u\n", candidate_uv) < 0;
+    failed |= fprintf(f, "duration_seconds=%u\n", duration_seconds) < 0;
+    failed |= fprintf(
+        f,
+        "started_ms=%llu\n",
+        optimizer_monotonic_ms()) < 0;
+
+    if (fflush(f) != 0 || fclose(f) != 0)
+        failed = 1;
+
+    if (failed) {
+        (void)unlink(FLIP_OPTIMIZER_PROGRESS_RAM_TMP);
+        return;
+    }
+
+    if (rename(
+            FLIP_OPTIMIZER_PROGRESS_RAM_TMP,
+            FLIP_OPTIMIZER_PROGRESS_RAM_FILE) != 0)
+        (void)unlink(FLIP_OPTIMIZER_PROGRESS_RAM_TMP);
+}
 
 typedef struct {
     unsigned target_uv;
@@ -1532,6 +1587,7 @@ static int run_table_only(void)
     unsigned target_khz = opp->frequency_khz;
     unsigned candidate_uv = calibration.pending_uv;
 
+
     flip_cpu_policy_snapshot_t original;
     flip_cpu_policy_info_t info;
 
@@ -1580,6 +1636,7 @@ static int run_table_only(void)
 
     policy_modified = 1;
 
+
     if (park_cpu(
             &original,
             target_khz,
@@ -1625,6 +1682,7 @@ static int run_table_only(void)
             "OPTIMIZER_CANDIDATE: guard changed after parking\n");
         goto fail;
     }
+
 
     if (module_apply_table(
             target_khz,
@@ -1827,6 +1885,12 @@ static int run_live_once(unsigned duration_seconds)
     unsigned target_khz = opp->frequency_khz;
     unsigned candidate_uv = calibration.pending_uv;
 
+    optimizer_progress_stage(
+        "prepare",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
+
     flip_cpu_policy_snapshot_t original;
     flip_cpu_policy_info_t info;
 
@@ -1868,6 +1932,12 @@ static int run_live_once(unsigned duration_seconds)
     }
 
     policy_modified = 1;
+
+    optimizer_progress_stage(
+        "parking",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
 
     if (park_cpu(
             &original,
@@ -1915,6 +1985,12 @@ static int run_live_once(unsigned duration_seconds)
         goto fail;
     }
 
+    optimizer_progress_stage(
+        "apply",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
+
     if (module_apply_table(
             target_khz,
             candidate_uv,
@@ -1948,6 +2024,12 @@ static int run_live_once(unsigned duration_seconds)
             "OPTIMIZER_CANDIDATE: adjusted-table verification failed\n");
         goto fail;
     }
+
+    optimizer_progress_stage(
+        "recovery",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
 
     if (flip_optimizer_quiesce_begin(
             &quiesce) < 0) {
@@ -2041,6 +2123,12 @@ static int run_live_once(unsigned duration_seconds)
         calibration.pending_trial_id);
     fflush(stdout);
 
+    optimizer_progress_stage(
+        "enter",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
+
     if (enter_candidate_frequency(
             &original,
             target_khz,
@@ -2063,6 +2151,12 @@ static int run_live_once(unsigned duration_seconds)
     voltage_entered = 1;
     candidate_exercised = 1;
 
+    optimizer_progress_stage(
+        "integrity-pre",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
+
     if (run_integrity_check(
             FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS) < 0) {
         fprintf(
@@ -2077,6 +2171,12 @@ static int run_live_once(unsigned duration_seconds)
 
     unsigned max_temp_mc = 0;
     unsigned samples = 0;
+
+    optimizer_progress_stage(
+        "stress",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
 
     printf(
         "OPTIMIZER_CANDIDATE: LIVE_BEGIN "
@@ -2112,6 +2212,12 @@ static int run_live_once(unsigned duration_seconds)
         goto fail;
     }
 
+    optimizer_progress_stage(
+        "integrity-post",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
+
     if (run_integrity_check(
             FLIP_OPTIMIZER_CALIBRATION_STRESS_WORKERS) < 0) {
         fprintf(
@@ -2135,6 +2241,12 @@ static int run_live_once(unsigned duration_seconds)
     fflush(stdout);
 
 fail:
+    optimizer_progress_stage(
+        "restore",
+        target_khz,
+        candidate_uv,
+        duration_seconds);
+
     if (voltage_entered) {
         if (return_to_parking_frequency(parking_khz) < 0 ||
             flip_cpu_policy_get_current(&current) < 0 ||
@@ -2202,6 +2314,12 @@ fail:
         power_cancelled = 1;
 
     if (hw_watchdog.touched) {
+        optimizer_progress_stage(
+            "settle",
+            target_khz,
+            candidate_uv,
+            duration_seconds);
+
         if (power_cancelled) {
             settle_hw_watchdog_power_cancel_and_reboot(
                 &hw_watchdog,

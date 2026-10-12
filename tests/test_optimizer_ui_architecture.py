@@ -39,31 +39,46 @@ for token in [
 
 for token in [
     "CPU STABILITY TEST",
-    "%u MINUTE STABILITY TEST",
-    "LEVEL %u/5",
+    "STRESS TIME REMAINING",
+    "TESTING %u MHz @ %u.%u mV",
+    "DONE",
+    "TEST",
+    "WAIT",
     "C%d",
     "/proc/stat",
-    "duration_minutes",
+    "LOAD WINDOW %u/%u   %u/%u SEC",
+    "CPU TEMP %u C   PEAK %u C",
+    "RECOVERY PROTECTION ACTIVE",
     "KEEP CHARGER CONNECTED",
     "UNPLUG CHARGER TO CANCEL SAFELY",
     "read_cpu_samples",
     "read_validation_status",
+    "cpu_usage_percent",
+    "validation_frequencies_khz",
+    "current_chunk_elapsed",
+    "stress_elapsed_seconds",
 ]:
     if token not in validation_progress:
         errors.append(f"validation progress UI missing: {token}")
 
 for token in [
     "OPTIMIZING CPU",
-    "FINDING SAFE SETTINGS FOR THIS DEVICE",
     "DO NOT POWER OFF",
     "KEEP CHARGER CONNECTED",
     "PROGRESS IS SAVED AUTOMATICALLY",
-    "UNPLUG CHARGER TO CANCEL SAFELY",
-    "read_progress(&completed, &total);",
-    "while (running)\n        pause();",
+    "PERFORMANCE LEVEL %u OF %u",
+    "VOLTAGE TEST%s COMPLETED",
+    "EST. %u-%u MIN REMAINING",
+    "RAM_PROGRESS_FILE",
+    "read_ram_progress(&ram)",
+    "opp_progress_permille",
+    "estimate_trials",
+    "STRESS TEST",
+    "RECOVERY PROTECTION ACTIVE",
+    "nanosleep(&delay, NULL)",
 ]:
     if token not in progress:
-        errors.append(f"progress splash missing: {token}")
+        errors.append(f"dynamic progress UI missing: {token}")
 
 # Splash is deliberately read-only after drawing.
 for forbidden in [
@@ -92,6 +107,16 @@ for token in [
 ]:
     if token not in updater:
         errors.append(f"updater optimizer UX hook missing: {token}")
+
+if "taskset -c 0,1,2 nice -n 10" not in updater:
+    errors.append("optimizer progress must stay off recovery CPU3 and run low priority")
+
+if 'nice -n 10 "$ROOT/bin/flip-optimizer-validation-progress"' not in updater:
+    errors.append("validation progress UI must run at low scheduler priority")
+
+for token in ["CALIBRATED", "VERIFIED", "DISABLED"]:
+    if token not in frontend:
+        errors.append(f"optimizer top-level state missing: {token}")
 
 start_pos = updater.find('"$ROOT/bin/flip-optimizer-progress" >/dev/null')
 resume_pos = updater.find('"$ROOT/bin/flip-optimizer-session" boot-resume')

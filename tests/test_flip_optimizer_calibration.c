@@ -48,7 +48,7 @@ static flip_optimizer_calibration_t make_wide_calibration(void)
     return calibration;
 }
 
-static void test_highest_opp_first_and_coarse_descent(void)
+static void test_highest_opp_first_uses_single_step_then_coarse_descent(void)
 {
     flip_optimizer_calibration_t calibration =
         make_calibration();
@@ -61,15 +61,15 @@ static void test_highest_opp_first_and_coarse_descent(void)
                &index,
                &uv) == 1);
     assert(index == 3);
-    assert(uv == 1075000);
+    assert(uv == 1087500);
     assert(strcmp(
                calibration.pending_trial_id,
-               "cpu-1992000-1075000-1") == 0);
+               "cpu-1992000-1087500-1") == 0);
 
     assert(flip_optimizer_calibration_record_pending(
                &calibration,
                1) == 0);
-    assert(calibration.opps[3].lowest_stable_uv == 1075000);
+    assert(calibration.opps[3].lowest_stable_uv == 1087500);
     assert(calibration.opps[3].complete == 0);
 
     assert(flip_optimizer_calibration_prepare_next(
@@ -77,7 +77,7 @@ static void test_highest_opp_first_and_coarse_descent(void)
                &index,
                &uv) == 1);
     assert(index == 3);
-    assert(uv == 1050000);
+    assert(uv == 1062500);
 }
 
 static void test_adaptive_bracket_refines_to_base_step(void)
@@ -91,33 +91,33 @@ static void test_adaptive_bracket_refines_to_base_step(void)
     assert(flip_optimizer_calibration_prepare_next(
                &calibration, &index, &uv) == 1);
     assert(index == 0);
-    assert(uv == 1025000);
+    assert(uv == 1037500);
     assert(flip_optimizer_calibration_record_pending(
                &calibration, 1) == 0);
 
     assert(flip_optimizer_calibration_prepare_next(
                &calibration, &index, &uv) == 1);
-    assert(uv == 1000000);
+    assert(uv == 1012500);
     assert(flip_optimizer_calibration_record_pending(
                &calibration, 0) == 0);
 
     const flip_optimizer_calibration_opp_t *opp =
         &calibration.opps[0];
 
-    assert(opp->lowest_stable_uv == 1025000);
-    assert(opp->highest_unstable_uv == 1000000);
+    assert(opp->lowest_stable_uv == 1037500);
+    assert(opp->highest_unstable_uv == 1012500);
     assert(opp->complete == 0);
 
     assert(flip_optimizer_calibration_prepare_next(
                &calibration, &index, &uv) == 1);
-    assert(uv == 1012500);
+    assert(uv == 1025000);
     assert(flip_optimizer_calibration_record_pending(
                &calibration, 1) == 0);
 
     opp = &calibration.opps[0];
-    assert(opp->lowest_stable_uv == 1012500);
-    assert(opp->highest_unstable_uv == 1000000);
-    assert(opp->raw_final_uv == 1037500);
+    assert(opp->lowest_stable_uv == 1025000);
+    assert(opp->highest_unstable_uv == 1012500);
+    assert(opp->raw_final_uv == 1050000);
     assert(opp->tests_run == 3);
     assert(opp->complete == 1);
 }
@@ -132,15 +132,9 @@ static void test_guardband_is_above_lowest_proven_stable(void)
 
     assert(flip_optimizer_calibration_prepare_next(
                &calibration, &index, &uv) == 1);
-    assert(uv == 1025000);
+    assert(uv == 1037500);
     assert(flip_optimizer_calibration_record_pending(
                &calibration, 1) == 0);
-
-    assert(flip_optimizer_calibration_prepare_next(
-               &calibration, &index, &uv) == 1);
-    assert(uv == 1000000);
-    assert(flip_optimizer_calibration_record_pending(
-               &calibration, 0) == 0);
 
     assert(flip_optimizer_calibration_prepare_next(
                &calibration, &index, &uv) == 1);
@@ -148,11 +142,17 @@ static void test_guardband_is_above_lowest_proven_stable(void)
     assert(flip_optimizer_calibration_record_pending(
                &calibration, 0) == 0);
 
+    assert(flip_optimizer_calibration_prepare_next(
+               &calibration, &index, &uv) == 1);
+    assert(uv == 1025000);
+    assert(flip_optimizer_calibration_record_pending(
+               &calibration, 0) == 0);
+
     const flip_optimizer_calibration_opp_t *opp =
         &calibration.opps[0];
 
-    assert(opp->lowest_stable_uv == 1025000);
-    assert(opp->highest_unstable_uv == 1012500);
+    assert(opp->lowest_stable_uv == 1037500);
+    assert(opp->highest_unstable_uv == 1025000);
     assert(opp->raw_final_uv == 1050000);
     assert(opp->complete == 1);
 }
@@ -169,7 +169,7 @@ static void test_rollback_creates_refinement_bracket(void)
                &calibration,
                &index,
                &uv) == 1);
-    assert(uv == 1025000);
+    assert(uv == 1037500);
 
     char trial_id[
         FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
@@ -184,15 +184,15 @@ static void test_rollback_creates_refinement_bracket(void)
                trial_id) == 0);
 
     assert(calibration.pending == 0);
-    assert(calibration.opps[0].complete == 0);
-    assert(calibration.opps[0].highest_unstable_uv == 1025000);
+    assert(calibration.opps[0].complete == 1);
+    assert(calibration.opps[0].highest_unstable_uv == 1037500);
     assert(calibration.opps[0].lowest_stable_uv == 1050000);
+    assert(calibration.opps[0].raw_final_uv == 1050000);
 
     assert(flip_optimizer_calibration_prepare_next(
                &calibration,
                &index,
-               &uv) == 1);
-    assert(uv == 1037500);
+               &uv) == 0);
 }
 
 static void test_hard_rollback_finalizes_without_more_danger_probes(void)
@@ -205,13 +205,13 @@ static void test_hard_rollback_finalizes_without_more_danger_probes(void)
 
     assert(flip_optimizer_calibration_prepare_next(
                &calibration, &index, &uv) == 1);
-    assert(uv == 1025000);
+    assert(uv == 1037500);
     assert(flip_optimizer_calibration_record_pending(
                &calibration, 1) == 0);
 
     assert(flip_optimizer_calibration_prepare_next(
                &calibration, &index, &uv) == 1);
-    assert(uv == 1000000);
+    assert(uv == 1012500);
 
     char trial_id[
         FLIP_OPTIMIZER_CALIBRATION_TRIAL_ID_MAX + 1];
@@ -219,8 +219,8 @@ static void test_hard_rollback_finalizes_without_more_danger_probes(void)
 
     assert(flip_optimizer_calibration_record_rollback(
                &calibration, trial_id) == 0);
-    assert(calibration.opps[0].lowest_stable_uv == 1025000);
-    assert(calibration.opps[0].highest_unstable_uv == 1000000);
+    assert(calibration.opps[0].lowest_stable_uv == 1037500);
+    assert(calibration.opps[0].highest_unstable_uv == 1012500);
     assert(calibration.opps[0].complete == 0);
 
     assert(flip_optimizer_calibration_finalize_after_hard_rollback(
@@ -254,7 +254,7 @@ static void test_floor_completion(void)
                &index,
                &uv) == 1);
     assert(index == 0);
-    assert(uv == 825000);
+    assert(uv == 837500);
 
     assert(flip_optimizer_calibration_record_pending(
                &calibration,
@@ -377,7 +377,7 @@ static void test_save_load_pending_state(void)
 
 int main(void)
 {
-    test_highest_opp_first_and_coarse_descent();
+    test_highest_opp_first_uses_single_step_then_coarse_descent();
     test_adaptive_bracket_refines_to_base_step();
     test_guardband_is_above_lowest_proven_stable();
     test_rollback_creates_refinement_bracket();

@@ -3397,10 +3397,23 @@ static void draw_optimizer(
         3,
         FG);
 
-    const char *state_text =
-        have_result
-            ? "OPTIMIZED"
-            : "NOT OPTIMIZED";
+    const char *state_text = "NOT OPTIMIZED";
+    if (have_result) {
+        optimizer_validation_result_t validation_state;
+        int have_validation_state =
+            optimizer_validation_load(
+                &result,
+                &validation_state);
+        if (have_validation_state &&
+            strcmp(validation_state.status, "passed") == 0)
+            state_text = "VERIFIED";
+        else if (access(
+                     OPTIMIZER_RUNTIME_QUARANTINE_PATH,
+                     F_OK) == 0)
+            state_text = "DISABLED";
+        else
+            state_text = "CALIBRATED";
+    }
 
     flip_draw_text(
         drm,

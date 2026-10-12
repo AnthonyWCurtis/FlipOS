@@ -397,7 +397,9 @@ static void print_plan(
                        opp->floor_uv +
                            calibration->voltage_step_uv) {
                 unsigned coarse_step =
-                    calibration->voltage_step_uv * 2U;
+                    opp->tests_run == 0
+                        ? calibration->voltage_step_uv
+                        : calibration->voltage_step_uv * 2U;
                 unsigned available =
                     opp->lowest_stable_uv -
                     opp->floor_uv;

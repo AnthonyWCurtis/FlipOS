@@ -53,6 +53,18 @@ required = [
     "emergency_reboot()",
     "flip_cpu_policy_restore(&original)",
     "voltage_entered=0",
+    "FLIP_OPTIMIZER_PROGRESS_RAM_FILE",
+    "optimizer_progress_stage(",
+    "\"prepare\"",
+    "\"parking\"",
+    "\"apply\"",
+    "\"recovery\"",
+    "\"enter\"",
+    "\"integrity-pre\"",
+    "\"stress\"",
+    "\"integrity-post\"",
+    "\"restore\"",
+    "\"settle\"",
 ]
 
 for token in required:

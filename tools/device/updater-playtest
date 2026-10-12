@@ -406,7 +406,7 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -x "$ROOT/bin/flip-optimizer-candidate" ]; then
     VALIDATION_PROGRESS_PID=""
     if [ -x "$ROOT/bin/flip-optimizer-validation-progress" ]; then
-        "$ROOT/bin/flip-optimizer-validation-progress" >/dev/null 2>&1 &
+        nice -n 10 "$ROOT/bin/flip-optimizer-validation-progress" >/dev/null 2>&1 &
         VALIDATION_PROGRESS_PID=$!
         echo "OPTIMIZER_VALIDATION: progress splash pid=$VALIDATION_PROGRESS_PID" >> "$LOG_TARGET"
     fi
@@ -452,7 +452,7 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -x "$ROOT/bin/flip-optimizer-progress" ] && \
    [ -x "$ROOT/bin/flip-optimizer-session" ] && \
    "$ROOT/bin/flip-optimizer-session" status 2>/dev/null | grep -q '^session_present=1$'; then
-    "$ROOT/bin/flip-optimizer-progress" >/dev/null 2>&1 &
+    taskset -c 0,1,2 nice -n 10         "$ROOT/bin/flip-optimizer-progress" >/dev/null 2>&1 &
     OPTIMIZER_PROGRESS_PID=$!
     echo "OPTIMIZER_UI: progress splash pid=$OPTIMIZER_PROGRESS_PID" >> "$LOG_TARGET"
 fi

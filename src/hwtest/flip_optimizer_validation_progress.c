@@ -6,7 +6,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
-#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,9 +17,22 @@
 #define DIM   0x00505050
 #define PANEL 0x00202020
 
-#define VALIDATION_REQUEST     "/mnt/SDCARD/flipos-dev/state/optimizer/validation-request"
-#define VALIDATION_ACTIVE     "/mnt/SDCARD/flipos-dev/state/optimizer/validation-active"
-#define VALIDATION_MANUAL_STOP "/mnt/SDCARD/flipos-dev/state/optimizer/validation-manual-stop"
+#define VALIDATION_REQUEST \
+    "/mnt/SDCARD/flipos-dev/state/optimizer/validation-request"
+#define VALIDATION_ACTIVE \
+    "/mnt/SDCARD/flipos-dev/state/optimizer/validation-active"
+#define VALIDATION_MANUAL_STOP \
+    "/mnt/SDCARD/flipos-dev/state/optimizer/validation-manual-stop"
+
+#define VALIDATION_LEVELS 5U
+
+static const unsigned validation_frequencies_khz[VALIDATION_LEVELS] = {
+    1992000U,
+    1800000U,
+    1608000U,
+    1416000U,
+    1104000U,
+};
 
 static volatile sig_atomic_t running = 1;
 
@@ -28,6 +40,20 @@ typedef struct {
     unsigned long long total;
     unsigned long long idle;
 } cpu_sample_t;
+
+typedef struct {
+    char status[80];
+    char phase[32];
+    unsigned tested_opps;
+    unsigned seconds_per_opp;
+    unsigned max_temp_mc;
+    unsigned frequency_khz;
+    unsigned voltage_uv;
+    unsigned chunk_index;
+    unsigned chunk_count;
+    unsigned recovery_armed;
+    unsigned tested_epoch;
+} validation_status_t;
 
 static void stop_handler(int sig)
 {
@@ -60,12 +86,19 @@ static void poll_power_key(int input_fd)
         struct input_event ev;
         ssize_t n = read(input_fd, &ev, sizeof(ev));
         if (n == (ssize_t)sizeof(ev)) {
-            if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 1)
+            if (ev.type == EV_KEY &&
+                ev.code == KEY_POWER &&
+                ev.value == 1)
                 record_manual_stop();
             continue;
         }
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+
+        if (n < 0 &&
+            (errno == EAGAIN ||
+             errno == EWOULDBLOCK ||
+             errno == EINTR))
             return;
+
         return;
     }
 }
@@ -84,11 +117,15 @@ static unsigned read_duration_minutes(void)
 
     char line[128];
     unsigned minutes = 5U;
+
     while (fgets(line, sizeof(line), f)) {
         unsigned parsed = 0;
         if (sscanf(line, "duration_minutes=%u", &parsed) == 1) {
-            if (parsed == 5U || parsed == 10U || parsed == 20U ||
-                parsed == 30U || parsed == 60U)
+            if (parsed == 5U ||
+                parsed == 10U ||
+                parsed == 20U ||
+                parsed == 30U ||
+                parsed == 60U)
                 minutes = parsed;
             break;
         }
@@ -98,39 +135,85 @@ static unsigned read_duration_minutes(void)
     return minutes;
 }
 
-static void read_validation_status(
-    char *status,
-    size_t status_size,
-    unsigned *tested_opps)
+static void read_validation_status(validation_status_t *state)
 {
-    if (!status || status_size == 0)
+    if (!state)
         return;
 
-    snprintf(status, status_size, "PREPARING");
-    if (tested_opps)
-        *tested_opps = 0;
+    memset(state, 0, sizeof(*state));
+    snprintf(state->status, sizeof(state->status), "PREPARING");
 
     FILE *f = fopen(VALIDATION_ACTIVE, "r");
     if (!f)
         return;
 
-    char line[160];
+    char line[192];
+
     while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, "status=", 7) == 0) {
-            char *value = line + 7;
-            char *end = strpbrk(value, "\r\n");
-            if (end)
-                *end = '\0';
+        char text[80];
+        unsigned parsed = 0;
+
+        if (sscanf(line, "status=%79s", text) == 1) {
             snprintf(
-                status,
-                status_size,
-                "%.*s",
-                (int)status_size - 1,
-                value);
-        } else if (tested_opps) {
-            unsigned parsed = 0;
-            if (sscanf(line, "tested_opps=%u", &parsed) == 1)
-                *tested_opps = parsed;
+                state->status,
+                sizeof(state->status),
+                "%s",
+                text);
+            continue;
+        }
+
+        if (sscanf(line, "phase=%31s", text) == 1) {
+            snprintf(
+                state->phase,
+                sizeof(state->phase),
+                "%.31s",
+                text);
+            continue;
+        }
+
+        if (sscanf(line, "tested_opps=%u", &parsed) == 1) {
+            state->tested_opps = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "seconds_per_opp=%u", &parsed) == 1) {
+            state->seconds_per_opp = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "max_temp_mc=%u", &parsed) == 1) {
+            state->max_temp_mc = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "frequency_khz=%u", &parsed) == 1) {
+            state->frequency_khz = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "voltage_uv=%u", &parsed) == 1) {
+            state->voltage_uv = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "chunk_index=%u", &parsed) == 1) {
+            state->chunk_index = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "chunk_count=%u", &parsed) == 1) {
+            state->chunk_count = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "recovery_armed=%u", &parsed) == 1) {
+            state->recovery_armed = parsed;
+            continue;
+        }
+
+        if (sscanf(line, "tested_epoch=%u", &parsed) == 1) {
+            state->tested_epoch = parsed;
+            continue;
         }
     }
 
@@ -145,6 +228,7 @@ static int read_cpu_samples(cpu_sample_t samples[4])
 
     char line[256];
     int found = 0;
+
     while (found < 4 && fgets(line, sizeof(line), f)) {
         unsigned cpu = 0;
         unsigned long long user = 0;
@@ -171,7 +255,8 @@ static int read_cpu_samples(cpu_sample_t samples[4])
             cpu < 4U) {
             samples[cpu].idle = idle + iowait;
             samples[cpu].total =
-                user + nice + system + idle + iowait + irq + softirq + steal;
+                user + nice + system + idle + iowait +
+                irq + softirq + steal;
             found++;
         }
     }
@@ -184,10 +269,13 @@ static unsigned cpu_usage_percent(
     const cpu_sample_t *before,
     const cpu_sample_t *after)
 {
-    if (!before || !after || after->total <= before->total)
+    if (!before ||
+        !after ||
+        after->total <= before->total)
         return 0;
 
-    unsigned long long total = after->total - before->total;
+    unsigned long long total =
+        after->total - before->total;
     unsigned long long idle =
         after->idle >= before->idle
             ? after->idle - before->idle
@@ -196,12 +284,15 @@ static unsigned cpu_usage_percent(
     if (idle >= total)
         return 0;
 
-    return (unsigned)(((total - idle) * 100ULL) / total);
+    return (unsigned)(
+        ((total - idle) * 100ULL) / total);
 }
 
 static unsigned read_soc_temp_c(void)
 {
-    FILE *f = fopen("/sys/class/thermal/thermal_zone0/temp", "r");
+    FILE *f =
+        fopen("/sys/class/thermal/thermal_zone0/temp", "r");
+
     if (!f)
         return 0;
 
@@ -210,175 +301,473 @@ static unsigned read_soc_temp_c(void)
         temp_mc = 0;
 
     fclose(f);
-    return temp_mc / 1000U;
+    return (temp_mc + 500U) / 1000U;
 }
 
-static const char *friendly_phase(const char *status)
+static const char *friendly_phase(
+    const validation_status_t *state)
 {
-    if (!status || !status[0])
+    if (!state || !state->status[0])
         return "PREPARING";
 
-    if (strncmp(status, "entering-", 9) == 0)
-        return "STRESSING CPU";
-    if (strcmp(status, "running") == 0)
+    if (strncmp(state->status, "entering-", 9) == 0)
+        return "STRESSING ALL 4 CPU CORES";
+
+    if (strcmp(state->status, "running") == 0)
         return "PREPARING";
-    if (strcmp(status, "arming-quiesce") == 0)
+
+    if (strcmp(state->status, "arming-quiesce") == 0)
         return "PREPARING SYSTEM";
-    if (strcmp(status, "arming-panic-policy") == 0 ||
-        strcmp(status, "loading-tsadc-recovery") == 0 ||
-        strcmp(status, "arming-tsadc-recovery") == 0 ||
-        strcmp(status, "arming-hw-watchdog") == 0 ||
-        strcmp(status, "arming-deadman") == 0)
-        return "PREPARING SAFETY CHECKS";
-    if (strcmp(status, "applying-profile") == 0)
+
+    if (strcmp(state->status, "arming-panic-policy") == 0 ||
+        strcmp(state->status, "loading-tsadc-recovery") == 0 ||
+        strcmp(state->status, "arming-tsadc-recovery") == 0 ||
+        strcmp(state->status, "arming-hw-watchdog") == 0 ||
+        strcmp(state->status, "arming-deadman") == 0)
+        return "ARMING RECOVERY PROTECTION";
+
+    if (strcmp(state->status, "applying-profile") == 0)
         return "APPLYING TUNED SETTINGS";
-    if (strcmp(status, "profile-applied") == 0)
-        return "STRESSING CPU";
-    return "STRESSING CPU";
+
+    if (strcmp(state->status, "profile-applied") == 0)
+        return "STARTING CPU LOAD";
+
+    return "STABILITY TEST RUNNING";
+}
+
+static unsigned current_chunk_seconds(
+    const validation_status_t *state)
+{
+    if (!state ||
+        !state->seconds_per_opp ||
+        !state->chunk_count)
+        return 0;
+
+    unsigned seconds =
+        state->seconds_per_opp / state->chunk_count;
+
+    return seconds ? seconds : 1U;
+}
+
+static unsigned current_chunk_elapsed(
+    const validation_status_t *state)
+{
+    unsigned chunk_seconds =
+        current_chunk_seconds(state);
+
+    if (!state ||
+        !chunk_seconds ||
+        !state->tested_epoch)
+        return 0;
+
+    time_t now = time(NULL);
+    if (now <= 0 ||
+        (unsigned long long)now <= state->tested_epoch)
+        return 0;
+
+    unsigned elapsed =
+        (unsigned)((unsigned long long)now -
+                   state->tested_epoch);
+
+    return elapsed > chunk_seconds
+        ? chunk_seconds
+        : elapsed;
+}
+
+static unsigned stress_elapsed_seconds(
+    const validation_status_t *state)
+{
+    if (!state || !state->seconds_per_opp)
+        return 0;
+
+    unsigned elapsed =
+        state->tested_opps * state->seconds_per_opp;
+
+    if (state->frequency_khz &&
+        state->chunk_index &&
+        state->chunk_count) {
+        unsigned chunk_seconds =
+            current_chunk_seconds(state);
+
+        elapsed +=
+            (state->chunk_index - 1U) *
+            chunk_seconds;
+        elapsed += current_chunk_elapsed(state);
+    }
+
+    return elapsed;
+}
+
+static void draw_level_timeline(
+    flip_drm_t *drm,
+    unsigned tested_opps)
+{
+    const int box_w = 98;
+    const int box_h = 27;
+    const int gap = 8;
+    const int total_w =
+        (int)VALIDATION_LEVELS * box_w +
+        ((int)VALIDATION_LEVELS - 1) * gap;
+    const int start_x = (640 - total_w) / 2;
+    const int y = 126;
+
+    for (unsigned i = 0;
+         i < VALIDATION_LEVELS;
+         ++i) {
+        int x = start_x + (int)i * (box_w + gap);
+
+        int done = i < tested_opps;
+        int active =
+            i == tested_opps &&
+            tested_opps < VALIDATION_LEVELS;
+
+        flip_draw_rect(
+            drm,
+            x,
+            y,
+            box_w,
+            box_h,
+            done ? FG : PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            x,
+            y,
+            box_w,
+            box_h,
+            active || done ? 2 : 1,
+            active || done ? FG : DIM);
+
+        char mhz[16];
+        snprintf(
+            mhz,
+            sizeof(mhz),
+            "%u",
+            validation_frequencies_khz[i] / 1000U);
+
+        flip_draw_text(
+            drm,
+            x + (box_w - (int)strlen(mhz) * 6) / 2,
+            y + 9,
+            mhz,
+            1,
+            done ? BG : (active ? FG : DIM));
+
+        const char *state =
+            done ? "DONE" :
+            active ? "TEST" :
+            "WAIT";
+
+        flip_draw_text(
+            drm,
+            x + (box_w - (int)strlen(state) * 6) / 2,
+            y + box_h + 7,
+            state,
+            1,
+            done || active ? FG : DIM);
+    }
+}
+
+static void draw_core_load(
+    flip_drm_t *drm,
+    const unsigned usage[4])
+{
+    const int label_x = 65;
+    const int bar_x = 105;
+    const int bar_w = 385;
+    const int bar_h = 15;
+    const int percent_x = 510;
+    const int first_y = 245;
+    const int stride = 24;
+
+    for (int i = 0; i < 4; ++i) {
+        int y = first_y + i * stride;
+        unsigned clamped =
+            usage[i] > 100U ? 100U : usage[i];
+
+        char core[8];
+        snprintf(core, sizeof(core), "C%d", i);
+        flip_draw_text(
+            drm,
+            label_x,
+            y + 2,
+            core,
+            1,
+            FG);
+
+        flip_draw_rect(
+            drm,
+            bar_x,
+            y,
+            bar_w,
+            bar_h,
+            PANEL);
+        flip_draw_rect_outline(
+            drm,
+            bar_x,
+            y,
+            bar_w,
+            bar_h,
+            1,
+            FG);
+
+        int fill =
+            (int)((unsigned long long)(bar_w - 4) *
+                  clamped / 100ULL);
+
+        if (fill > 0) {
+            flip_draw_rect(
+                drm,
+                bar_x + 2,
+                y + 2,
+                fill,
+                bar_h - 4,
+                FG);
+        }
+
+        char percent[16];
+        snprintf(
+            percent,
+            sizeof(percent),
+            "%3u%%",
+            clamped);
+        flip_draw_text(
+            drm,
+            percent_x,
+            y + 2,
+            percent,
+            1,
+            clamped >= 95U ? FG : DIM);
+    }
 }
 
 static void draw_screen(
     flip_drm_t *drm,
     unsigned duration_minutes,
-    unsigned elapsed_seconds,
+    const validation_status_t *state,
     const unsigned usage[4],
-    const char *phase,
-    unsigned tested_opps,
-    unsigned temp_c)
+    unsigned temp_c,
+    unsigned observed_peak_c)
 {
     flip_draw_clear(drm, BG);
 
     flip_draw_text(
         drm,
         centred_text_x("CPU STABILITY TEST", 3),
-        32,
+        17,
         "CPU STABILITY TEST",
         3,
         FG);
 
-    char subtitle[64];
+    unsigned total_seconds =
+        duration_minutes * 60U;
+
+    unsigned stress_elapsed =
+        stress_elapsed_seconds(state);
+
+    unsigned remaining =
+        stress_elapsed >= total_seconds
+            ? 0U
+            : total_seconds - stress_elapsed;
+
+    char countdown[32];
     snprintf(
-        subtitle,
-        sizeof(subtitle),
-        "%u MINUTE STABILITY TEST",
-        duration_minutes);
+        countdown,
+        sizeof(countdown),
+        "%02u:%02u",
+        remaining / 60U,
+        remaining % 60U);
+
     flip_draw_text(
         drm,
-        centred_text_x(subtitle, 1),
-        78,
-        subtitle,
+        centred_text_x(countdown, 4),
+        57,
+        countdown,
+        4,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("STRESS TIME REMAINING", 1),
+        101,
+        "STRESS TIME REMAINING",
         1,
         DIM);
 
+    draw_level_timeline(
+        drm,
+        state->tested_opps > VALIDATION_LEVELS
+            ? VALIDATION_LEVELS
+            : state->tested_opps);
+
+    char current[96];
+
+    if (state->frequency_khz && state->voltage_uv) {
+        unsigned whole_mv =
+            state->voltage_uv / 1000U;
+        unsigned tenth_mv =
+            (state->voltage_uv % 1000U) / 100U;
+
+        snprintf(
+            current,
+            sizeof(current),
+            "TESTING %u MHz @ %u.%u mV",
+            state->frequency_khz / 1000U,
+            whole_mv,
+            tenth_mv);
+    } else {
+        snprintf(
+            current,
+            sizeof(current),
+            "%s",
+            friendly_phase(state));
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(current, 2),
+        183,
+        current,
+        2,
+        FG);
+
+    const char *phase = friendly_phase(state);
     flip_draw_text(
         drm,
         centred_text_x(phase, 1),
-        103,
+        213,
         phase,
         1,
-        FG);
+        DIM);
 
-    const int bar_w = 62;
-    const int bar_h = 140;
-    const int gap = 28;
-    const int total_w = 4 * bar_w + 3 * gap;
-    const int start_x = (640 - total_w) / 2;
-    const int base_y = 285;
+    draw_core_load(drm, usage);
 
-    for (int i = 0; i < 4; ++i) {
-        int x = start_x + i * (bar_w + gap);
-        flip_draw_rect(drm, x, base_y - bar_h, bar_w, bar_h, PANEL);
-        flip_draw_rect_outline(drm, x, base_y - bar_h, bar_w, bar_h, 2, FG);
+    unsigned chunk_seconds =
+        current_chunk_seconds(state);
+    unsigned chunk_elapsed =
+        current_chunk_elapsed(state);
 
-        unsigned clamped = usage[i] > 100U ? 100U : usage[i];
-        int fill_h = (int)((clamped * (unsigned)(bar_h - 6)) / 100U);
-        if (fill_h > 0)
-            flip_draw_rect(
-                drm,
-                x + 3,
-                base_y - 3 - fill_h,
-                bar_w - 6,
-                fill_h,
-                FG);
+    if (state->chunk_count &&
+        state->chunk_index &&
+        chunk_seconds) {
+        const int x = 105;
+        const int y = 348;
+        const int w = 430;
+        const int h = 16;
 
-        char core[16];
-        snprintf(core, sizeof(core), "C%d", i);
-        flip_draw_text(
+        flip_draw_rect(
             drm,
-            x + (bar_w - (int)strlen(core) * 12) / 2,
-            300,
-            core,
-            2,
+            x,
+            y,
+            w,
+            h,
+            PANEL);
+        flip_draw_rect_outline(
+            drm,
+            x,
+            y,
+            w,
+            h,
+            1,
             FG);
 
-        char percent[16];
-        snprintf(percent, sizeof(percent), "%u%%", clamped);
+        int fill =
+            (int)((unsigned long long)(w - 4) *
+                  chunk_elapsed /
+                  chunk_seconds);
+
+        if (fill > 0) {
+            flip_draw_rect(
+                drm,
+                x + 2,
+                y + 2,
+                fill,
+                h - 4,
+                FG);
+        }
+
+        char window[96];
+        snprintf(
+            window,
+            sizeof(window),
+            "LOAD WINDOW %u/%u   %u/%u SEC",
+            state->chunk_index,
+            state->chunk_count,
+            chunk_elapsed,
+            chunk_seconds);
+
         flip_draw_text(
             drm,
-            x + (bar_w - (int)strlen(percent) * 6) / 2,
-            328,
-            percent,
+            centred_text_x(window, 1),
+            373,
+            window,
+            1,
+            DIM);
+    } else {
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "PREPARING VALIDATION LOAD",
+                1),
+            357,
+            "PREPARING VALIDATION LOAD",
             1,
             DIM);
     }
 
-    unsigned total_seconds = duration_minutes * 60U;
-    unsigned remaining =
-        elapsed_seconds >= total_seconds
-            ? 0U
-            : total_seconds - elapsed_seconds;
-    unsigned progress =
-        total_seconds == 0
-            ? 0U
-            : (elapsed_seconds * 100U) / total_seconds;
-    if (tested_opps < 5U && progress >= 100U)
-        progress = 99U;
-    else if (progress > 100U)
-        progress = 100U;
+    unsigned recorded_peak_c =
+        state->max_temp_mc
+            ? (state->max_temp_mc + 500U) / 1000U
+            : 0U;
 
-    char info[96];
+    unsigned peak_c =
+        observed_peak_c > recorded_peak_c
+            ? observed_peak_c
+            : recorded_peak_c;
+
+    char thermal[80];
     snprintf(
-        info,
-        sizeof(info),
-        "PROGRESS %u%%   TEMP %u C   LEVEL %u/5",
-        progress,
+        thermal,
+        sizeof(thermal),
+        "CPU TEMP %u C   PEAK %u C",
         temp_c,
-        tested_opps);
+        peak_c);
+
     flip_draw_text(
         drm,
-        centred_text_x(info, 1),
-        365,
-        info,
+        centred_text_x(thermal, 1),
+        397,
+        thermal,
         1,
         FG);
 
-    char time_left[64];
-    snprintf(
-        time_left,
-        sizeof(time_left),
-        "TIME LEFT ~%u:%02u",
-        remaining / 60U,
-        remaining % 60U);
+    const char *protection =
+        state->recovery_armed
+            ? "RECOVERY PROTECTION ACTIVE"
+            : "RECOVERY PROTECTION PREPARING";
+
     flip_draw_text(
         drm,
-        centred_text_x(time_left, 1),
-        390,
-        time_left,
+        centred_text_x(protection, 1),
+        418,
+        protection,
         1,
-        DIM);
+        state->recovery_armed ? FG : DIM);
 
     flip_draw_text(
         drm,
         centred_text_x("KEEP CHARGER CONNECTED", 2),
-        420,
+        439,
         "KEEP CHARGER CONNECTED",
         2,
         FG);
 
     flip_draw_text(
         drm,
-        centred_text_x("UNPLUG CHARGER TO CANCEL SAFELY", 1),
-        454,
+        centred_text_x(
+            "UNPLUG CHARGER TO CANCEL SAFELY",
+            1),
+        468,
         "UNPLUG CHARGER TO CANCEL SAFELY",
         1,
         DIM);
@@ -395,7 +784,9 @@ int main(void)
     if (flip_drm_open(&drm) < 0)
         return 1;
 
-    unsigned duration_minutes = read_duration_minutes();
+    unsigned duration_minutes =
+        read_duration_minutes();
+
     int input_fd = open(
         "/dev/input/event0",
         O_RDONLY | O_NONBLOCK | O_CLOEXEC);
@@ -405,54 +796,54 @@ int main(void)
     (void)read_cpu_samples(previous);
 
     unsigned smoothed[4] = {0, 0, 0, 0};
-
-    struct timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    unsigned observed_peak_c = 0;
 
     while (running) {
         poll_power_key(input_fd);
 
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        unsigned elapsed =
-            (unsigned)(now.tv_sec - start.tv_sec);
-
         unsigned instantaneous[4] = {0, 0, 0, 0};
+
         if (read_cpu_samples(current) == 0) {
             for (int i = 0; i < 4; ++i) {
                 instantaneous[i] =
-                    cpu_usage_percent(&previous[i], &current[i]);
+                    cpu_usage_percent(
+                        &previous[i],
+                        &current[i]);
+
                 smoothed[i] =
-                    (smoothed[i] * 3U + instantaneous[i]) / 4U;
+                    (smoothed[i] * 2U +
+                     instantaneous[i] * 2U) /
+                    4U;
+
                 previous[i] = current[i];
             }
         }
 
-        char status[80];
-        unsigned tested_opps = 0;
-        read_validation_status(
-            status,
-            sizeof(status),
-            &tested_opps);
+        validation_status_t state;
+        read_validation_status(&state);
+
+        unsigned temp_c = read_soc_temp_c();
+        if (temp_c > observed_peak_c)
+            observed_peak_c = temp_c;
 
         draw_screen(
             &drm,
             duration_minutes,
-            elapsed,
+            &state,
             smoothed,
-            friendly_phase(status),
-            tested_opps,
-            read_soc_temp_c());
+            temp_c,
+            observed_peak_c);
 
         struct timespec delay = {
             .tv_sec = 0,
-            .tv_nsec = 100 * 1000 * 1000,
+            .tv_nsec = 250 * 1000 * 1000,
         };
         nanosleep(&delay, NULL);
     }
 
     if (input_fd >= 0)
         close(input_fd);
+
     flip_drm_close(&drm);
     return 0;
 }

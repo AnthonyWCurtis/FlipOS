@@ -578,14 +578,17 @@ int flip_optimizer_calibration_prepare_next(
                     calibration->voltage_step_uv;
         } else {
             /*
-             * Search downward in 25 mV increments until the first failure.
-             * The original 50 mV stride was fast but could jump from a stable
-             * point directly into a hard CPU lock before recovery software had
-             * enough execution margin. Binary refinement still takes over
-             * after the first unstable point is known.
+             * The first live test of every OPP is deliberately one RK860
+             * hardware step below the known-stable stock point. This proves
+             * the complete on-device apply/stress/recovery path before we
+             * increase the search stride. Once one candidate has completed
+             * cleanly, descend in 25 mV increments until the first failure;
+             * binary refinement then closes the final bracket at 12.5 mV.
              */
             unsigned coarse_step =
-                calibration->voltage_step_uv * 2U;
+                opp->tests_run == 0
+                    ? calibration->voltage_step_uv
+                    : calibration->voltage_step_uv * 2U;
             unsigned available =
                 opp->lowest_stable_uv -
                 opp->floor_uv;

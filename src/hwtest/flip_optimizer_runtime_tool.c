@@ -22,6 +22,7 @@
 #define UI_RETURN_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/ui-return"
 #define RUNTIME_ACTIVE_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/runtime-profile-active"
 #define RUNTIME_QUARANTINE_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/runtime-profile-quarantined"
+#define VALIDATION_RESULT_FILE "/mnt/SDCARD/flipos-dev/state/optimizer/validation-result"
 #define PARK_KHZ 408000U
 
 typedef struct {
@@ -368,8 +369,56 @@ static int clear_runtime_active_marker(void)
     return 0;
 }
 
+static int validation_passed_for_result(
+    const flip_optimizer_result_t *result)
+{
+    if (!result)
+        return 0;
+
+    FILE *f = fopen(VALIDATION_RESULT_FILE, "r");
+    if (!f)
+        return 0;
+
+    int version = 0;
+    char status[32] = {0};
+    char device_id[FLIP_OPTIMIZER_DEVICE_ID_MAX] = {0};
+    unsigned calibrated_epoch = 0;
+    char line[256];
+
+    while (fgets(line, sizeof(line), f)) {
+        int parsed_version = 0;
+        unsigned parsed_epoch = 0;
+        char parsed[FLIP_OPTIMIZER_DEVICE_ID_MAX] = {0};
+
+        if (sscanf(line, "version=%d", &parsed_version) == 1) {
+            version = parsed_version;
+            continue;
+        }
+        if (sscanf(line, "status=%31s", status) == 1)
+            continue;
+        if (sscanf(line, "device_id=%64s", parsed) == 1) {
+            snprintf(device_id, sizeof(device_id), "%s", parsed);
+            continue;
+        }
+        if (sscanf(line, "calibrated_epoch=%u", &parsed_epoch) == 1) {
+            calibrated_epoch = parsed_epoch;
+            continue;
+        }
+    }
+
+    int failed = ferror(f);
+    fclose(f);
+
+    return !failed &&
+        version == 1 &&
+        strcmp(status, "passed") == 0 &&
+        strcmp(device_id, result->device_id) == 0 &&
+        calibrated_epoch == result->calibrated_epoch;
+}
+
 static int runtime_preconditions(
-    flip_optimizer_result_t *result)
+    flip_optimizer_result_t *result,
+    int require_validation)
 {
     flip_optimizer_guard_status_t guard;
     char device_id[FLIP_OPTIMIZER_DEVICE_ID_MAX];
@@ -383,13 +432,17 @@ static int runtime_preconditions(
         guard.stock_only ||
         flip_optimizer_load(result) < 0 ||
         read_device_id(device_id, sizeof(device_id)) < 0 ||
-        strcmp(device_id, result->device_id) != 0)
+        strcmp(device_id, result->device_id) != 0 ||
+        (require_validation &&
+         !validation_passed_for_result(result)))
         return -1;
 
     return 0;
 }
 
-static int apply_profile(int write_marker)
+static int apply_profile(
+    int write_marker,
+    int require_validation)
 {
     flip_optimizer_result_t result;
     flip_cpu_policy_snapshot_t snapshot;
@@ -401,7 +454,7 @@ static int apply_profile(int write_marker)
     if (module_loaded())
         return -1;
 
-    if (runtime_preconditions(&result) < 0)
+    if (runtime_preconditions(&result, require_validation) < 0)
         return -1;
 
     if (park_cpu(&snapshot) < 0)
@@ -503,10 +556,10 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "apply") == 0)
-        return apply_profile(1) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+        return apply_profile(1, 1) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 
     if (strcmp(argv[1], "apply-validation") == 0)
-        return apply_profile(0) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+        return apply_profile(0, 0) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 
     if (strcmp(argv[1], "restore") == 0)
         return restore_loaded_profile() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
