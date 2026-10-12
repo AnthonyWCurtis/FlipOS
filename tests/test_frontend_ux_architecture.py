@@ -14,6 +14,13 @@ assert '? "PAUSED"' in SOURCE
 assert 'centred_text_x("LAUNCHING", 3)' in SOURCE
 
 assert '"HOLD MENU + SELECT TO POWER OFF"' in SOURCE
+assert '"YOUR GAMES. YOUR TIME."' in SOURCE
+assert '"LAST PLAYED"' in SOURCE
+assert '"PLAY STATS"' in SOURCE
+assert '"PLAY TIME"' in SOURCE
+assert '"LAUNCHES"' in SOURCE
+assert 'SCREEN_STATS' in SOURCE
+assert 'draw_stats(' in SOURCE
 assert '"END PAUSED GAME?"' in SOURCE
 assert '"REMOVE FROM LIST?"' in SOURCE
 assert '"RUN STABILITY TEST"' in SOURCE
