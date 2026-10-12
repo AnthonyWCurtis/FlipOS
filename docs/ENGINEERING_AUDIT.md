@@ -224,41 +224,46 @@ as a PMU reset source on this board. The earlier bit-4 correction therefore
 remains useful defensive programming and readback validation, but is not the
 root cause of the black-screen failure.
 
-The external RK860 is part of the failure, but inspection of the live device
-tree and Rockchip reset documentation exposed the missing recovery link. The
-live RK860 node is powered from `vcc3v8_sys`. The RK3566 GPIO0_A2 pin is the
-PMIC_SLEEP / TSADC_SHUT_M1 alternate-function pin, while the live RK817 node
-contains the matching PMIC reset states. Live RK817 SYS_CFG3 was already
-configured for active-low SLEEP-pin restart. The previous FlipOS recovery
-module only selected the TSADC device's `otpout` state, which the live DT maps
-to GPIO0_A1. It never muxed GPIO0_A2 to TSADC_SHUT_M1, so a watchdog reset could
-restart the SoC without forcing an RK817/VCC_SYS restart. That explains why a
-stock-voltage watchdog reboot worked while a deeply undervolted RK860 could
-remain stranded.
+The external RK860 is the important board-specific part of the failure. The
+live RK860 node is powered from `vcc3v8_sys`, which the live Miyoo device tree
+defines as a fixed, always-on 3.8 V supply. Normal Linux reboot explicitly
+resets RK860 over I2C from the regulator driver's shutdown callback, but a hard
+CPU undervolt can prevent that callback from running while RK860 itself remains
+powered.
 
-The Rockchip TSADC TRM adds an important ordering constraint: when the TSHUT
-GPIO enable bit is clear, the output is held low. Directly muxing GPIO0_A2 to
-TSADC_SHUT_M1 before enabling the route could therefore cause an immediate
-active-low RK817 restart.
+An attempted hardware fix routed GPIO0_A2 / TSADC_SHUT_M1 into RK817's
+active-low SLEEP-pin restart function. The experiment was performed at stock
+CPU voltage. Merely arming the route caused an immediate restart and then the
+same black-screen/green-LED state, requiring a manual power cycle. The
+experimental module was immediately removed from the device and the previous
+known-good recovery module restored by verified SHA-256.
 
-Status: a new recovery chain is implemented and fully host-verified on the
-audit branch, but is not yet hardware-accepted. Arming now makes the RK817
-SLEEP action inert, enables/verifies the TSADC GPIO route, checks low-active
-polarity and no pending TSHUT, muxes GPIO0_A2 to TSADC_SHUT_M1 with PMUGRF
-write-mask semantics, then enables RK817 active-low PMIC restart. CRU watchdog
-extension/PMU routing remains enabled. Teardown reverses the path and restores
-the exact original mux, RK817 bits, TSADC route and CRU bits. The module cannot
-be unloaded while armed.
+Post-test inspection explains why this approach cannot solve RK860 recovery
+even if its trigger sequencing is corrected. The stock DT's `pmic-reset`
+state deliberately combines RK817 restart mode with GPIO0_A2 configured
+`output-low`; it is an immediate reset trigger, not a persistent armed
+failsafe. More importantly, restarting RK817 does not remove the fixed
+`vcc3v8_sys` input from RK860. RK860 can therefore remain powered across the
+PMIC/SoC restart and retain the failed CPU-voltage programming.
 
-A second correctness fix enforces fresh-run isolation: the calibration history
-file remains available for engineering diagnostics, but a new optimizer run no
-longer imports prior unstable voltages into its boundary state. Every run starts
-from the live stock OPP table and produces its own evidence.
+Status: the RK817/TSADC_SHUT_M1 recovery experiment is rejected and its source
+changes are reverted on the audit branch. The earlier watchdog/CRU recovery
+hardening remains, but deep undervolt boundary discovery stays blocked until a
+CPU-independent RK860 recovery mechanism is proven.
 
-The next-lower-stock voltage floor remains only as a temporary safety gate
-until this new PMIC-restart path passes a stock-voltage watchdog-expiry hardware
-probe. No deep undervolt recovery test will be attempted before that acceptance
-step. The persistent guard and boot rollback remain independent safety layers.
+A separate correctness fix enforces fresh-run isolation: the calibration
+history file remains available for engineering diagnostics, but a new optimizer
+run never imports prior stable or unstable voltages into its boundary state.
+Every run starts from the live stock OPP table and produces its own evidence.
+
+The next-lower-stock voltage floor remains a temporary safety gate. The current
+research direction is RK860's dual VSEL hardware: one VSEL bank could
+theoretically remain at a safe stock voltage while the other carries the trial,
+with the external VSEL pin providing a CPU-independent fallback. This is not yet
+an implementation plan because the Miyoo PCB wiring of RK860 VSEL has not been
+established. No VSEL manipulation or deep-undervolt recovery test is permitted
+until that wiring and reset behavior are proven. The persistent guard and boot
+rollback remain independent safety layers.
 
 ## Performance and power status
 
@@ -285,11 +290,12 @@ audio/volume, saves and update-screen behavior.
 
 Completed: A001 Save Safety ordering fix and regression test; A002
 write-ahead update transaction, boot-time recovery and interruption
-fault-injection coverage; A010 fresh-run isolation plus host-verified
-TSADC_SHUT_M1 -> RK817 PMIC-restart recovery routing. Remaining: explicit
-failed-write/failed-rename, read-only-transition and no-space fault injection,
-controlled updater hardware acceptance, and a stock-voltage hardware acceptance
-probe of the new PMIC-restart recovery path before deeper optimizer testing.
+fault-injection coverage; A010 fresh-run isolation plus rejection of the
+unsafe RK817/TSADC_SHUT_M1 experiment after stock-voltage hardware testing.
+Remaining: explicit failed-write/failed-rename, read-only-transition and
+no-space fault injection, controlled updater hardware acceptance, and proof of
+a CPU-independent RK860 recovery mechanism before deep boundary-search testing
+can resume.
 
 ### P2 — build/release quality
 

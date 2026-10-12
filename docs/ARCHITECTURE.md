@@ -185,36 +185,38 @@ Calibration and final validation use different stress policies. Hardware and
 software recovery remain safety-critical and must not be simplified merely to
 reduce file count.
 
-Before entering an undervolted candidate, the recovery route must be
-successfully armed and read back. The recovery chain is deliberately
-hardware-only once the trial begins: watchdog reset is extended into the PMU
-reset domain, GPIO0_A2 is muxed to TSADC_SHUT_M1, and the RK817 SLEEP input is
-configured as an active-low PMIC restart. A watchdog reset can then restart the
-PMIC even if every CPU core is already locked. The PMIC restart cycles VCC_SYS,
-which is the live device-tree input supply for the external RK860 CPU
-regulator, so recovery no longer depends on Linux reaching the RK860 I2C
-shutdown callback.
+Before entering an undervolted candidate, the existing recovery helper arms
+and reads back the RK3566 watchdog/TSADC/CRU safety path. A stock-voltage
+watchdog-expiry probe has proven that the SoC watchdog can reboot the RK3566,
+but that mechanism is not sufficient to recover every hard undervolt of the
+external RK860 CPU regulator.
 
-Arming order is safety-critical. The TSADC TRM states that a disabled TSHUT
-GPIO output is held low, which would immediately trigger the active-low RK817
-restart input. FlipOS therefore makes the RK817 SLEEP action inert, enables and
-verifies the TSHUT GPIO route while GPIO0_A2 is still disconnected, verifies
-low-active polarity and no pending TSHUT, muxes GPIO0_A2 to TSADC_SHUT_M1, and
-only then enables RK817 restart. Teardown first makes the PMIC input inert and
-restores every changed register/mux bit to its exact load-time value. The
-module holds a self-reference while armed so it cannot be unloaded with a live
-recovery route.
+A hardware experiment that attempted to extend recovery through GPIO0_A2 /
+TSADC_SHUT_M1 into the RK817 PMIC restart input was rejected. Merely arming
+that route at stock CPU voltage caused an immediate restart followed by the
+same black-screen/green-LED state. The live device tree also shows the RK860
+input supply is the fixed, always-on `vcc3v8_sys` rail, not an RK817-regulated
+rail. An RK817 restart therefore cannot guarantee that RK860 loses power or
+forgets a failed voltage. FlipOS must not deploy or arm that experimental
+route.
 
-The optimizer's durable guard remains independent of the live recovery chain,
-so an unconfirmed trial is still rejected after any recovery boot.
+The optimizer's durable guard remains independent of the live recovery
+mechanism, so an unconfirmed trial is still rejected after a manual recovery
+boot.
 
 Each optimization run is an independent experiment. A new calibration is
 created from the current stock OPP table and historical stable/unstable records
 are diagnostics only; they are never used to seed voltage boundaries in a new
-run. The conservative next-lower-stock search floor currently remains a
-temporary safety gate until the new PMIC-restart recovery route is accepted on
-hardware. If that recovery path proves reliable, per-device boundary discovery
-can be restored without importing results from earlier runs.
+run. The conservative next-lower-stock search floor remains a temporary safety
+gate while CPU-independent RK860 recovery is investigated.
+
+The preferred research direction is the RK860's hardware VSEL mechanism. RK860
+contains separate VSEL0/VSEL1 voltage banks selected by its external VSEL pin.
+If the Miyoo PCB exposes that pin to a reset-safe controllable signal, one bank
+could remain at a safe stock voltage while the other carries the current trial.
+This is only a design hypothesis until the board wiring is established; no
+VSEL hardware writes or optimizer boundary-search changes are permitted on that
+assumption alone.
 
 ## Updates
 
