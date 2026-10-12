@@ -9,6 +9,7 @@
 #include "flip_time.h"
 #include "flip_osd.h"
 #include "flip_session.h"
+#include "flip_game_stats.h"
 #include "flip_paths.h"
 #include "flip_session_registry.h"
 #include "flip_settings.h"
@@ -73,6 +74,7 @@ typedef enum {
     SCREEN_SYSTEMS,
     SCREEN_GAMES,
     SCREEN_RECENT,
+    SCREEN_STATS,
     SCREEN_SETTINGS,
     SCREEN_SETTINGS_CONNECTIVITY,
     SCREEN_SETTINGS_SYSTEM,
@@ -152,6 +154,14 @@ static int system_selected = 0;
 static rom_entry_t recent_roms[10];
 static int recent_count = 0;
 
+#define PLAY_STATS_TOP_MAX 4
+
+static flip_game_stats_summary_t play_stats_summary;
+static flip_game_stats_t play_stats_top[PLAY_STATS_TOP_MAX];
+static size_t play_stats_top_count = 0;
+static flip_game_stats_t last_played_stats;
+static int last_played_stats_valid = 0;
+
 static char suspended_rom_path[512];
 static int suspended_available = 0;
 
@@ -169,8 +179,9 @@ static char gameswitcher_confirm_system[32];
 static char gameswitcher_confirm_rom[512];
 
 static const char *home_items[] = {
-    "GAMES",
+    "LIBRARY",
     "GAMESWITCHER",
+    "PLAY STATS",
     "SETTINGS"
 };
 
@@ -1282,6 +1293,7 @@ static const char *screen_name(screen_t screen)
     case SCREEN_SYSTEMS: return "SYSTEMS";
     case SCREEN_GAMES: return "GAMES";
     case SCREEN_RECENT: return "GAMESWITCHER";
+    case SCREEN_STATS: return "PLAY_STATS";
     case SCREEN_SETTINGS: return "SETTINGS";
     case SCREEN_SETTINGS_CONNECTIVITY: return "SETTINGS_CONNECTIVITY";
     case SCREEN_SETTINGS_SYSTEM: return "SETTINGS_SYSTEM";
@@ -3711,6 +3723,164 @@ static void draw_optimizer(
     flip_drm_present(drm);
 }
 
+static void refresh_play_stats(void)
+{
+    memset(
+        &play_stats_summary,
+        0,
+        sizeof(play_stats_summary));
+
+    memset(
+        play_stats_top,
+        0,
+        sizeof(play_stats_top));
+
+    play_stats_top_count = 0;
+
+    if (flip_game_stats_collect(
+            &play_stats_summary,
+            play_stats_top,
+            PLAY_STATS_TOP_MAX,
+            &play_stats_top_count) < 0) {
+
+        memset(
+            &play_stats_summary,
+            0,
+            sizeof(play_stats_summary));
+
+        play_stats_top_count = 0;
+    }
+
+    last_played_stats_valid = 0;
+    memset(
+        &last_played_stats,
+        0,
+        sizeof(last_played_stats));
+
+    if (recent_count > 0 &&
+        recent_roms[0].system &&
+        recent_roms[0].system->id &&
+        flip_game_stats_load(
+            recent_roms[0].system->id,
+            recent_roms[0].path,
+            &last_played_stats) == 1) {
+
+        last_played_stats_valid = 1;
+    }
+}
+
+static void format_play_duration(
+    unsigned long long seconds,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    if (seconds < 60ULL) {
+        snprintf(out, out_size, "0M");
+        return;
+    }
+
+    unsigned long long minutes =
+        seconds / 60ULL;
+
+    if (minutes < 60ULL) {
+        snprintf(
+            out,
+            out_size,
+            "%lluM",
+            minutes);
+        return;
+    }
+
+    unsigned long long hours =
+        minutes / 60ULL;
+
+    minutes %= 60ULL;
+
+    if (hours < 100ULL) {
+        snprintf(
+            out,
+            out_size,
+            "%lluH %02lluM",
+            hours,
+            minutes);
+    } else {
+        snprintf(
+            out,
+            out_size,
+            "%lluH",
+            hours);
+    }
+}
+
+static void format_last_played(
+    long long epoch,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    long long now =
+        (long long)time(NULL);
+
+    if (epoch <= 0 || now <= 0) {
+        snprintf(out, out_size, "NOT YET");
+        return;
+    }
+
+    long long delta =
+        now >= epoch
+            ? now - epoch
+            : 0;
+
+    if (delta < 60) {
+        snprintf(out, out_size, "JUST NOW");
+    } else if (delta < 3600) {
+        snprintf(
+            out,
+            out_size,
+            "%lldM AGO",
+            delta / 60);
+    } else if (delta < 86400) {
+        snprintf(
+            out,
+            out_size,
+            "%lldH AGO",
+            delta / 3600);
+    } else if (delta < 172800) {
+        snprintf(out, out_size, "YESTERDAY");
+    } else if (delta < 604800) {
+        snprintf(
+            out,
+            out_size,
+            "%lld DAYS AGO",
+            delta / 86400);
+    } else {
+        time_t when = (time_t)epoch;
+        struct tm local;
+        if (localtime_r(&when, &local) &&
+            strftime(
+                out,
+                out_size,
+                "%d %b",
+                &local) > 0) {
+
+            for (size_t i = 0;
+                 out[i];
+                 ++i) {
+                out[i] =
+                    (char)toupper(
+                        (unsigned char)out[i]);
+            }
+        } else {
+            snprintf(out, out_size, "EARLIER");
+        }
+    }
+}
+
 static void draw_home(
     flip_drm_t *drm,
     int selected,
@@ -3721,54 +3891,322 @@ static void draw_home(
 
     flip_draw_text(
         drm,
-        centred_text_x("FLIPOS", UI_SCALE_HERO),
-        28,
+        centred_text_x("FLIPOS", UI_SCALE_TITLE),
+        18,
         "FLIPOS",
-        UI_SCALE_HERO,
+        UI_SCALE_TITLE,
         FG);
 
     flip_draw_text(
         drm,
-        centred_text_x("GAME LIBRARY", UI_SCALE_SECTION),
-        76,
-        "GAME LIBRARY",
-        UI_SCALE_SECTION,
+        centred_text_x(
+            "YOUR GAMES. YOUR TIME.",
+            UI_SCALE_META),
+        56,
+        "YOUR GAMES. YOUR TIME.",
+        UI_SCALE_META,
         DIM);
+
+    const int menu_x = 28;
+    const int menu_w = 176;
+    const int menu_y = 104;
+    const int menu_step = 58;
 
     for (int i = 0;
          i < HOME_ITEM_COUNT;
          ++i) {
 
         int y =
-            135 + i * 55;
+            menu_y + i * menu_step;
 
         if (i == selected) {
-
             flip_draw_rect(
                 drm,
-                145,
+                menu_x,
                 y - 8,
-                350,
-                42,
+                menu_w,
+                43,
                 PANEL);
 
             flip_draw_rect_outline(
                 drm,
-                145,
+                menu_x,
                 y - 8,
-                350,
-                42,
+                menu_w,
+                43,
                 2,
                 FG);
         }
 
         flip_draw_text(
             drm,
-            centred_text_x(home_items[i], UI_SCALE_SECTION),
+            menu_x + 15,
             y,
             home_items[i],
+            UI_SCALE_BODY,
+            i == selected
+                ? FG
+                : DIM);
+    }
+
+    const int panel_x = 222;
+    const int panel_y = 88;
+    const int panel_w = 388;
+    const int panel_h = 292;
+
+    flip_draw_rect(
+        drm,
+        panel_x,
+        panel_y,
+        panel_w,
+        panel_h,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        panel_x,
+        panel_y,
+        panel_w,
+        panel_h,
+        1,
+        DIM);
+
+    if (recent_count > 0) {
+        const rom_entry_t *recent =
+            &recent_roms[0];
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 17,
+            "LAST PLAYED",
+            UI_SCALE_META,
+            DIM);
+
+        char game_name[24];
+        snprintf(
+            game_name,
+            sizeof(game_name),
+            "%.21s",
+            recent->display);
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 49,
+            game_name,
             UI_SCALE_SECTION,
-            i == selected ? FG : DIM);
+            FG);
+
+        char system_line[80];
+        const char *system_name =
+            recent->system &&
+            recent->system->display_name
+                ? recent->system->display_name
+                : "GAME";
+
+        int can_resume =
+            flip_system_resume_available(
+                recent->system,
+                recent->path);
+
+        snprintf(
+            system_line,
+            sizeof(system_line),
+            "%s%s",
+            system_name,
+            can_resume
+                ? "   RESUME READY"
+                : "");
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 84,
+            system_line,
+            UI_SCALE_META,
+            can_resume ? FG : DIM);
+
+        if (last_played_stats_valid) {
+            char played[32];
+            char longest[32];
+            char last_played[32];
+
+            format_play_duration(
+                last_played_stats.total_play_seconds,
+                played,
+                sizeof(played));
+
+            format_play_duration(
+                last_played_stats.longest_session_seconds,
+                longest,
+                sizeof(longest));
+
+            format_last_played(
+                last_played_stats.last_played_epoch,
+                last_played,
+                sizeof(last_played));
+
+            flip_draw_text(
+                drm,
+                panel_x + 18,
+                panel_y + 126,
+                "PLAY TIME",
+                UI_SCALE_META,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                panel_x + 18,
+                panel_y + 149,
+                played,
+                UI_SCALE_SECTION,
+                FG);
+
+            flip_draw_text(
+                drm,
+                panel_x + 205,
+                panel_y + 126,
+                "LAUNCHES",
+                UI_SCALE_META,
+                DIM);
+
+            char launches[24];
+            snprintf(
+                launches,
+                sizeof(launches),
+                "%llu",
+                last_played_stats.launches);
+
+            flip_draw_text(
+                drm,
+                panel_x + 205,
+                panel_y + 149,
+                launches,
+                UI_SCALE_SECTION,
+                FG);
+
+            char detail[96];
+            snprintf(
+                detail,
+                sizeof(detail),
+                "LONGEST %s   LAST %s",
+                longest,
+                last_played);
+
+            flip_draw_text(
+                drm,
+                panel_x + 18,
+                panel_y + 198,
+                detail,
+                UI_SCALE_META,
+                DIM);
+        } else {
+            flip_draw_text(
+                drm,
+                panel_x + 18,
+                panel_y + 136,
+                "PLAY STATS START",
+                UI_SCALE_SECTION,
+                FG);
+
+            flip_draw_text(
+                drm,
+                panel_x + 18,
+                panel_y + 169,
+                "THE NEXT TIME YOU PLAY",
+                UI_SCALE_META,
+                DIM);
+        }
+
+        char total_time[32];
+        format_play_duration(
+            play_stats_summary.total_play_seconds,
+            total_time,
+            sizeof(total_time));
+
+        char all_stats[96];
+        snprintf(
+            all_stats,
+            sizeof(all_stats),
+            "ALL GAMES %s   %llu LAUNCHES",
+            total_time,
+            play_stats_summary.total_launches);
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 250,
+            all_stats,
+            UI_SCALE_META,
+            DIM);
+    } else {
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 23,
+            "WELCOME TO FLIPOS",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 72,
+            "CHOOSE LIBRARY",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 101,
+            "AND START A GAME.",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 155,
+            "PLAY TIME, LAUNCHES,",
+            UI_SCALE_META,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 179,
+            "LONGEST SESSIONS AND",
+            UI_SCALE_META,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            panel_x + 18,
+            panel_y + 203,
+            "MORE WILL APPEAR HERE.",
+            UI_SCALE_META,
+            DIM);
+    }
+
+    static const char *descriptions[] = {
+        "BROWSE EVERY GAME",
+        "RESUME OR SWITCH GAMES",
+        "SEE YOUR PLAY HISTORY",
+        "SYSTEM AND DEVICE OPTIONS"
+    };
+
+    if (selected >= 0 &&
+        selected < HOME_ITEM_COUNT) {
+
+        flip_draw_text(
+            drm,
+            menu_x,
+            351,
+            descriptions[selected],
+            UI_SCALE_META,
+            DIM);
     }
 
     if (message &&
@@ -3776,8 +4214,10 @@ static void draw_home(
 
         flip_draw_text(
             drm,
-            centred_text_x(message, UI_SCALE_BODY),
-            365,
+            centred_text_x(
+                message,
+                UI_SCALE_BODY),
+            394,
             message,
             UI_SCALE_BODY,
             FG);
@@ -3796,30 +4236,319 @@ static void draw_home(
     flip_draw_text(
         drm,
         centred_text_x(
-            "UP DOWN   A SELECT",
-            1),
+            "UP DOWN   A OPEN",
+            UI_SCALE_HINT),
         452,
-        "UP DOWN   A SELECT",
-        1,
+        "UP DOWN   A OPEN",
+        UI_SCALE_HINT,
         DIM);
 
-    draw_battery_indicator(
-        drm);
+    draw_battery_indicator(drm);
 
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    /*
-     * Global FlipOS OSD is composited last so hardware
-     * feedback appears consistently over every frontend
-     * screen.
-     */
-    flip_osd_draw(
-        drm);
-
+    flip_osd_draw(drm);
     flip_drm_present(drm);
 }
 
+static void draw_stats(
+    flip_drm_t *drm,
+    double poweroff_progress)
+{
+    flip_draw_clear(drm, BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "PLAY STATS",
+            UI_SCALE_TITLE),
+        20,
+        "PLAY STATS",
+        UI_SCALE_TITLE,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "YOUR FLIPOS PLAY HISTORY",
+            UI_SCALE_META),
+        58,
+        "YOUR FLIPOS PLAY HISTORY",
+        UI_SCALE_META,
+        DIM);
+
+    if (play_stats_summary.games_tracked == 0) {
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "NO PLAY STATS YET",
+                UI_SCALE_SECTION),
+            185,
+            "NO PLAY STATS YET",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "LAUNCH A GAME AND FLIPOS WILL",
+                UI_SCALE_BODY),
+            230,
+            "LAUNCH A GAME AND FLIPOS WILL",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "START BUILDING YOUR HISTORY.",
+                UI_SCALE_BODY),
+            258,
+            "START BUILDING YOUR HISTORY.",
+            UI_SCALE_BODY,
+            DIM);
+    } else {
+        char total_time[32];
+        char longest[32];
+        char average[32];
+
+        format_play_duration(
+            play_stats_summary.total_play_seconds,
+            total_time,
+            sizeof(total_time));
+
+        format_play_duration(
+            play_stats_summary.longest_session_seconds,
+            longest,
+            sizeof(longest));
+
+        unsigned long long average_seconds =
+            play_stats_summary.total_launches > 0
+                ? play_stats_summary.total_play_seconds /
+                    play_stats_summary.total_launches
+                : 0;
+
+        format_play_duration(
+            average_seconds,
+            average,
+            sizeof(average));
+
+        static const char *labels[3] = {
+            "TOTAL PLAY TIME",
+            "LAUNCHES",
+            "GAMES PLAYED"
+        };
+
+        char values[3][32];
+        snprintf(
+            values[0],
+            sizeof(values[0]),
+            "%s",
+            total_time);
+        snprintf(
+            values[1],
+            sizeof(values[1]),
+            "%llu",
+            play_stats_summary.total_launches);
+        snprintf(
+            values[2],
+            sizeof(values[2]),
+            "%u",
+            play_stats_summary.games_tracked);
+
+        for (int i = 0;
+             i < 3;
+             ++i) {
+
+            int x =
+                28 + i * 198;
+
+            flip_draw_rect(
+                drm,
+                x,
+                83,
+                188,
+                72,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                x,
+                83,
+                188,
+                72,
+                1,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                x + (188 -
+                    (int)strlen(labels[i]) *
+                    6 * UI_SCALE_META) / 2,
+                96,
+                labels[i],
+                UI_SCALE_META,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                x + (188 -
+                    (int)strlen(values[i]) *
+                    6 * UI_SCALE_SECTION) / 2,
+                122,
+                values[i],
+                UI_SCALE_SECTION,
+                FG);
+        }
+
+        char session_line[96];
+        snprintf(
+            session_line,
+            sizeof(session_line),
+            "LONGEST SESSION %s   AVERAGE %s",
+            longest,
+            average);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                session_line,
+                UI_SCALE_META),
+            174,
+            session_line,
+            UI_SCALE_META,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            48,
+            205,
+            "MOST PLAYED",
+            UI_SCALE_BODY,
+            FG);
+
+        for (size_t i = 0;
+             i < play_stats_top_count &&
+             i < PLAY_STATS_TOP_MAX;
+             ++i) {
+
+            int y =
+                236 + (int)i * 43;
+
+            char title[64];
+            const char *base =
+                strrchr(
+                    play_stats_top[i].rom,
+                    '/');
+
+            base =
+                base
+                    ? base + 1
+                    : play_stats_top[i].rom;
+
+            const flip_system_t *system =
+                flip_system_find(
+                    play_stats_top[i].system);
+
+            make_display_name(
+                system,
+                title,
+                sizeof(title),
+                base);
+
+            char visible[25];
+            snprintf(
+                visible,
+                sizeof(visible),
+                "%.22s",
+                title);
+
+            char rank[8];
+            snprintf(
+                rank,
+                sizeof(rank),
+                "%u",
+                (unsigned)i + 1U);
+
+            flip_draw_text(
+                drm,
+                52,
+                y,
+                rank,
+                UI_SCALE_BODY,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                86,
+                y,
+                visible,
+                UI_SCALE_BODY,
+                FG);
+
+            char played[32];
+            format_play_duration(
+                play_stats_top[i].total_play_seconds,
+                played,
+                sizeof(played));
+
+            flip_draw_text(
+                drm,
+                472,
+                y,
+                played,
+                UI_SCALE_BODY,
+                FG);
+
+            char launches[40];
+            snprintf(
+                launches,
+                sizeof(launches),
+                "%llu LAUNCH%s",
+                play_stats_top[i].launches,
+                play_stats_top[i].launches == 1
+                    ? ""
+                    : "ES");
+
+            flip_draw_text(
+                drm,
+                87,
+                y + 22,
+                launches,
+                1,
+                DIM);
+        }
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "STATS ARE STORED LOCALLY ON YOUR SD CARD",
+            1),
+        420,
+        "STATS ARE STORED LOCALLY ON YOUR SD CARD",
+        1,
+        DIM);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "B BACK",
+            UI_SCALE_HINT),
+        452,
+        "B BACK",
+        UI_SCALE_HINT,
+        DIM);
+
+    draw_battery_indicator(drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(drm);
+    flip_drm_present(drm);
+}
 
 static void draw_systems(
     flip_drm_t *drm,
@@ -4441,7 +5170,8 @@ static void draw_recent(
 static int launch_game_once(
     flip_drm_t *drm,
     const rom_entry_t *rom,
-    int automatic_resume)
+    int automatic_resume,
+    unsigned long long *active_seconds)
 {
     if (!rom ||
         !rom->system ||
@@ -4491,12 +5221,37 @@ static int launch_game_once(
         "FRONTEND_RUNTIME_PROFILE applied=%d\n",
         runtime_profile_applied);
 
-    if (flip_session_launch(
+    double active_started =
+        monotonic_seconds();
+
+    int session_rc =
+        flip_session_launch(
             drm,
             runner,
             argv,
             &metadata,
-            &result) < 0) {
+            &result);
+
+    double active_ended =
+        monotonic_seconds();
+
+    if (active_seconds &&
+        active_ended >
+            active_started) {
+
+        double elapsed =
+            active_ended -
+            active_started;
+
+        unsigned long long rounded =
+            (unsigned long long)(
+                elapsed + 0.5);
+
+        *active_seconds +=
+            rounded;
+    }
+
+    if (session_rc < 0) {
 
         fprintf(
             stderr,
@@ -4548,11 +5303,50 @@ static int launch_game_once(
     return (int)result.action;
 }
 
+static void finish_game_stats(
+    const rom_entry_t *rom,
+    unsigned long long active_seconds)
+{
+    if (!rom ||
+        !rom->system ||
+        !rom->system->id)
+        return;
+
+    if (flip_game_stats_record_session(
+            rom->system->id,
+            rom->path,
+            active_seconds,
+            (long long)time(NULL)) < 0) {
+
+        fprintf(
+            stderr,
+            "FRONTEND_STATS session write failed rom=%s\n",
+            rom->path);
+    }
+}
+
 static int launch_game(
     flip_drm_t *drm,
     const rom_entry_t *rom)
 {
+    if (!rom ||
+        !rom->system ||
+        !rom->system->id)
+        return -1;
+
     int automatic_resume = 0;
+    unsigned long long active_seconds = 0;
+
+    if (flip_game_stats_record_launch(
+            rom->system->id,
+            rom->path,
+            (long long)time(NULL)) < 0) {
+
+        fprintf(
+            stderr,
+            "FRONTEND_STATS launch write failed rom=%s\n",
+            rom->path);
+    }
 
     for (;;) {
 
@@ -4560,13 +5354,18 @@ static int launch_game(
             launch_game_once(
                 drm,
                 rom,
-                automatic_resume);
+                automatic_resume,
+                &active_seconds);
 
         /* The intent applies to exactly one post-wake relaunch. */
         automatic_resume = 0;
 
-        if (result != FLIP_SESSION_ACTION_SUSPEND)
+        if (result != FLIP_SESSION_ACTION_SUSPEND) {
+            finish_game_stats(
+                rom,
+                active_seconds);
             return result;
+        }
 
         /*
          * Refresh persistent hall state after the session
@@ -4589,6 +5388,9 @@ static int launch_game(
                 stderr,
                 "FRONTEND_STANDBY lid poll failed\n");
 
+            finish_game_stats(
+                rom,
+                active_seconds);
             return result;
         }
 
@@ -4602,6 +5404,9 @@ static int launch_game(
                 stderr,
                 "FRONTEND_GAMESWITCHER requested\n");
 
+            finish_game_stats(
+                rom,
+                active_seconds);
             return result;
         }
 
@@ -4616,6 +5421,9 @@ static int launch_game(
                 stderr,
                 "FRONTEND_STANDBY wait failed\n");
 
+            finish_game_stats(
+                rom,
+                active_seconds);
             return -1;
         }
 
@@ -4627,16 +5435,13 @@ static int launch_game(
         /*
          * This next launch is a continuation of the lid-suspended session,
          * not a new user launch decision. Skip Game Options exactly once.
+         *
+         * active_seconds intentionally spans each emulator segment but not the
+         * lid-sleep interval above, so play-time stats reflect actual play.
          */
         automatic_resume = 1;
-
-        /*
-         * Loop back through the normal session launcher.
-         * Gambatte will restore the saved per-ROM state.
-         */
     }
 }
-
 int main(void)
 {
     signal(
@@ -4790,6 +5595,7 @@ int main(void)
     rom_count = 0;
 
     load_recent_history();
+    refresh_play_stats();
     load_suspended_session();
 
     memset(&wifi_status, 0, sizeof(wifi_status));
@@ -4967,6 +5773,14 @@ int main(void)
                         &drm,
                         game_system,
                         recent_selected,
+                        0.0);
+
+                } else if (
+                    screen ==
+                        SCREEN_STATS) {
+
+                    draw_stats(
+                        &drm,
                         0.0);
 
                 } else if (
@@ -5577,7 +6391,9 @@ int main(void)
                 screen ==
                     SCREEN_SYSTEMS ||
                 screen ==
-                    SCREEN_RECENT) {
+                    SCREEN_RECENT ||
+                screen ==
+                    SCREEN_STATS) {
 
                 screen =
                     SCREEN_HOME;
@@ -6059,6 +6875,7 @@ int main(void)
 
                 load_suspended_session();
                 load_recent_history();
+                refresh_play_stats();
 
                 if (recent_selected >=
                     recent_count) {
@@ -6174,6 +6991,7 @@ int main(void)
                     home_selected == 1) {
 
                     load_recent_history();
+                    refresh_play_stats();
 
                     screen =
                         SCREEN_RECENT;
@@ -6182,6 +7000,16 @@ int main(void)
 
                 } else if (
                     home_selected == 2) {
+
+                    refresh_play_stats();
+
+                    screen =
+                        SCREEN_STATS;
+
+                    redraw = 1;
+
+                } else if (
+                    home_selected == 3) {
 
                     screen =
                         SCREEN_SETTINGS;
@@ -6569,6 +7397,7 @@ int main(void)
                 poweroff_active = 0;
 
                 load_recent_history();
+                refresh_play_stats();
 
                 if (recent_selected >=
                     recent_count)
@@ -6626,6 +7455,9 @@ int main(void)
                             game_selected
                         ]);
 
+                load_recent_history();
+                refresh_play_stats();
+
                 if (game_result < 0) {
 
                     fprintf(
@@ -6668,6 +7500,7 @@ int main(void)
                 if (game_result == FLIP_SESSION_ACTION_SUSPEND) {
 
                     load_recent_history();
+                    refresh_play_stats();
 
                     recent_selected = 0;
 
@@ -6784,6 +7617,14 @@ int main(void)
                     &drm,
                     game_system,
                     recent_selected,
+                    progress);
+
+            } else if (
+                screen ==
+                    SCREEN_STATS) {
+
+                draw_stats(
+                    &drm,
                     progress);
 
             } else if (
@@ -6912,6 +7753,14 @@ int main(void)
                     &drm,
                     game_system,
                     recent_selected,
+                    0.0);
+
+            } else if (
+                screen ==
+                    SCREEN_STATS) {
+
+                draw_stats(
+                    &drm,
                     0.0);
 
             } else if (
