@@ -74,12 +74,25 @@ journal update can therefore leave a changed file absent from the rollback
 journal. The boot hook does not currently detect an interrupted update lock and
 replay the rollback transaction.
 
-This is a distribution-blocking reliability issue. It needs an explicit
-transaction state machine and boot-time interrupted-update recovery before
-FlipOS should claim power-loss-safe updating.
+Status: fixed on the audit branch, but not yet deployed to hardware. The
+installer now uses a versioned transaction lock, a write-ahead rollback journal
+and durable `prepared`/`committed` markers. Every path is journaled and synced
+before its atomic rename can make new bytes live, including the separate SD boot
+hook. A surviving transaction lock is recovered before any FlipOS runtime
+component is executed; recovery failure deliberately falls back to the stock
+Miyoo launcher rather than booting a mixed runtime.
 
-No change is made in the initial pass because the recovery design must be
-covered by fault-injection tests before deployment.
+Host fault-injection tests now simulate process death after rollback
+preparation, before the first rename, after the first live replacement, around
+the boot-hook replacement, immediately before commit and immediately after the
+durable commit marker. Pre-commit cases restore the previous runtime; the
+post-commit case keeps the new runtime and only finalizes the stale lock.
+
+Bootstrap limitation: Beta 3's already-installed boot hook does not contain the
+new early recovery call. The first deployment of this recovery-capable updater
+must therefore be done as a controlled development deployment with a known
+recovery path. Once that baseline is installed, subsequent update transactions
+use the boot-time recovery protocol.
 
 ### High (likely, not yet reproduced) — A003: audio shutdown can wait indefinitely on a blocked writer
 
@@ -117,8 +130,11 @@ JSON but independently extracts the first `tag_name`. If the newest release
 does not contain the requested asset but an older release does, `ASSET_URL`
 and `TAG` can refer to different releases.
 
-This can produce incorrect "latest" decisions and misleading diagnostics.
-Parsing must preserve release/asset association.
+Status: fixed on the audit branch. Release parsing now walks fields in release
+order and keeps the active release tag associated with its assets. The updater
+test now includes a newer release without the requested asset followed by an
+older release that contains it, and verifies that the selected asset keeps the
+older release's matching tag.
 
 ### Medium — A006: rename-based persistence does not explicitly persist parent-directory metadata
 
@@ -184,34 +200,32 @@ power setting will be changed as part of general refactoring.
 
 ### P0 — prove the baseline
 
-1. Bring the development MSI back online.
-2. Build the audit branch from a clean build directory.
-3. Run `make verify`.
-4. Record all compiler warnings/failures rather than suppressing them.
-5. Deploy only after host verification passes, then run a short physical
-   regression covering frontend, game launch, GameSwitcher, lid sleep/wake,
-   audio/volume, saves and update screen behavior.
+Completed: development MSI online; clean audit worktree built; full
+`make KERNEL_DIR=... verify` passed; warnings were recorded rather than
+suppressed. Remaining: controlled audit-build deployment and the physical
+regression covering frontend, game launch, GameSwitcher, lid sleep/wake,
+audio/volume, saves and update-screen behavior.
 
 ### P1 — data/recovery reliability
 
-1. Fix A001 and add failure-path regression coverage.
-2. Design and test interrupted-update recovery for A002.
-3. Add full/update-storage fault injection: failed writes, failed rename,
-   read-only transition, no-space condition and interrupted transaction.
+Completed: A001 Save Safety ordering fix and regression test; A002
+write-ahead update transaction, boot-time recovery and interruption
+fault-injection coverage. Remaining: explicit failed-write/failed-rename,
+read-only-transition and no-space fault injection, plus controlled hardware
+acceptance of the recovery-capable updater baseline.
 
 ### P2 — build/release quality
 
-1. Fix A004 so clean-tree verification is self-contained.
-2. Add CI for host/architecture verification.
-3. Add optional ASan/UBSan host-test targets.
-4. Add a compiler/static-analysis pass and triage every warning.
+Completed: A004 clean-tree/release verification fix. Remaining: add CI for
+host/architecture verification, optional ASan/UBSan host-test targets, and a
+compiler/static-analysis pass with warning triage.
 
 ### P3 — runtime robustness
 
-1. Reproduce and bound A003 audio shutdown.
-2. Fix A005 release parsing with a test containing multiple releases.
-3. Audit process execution, PID ownership and timeout handling.
-4. Audit all atomic-write sites for filesystem-specific durability.
+Completed: A005 release/asset association fix with a multi-release regression
+test. Remaining: reproduce and bound A003 audio shutdown, audit process/PID and
+timeout handling, and audit atomic-write sites for filesystem-specific
+durability.
 
 ### P4 — measured optimization
 

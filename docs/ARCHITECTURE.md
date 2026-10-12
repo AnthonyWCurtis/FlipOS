@@ -191,12 +191,29 @@ The update path is:
 The fetcher selects a GitHub Release asset, downloads it, validates the package
 manifest/checksums and stages it outside the live runtime.
 
-The installer validates an allowlisted payload, creates rollback copies, then
-promotes files into the FlipOS root. The boot hook itself is updated only after
-the runtime payload has been installed.
+The installer validates an allowlisted payload, stages and re-hashes it, then
+creates a complete rollback snapshot before mutating the live runtime. Update
+installation is a versioned transaction:
+
+- a durable lock identifies an incomplete transaction;
+- `prepared` is synced only after rollback data is complete;
+- each live path is appended to a write-ahead rollback journal and synced
+  before its atomic rename;
+- the separately installed SD boot hook has its own write-ahead marker;
+- `committed` is the durable decision point after runtime, boot hook and
+  `last-good` metadata are synced.
+
+On boot, a surviving transaction lock is handled before any FlipOS runtime
+component is executed. Pre-commit transactions restore the previous runtime;
+post-commit transactions keep the new runtime and finalize the lock. Unknown or
+failed recovery falls back to the stock Miyoo launcher rather than executing a
+potentially mixed FlipOS runtime.
 
 Update handling must preserve user state; release packages intentionally contain
-runtime binaries/configuration/modules and not user saves/settings.
+runtime binaries/configuration/modules and not user saves/settings. The
+transaction/recovery protocol is compatibility-sensitive: future installer
+changes must continue to understand existing transaction formats or explicitly
+fail closed.
 
 ## Build, tests and release tooling
 
