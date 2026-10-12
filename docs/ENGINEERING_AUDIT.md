@@ -237,9 +237,10 @@ The software design bug is that automatic calibration deliberately searches
 downward until it finds the first unstable voltage. On this board, discovering
 that boundary can itself create an unrecoverable-until-power-cycle state.
 
-Status: fixed and host-verified on the audit branch, awaiting a later
-conservative hardware acceptance run. Automatic calibration now raises each
-tunable OPP's search floor to the stock voltage of the next lower OPP,
+Status: fixed, host-verified and short-run hardware-accepted on the audit
+branch. A controlled conservative calibration completed all four tunable OPPs
+without an unconfirmed trial or black-screen lockup. Automatic calibration now
+raises each tunable OPP's search floor to the stock voltage of the next lower OPP,
 while retaining the existing 25 mV result guardband. This keeps calibration
 inside board-defined operating points instead of intentionally searching for a
 deep hard-failure boundary. A completed profile is no longer presented as
