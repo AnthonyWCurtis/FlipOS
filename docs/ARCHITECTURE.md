@@ -186,20 +186,35 @@ software recovery remain safety-critical and must not be simplified merely to
 reduce file count.
 
 Before entering an undervolted candidate, the recovery route must be
-successfully armed and read back: TSADC emergency shutdown is routed to the
-PMIC, watchdog reset is extended, and watchdog reset is enabled into the PMU
-reset domain. The optimizer's durable guard is intentionally independent of
-those live mechanisms so an unconfirmed trial can still be rejected after a
-manual recovery boot.
+successfully armed and read back. The recovery chain is deliberately
+hardware-only once the trial begins: watchdog reset is extended into the PMU
+reset domain, GPIO0_A2 is muxed to TSADC_SHUT_M1, and the RK817 SLEEP input is
+configured as an active-low PMIC restart. A watchdog reset can then restart the
+PMIC even if every CPU core is already locked. The PMIC restart cycles VCC_SYS,
+which is the live device-tree input supply for the external RK860 CPU
+regulator, so recovery no longer depends on Linux reaching the RK860 I2C
+shutdown callback.
 
-The Miyoo Flip's CPU rail uses an external always-on RK860 regulator. A hard
-CPU lock can prevent Linux from executing the RK860 driver's orderly shutdown
-reset before the SoC watchdog fires. Automatic calibration therefore must not
-depend on intentionally discovering a hard undervolt boundary. For each
-tunable OPP, FlipOS uses the next lower stock OPP voltage as the automatic
-search floor and retains the result guardband. Existing optimized profiles are
-rechecked through the non-destructive stability-test path rather than silently
-discarded and recalibrated.
+Arming order is safety-critical. The TSADC TRM states that a disabled TSHUT
+GPIO output is held low, which would immediately trigger the active-low RK817
+restart input. FlipOS therefore makes the RK817 SLEEP action inert, enables and
+verifies the TSHUT GPIO route while GPIO0_A2 is still disconnected, verifies
+low-active polarity and no pending TSHUT, muxes GPIO0_A2 to TSADC_SHUT_M1, and
+only then enables RK817 restart. Teardown first makes the PMIC input inert and
+restores every changed register/mux bit to its exact load-time value. The
+module holds a self-reference while armed so it cannot be unloaded with a live
+recovery route.
+
+The optimizer's durable guard remains independent of the live recovery chain,
+so an unconfirmed trial is still rejected after any recovery boot.
+
+Each optimization run is an independent experiment. A new calibration is
+created from the current stock OPP table and historical stable/unstable records
+are diagnostics only; they are never used to seed voltage boundaries in a new
+run. The conservative next-lower-stock search floor currently remains a
+temporary safety gate until the new PMIC-restart recovery route is accepted on
+hardware. If that recovery path proves reliable, per-device boundary discovery
+can be restored without importing results from earlier runs.
 
 ## Updates
 

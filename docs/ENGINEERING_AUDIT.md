@@ -224,31 +224,41 @@ as a PMU reset source on this board. The earlier bit-4 correction therefore
 remains useful defensive programming and readback validation, but is not the
 root cause of the black-screen failure.
 
-The stronger board-specific cause is the external always-on RK860 regulator.
-The Rockchip RK860 driver only issues the regulator CONTROL reset from its
-orderly kernel shutdown callback. A CPU that hard-locks at an unstable voltage
-cannot execute that callback. The SoC watchdog can therefore reset the RK3566
-while the RK860 still holds the failed voltage, leaving the next boot unable to
-run far enough to restore the rail. This matches the observed difference
-between successful stock-voltage watchdog expiry and failed deep-undervolt
-trials.
+The external RK860 is part of the failure, but inspection of the live device
+tree and Rockchip reset documentation exposed the missing recovery link. The
+live RK860 node is powered from `vcc3v8_sys`. The RK3566 GPIO0_A2 pin is the
+PMIC_SLEEP / TSADC_SHUT_M1 alternate-function pin, while the live RK817 node
+contains the matching PMIC reset states. Live RK817 SYS_CFG3 was already
+configured for active-low SLEEP-pin restart. The previous FlipOS recovery
+module only selected the TSADC device's `otpout` state, which the live DT maps
+to GPIO0_A1. It never muxed GPIO0_A2 to TSADC_SHUT_M1, so a watchdog reset could
+restart the SoC without forcing an RK817/VCC_SYS restart. That explains why a
+stock-voltage watchdog reboot worked while a deeply undervolted RK860 could
+remain stranded.
 
-The software design bug is that automatic calibration deliberately searches
-downward until it finds the first unstable voltage. On this board, discovering
-that boundary can itself create an unrecoverable-until-power-cycle state.
+The Rockchip TSADC TRM adds an important ordering constraint: when the TSHUT
+GPIO enable bit is clear, the output is held low. Directly muxing GPIO0_A2 to
+TSADC_SHUT_M1 before enabling the route could therefore cause an immediate
+active-low RK817 restart.
 
-Status: fixed, host-verified and short-run hardware-accepted on the audit
-branch. A controlled conservative calibration completed all four tunable OPPs
-without an unconfirmed trial or black-screen lockup. Automatic calibration now
-raises each tunable OPP's search floor to the stock voltage of the next lower OPP,
-while retaining the existing 25 mV result guardband. This keeps calibration
-inside board-defined operating points instead of intentionally searching for a
-deep hard-failure boundary. A completed profile is no longer presented as
-`OPTIMIZE AGAIN`; the UI directs the user to the non-destructive stability
-test. Full recalibration requires deliberately restoring defaults first.
+Status: a new recovery chain is implemented and fully host-verified on the
+audit branch, but is not yet hardware-accepted. Arming now makes the RK817
+SLEEP action inert, enables/verifies the TSADC GPIO route, checks low-active
+polarity and no pending TSHUT, muxes GPIO0_A2 to TSADC_SHUT_M1 with PMUGRF
+write-mask semantics, then enables RK817 active-low PMIC restart. CRU watchdog
+extension/PMU routing remains enabled. Teardown reverses the path and restores
+the exact original mux, RK817 bits, TSADC route and CRU bits. The module cannot
+be unloaded while armed.
 
-The persistent guard and boot rollback remain in place as independent safety
-layers.
+A second correctness fix enforces fresh-run isolation: the calibration history
+file remains available for engineering diagnostics, but a new optimizer run no
+longer imports prior unstable voltages into its boundary state. Every run starts
+from the live stock OPP table and produces its own evidence.
+
+The next-lower-stock voltage floor remains only as a temporary safety gate
+until this new PMIC-restart path passes a stock-voltage watchdog-expiry hardware
+probe. No deep undervolt recovery test will be attempted before that acceptance
+step. The persistent guard and boot rollback remain independent safety layers.
 
 ## Performance and power status
 
@@ -275,12 +285,11 @@ audio/volume, saves and update-screen behavior.
 
 Completed: A001 Save Safety ordering fix and regression test; A002
 write-ahead update transaction, boot-time recovery and interruption
-fault-injection coverage; A010 watchdog-route hardening plus a successful
-stock-voltage watchdog-expiry hardware probe and conservative calibration
-policy. Remaining: explicit failed-write/failed-rename, read-only-transition
-and no-space fault injection, controlled updater hardware acceptance, and a
-later conservative optimizer hardware acceptance run after the new policy is
-deployed.
+fault-injection coverage; A010 fresh-run isolation plus host-verified
+TSADC_SHUT_M1 -> RK817 PMIC-restart recovery routing. Remaining: explicit
+failed-write/failed-rename, read-only-transition and no-space fault injection,
+controlled updater hardware acceptance, and a stock-voltage hardware acceptance
+probe of the new PMIC-restart recovery path before deeper optimizer testing.
 
 ### P2 — build/release quality
 
