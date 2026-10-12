@@ -185,6 +185,13 @@ Calibration and final validation use different stress policies. Hardware and
 software recovery remain safety-critical and must not be simplified merely to
 reduce file count.
 
+Before entering an undervolted candidate, the recovery route must be
+successfully armed and read back: TSADC emergency shutdown is routed to the
+PMIC, watchdog reset is extended, and watchdog reset is enabled into the PMU
+reset domain. The optimizer's durable guard is intentionally independent of
+those live mechanisms so an unconfirmed trial can still be rejected after a
+manual recovery boot.
+
 ## Updates
 
 The update path is:
