@@ -238,15 +238,22 @@ flip_recovery_result_t flip_recovery_restore_previous(
         return FLIP_RECOVERY_ERROR;
     }
 
-    /* Preserve current cartridge save and activate protected previous save. */
-    if (flip_save_restore_previous(core, save_context) < 0) {
-        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=save-promote\n");
+    /*
+     * Block resume before changing the cartridge-save timeline. If marker
+     * creation fails, the active save/state pair is still untouched and can
+     * safely remain resumable. Once the marker exists we keep it on any later
+     * failure: a partially completed recovery must fail closed.
+     */
+    if (flip_recovery_block_resume(recovery_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=block-resume\n");
         return FLIP_RECOVERY_ERROR;
     }
 
-    /* Once the timeline changes, resume must remain blocked until a fresh pair exists. */
-    if (flip_recovery_block_resume(recovery_context) < 0) {
-        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=block-resume\n");
+    /* Preserve current cartridge save and activate protected previous save. */
+    if (flip_save_restore_previous(core, save_context) < 0) {
+        fprintf(
+            stderr,
+            "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=save-promote resume=blocked\n");
         return FLIP_RECOVERY_ERROR;
     }
 
