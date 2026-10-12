@@ -5171,7 +5171,8 @@ static int launch_game_once(
     flip_drm_t *drm,
     const rom_entry_t *rom,
     int automatic_resume,
-    unsigned long long *active_seconds)
+    unsigned long long *active_seconds,
+    int *launched_any)
 {
     if (!rom ||
         !rom->system ||
@@ -5221,9 +5222,6 @@ static int launch_game_once(
         "FRONTEND_RUNTIME_PROFILE applied=%d\n",
         runtime_profile_applied);
 
-    double active_started =
-        monotonic_seconds();
-
     int session_rc =
         flip_session_launch(
             drm,
@@ -5232,23 +5230,30 @@ static int launch_game_once(
             &metadata,
             &result);
 
-    double active_ended =
-        monotonic_seconds();
+    if (result.launched) {
+        if (active_seconds)
+            *active_seconds +=
+                result.active_seconds;
 
-    if (active_seconds &&
-        active_ended >
-            active_started) {
+        if (launched_any)
+            *launched_any = 1;
 
-        double elapsed =
-            active_ended -
-            active_started;
+        /*
+         * A lid-open automatic continuation is the same user play session,
+         * not another launch. A deliberate launch or GameSwitcher resume is
+         * counted once when the emulator child genuinely starts.
+         */
+        if (!automatic_resume &&
+            flip_game_stats_record_launch(
+                system->id,
+                rom->path,
+                (long long)time(NULL)) < 0) {
 
-        unsigned long long rounded =
-            (unsigned long long)(
-                elapsed + 0.5);
-
-        *active_seconds +=
-            rounded;
+            fprintf(
+                stderr,
+                "FRONTEND_STATS launch write failed rom=%s\n",
+                rom->path);
+        }
     }
 
     if (session_rc < 0) {
@@ -5297,17 +5302,20 @@ static int launch_game_once(
 
     fprintf(
         stderr,
-        "FRONTEND_GAME session_action=%d\n",
-        result.action);
+        "FRONTEND_GAME session_action=%d active_seconds=%llu\n",
+        result.action,
+        result.active_seconds);
 
     return (int)result.action;
 }
 
 static void finish_game_stats(
     const rom_entry_t *rom,
-    unsigned long long active_seconds)
+    unsigned long long active_seconds,
+    int launched_any)
 {
-    if (!rom ||
+    if (!launched_any ||
+        !rom ||
         !rom->system ||
         !rom->system->id)
         return;
@@ -5335,18 +5343,8 @@ static int launch_game(
         return -1;
 
     int automatic_resume = 0;
+    int launched_any = 0;
     unsigned long long active_seconds = 0;
-
-    if (flip_game_stats_record_launch(
-            rom->system->id,
-            rom->path,
-            (long long)time(NULL)) < 0) {
-
-        fprintf(
-            stderr,
-            "FRONTEND_STATS launch write failed rom=%s\n",
-            rom->path);
-    }
 
     for (;;) {
 
@@ -5355,7 +5353,8 @@ static int launch_game(
                 drm,
                 rom,
                 automatic_resume,
-                &active_seconds);
+                &active_seconds,
+                &launched_any);
 
         /* The intent applies to exactly one post-wake relaunch. */
         automatic_resume = 0;
@@ -5363,7 +5362,8 @@ static int launch_game(
         if (result != FLIP_SESSION_ACTION_SUSPEND) {
             finish_game_stats(
                 rom,
-                active_seconds);
+                active_seconds,
+                launched_any);
             return result;
         }
 
@@ -5390,7 +5390,8 @@ static int launch_game(
 
             finish_game_stats(
                 rom,
-                active_seconds);
+                active_seconds,
+                launched_any);
             return result;
         }
 
@@ -5406,7 +5407,8 @@ static int launch_game(
 
             finish_game_stats(
                 rom,
-                active_seconds);
+                active_seconds,
+                launched_any);
             return result;
         }
 
@@ -5423,7 +5425,8 @@ static int launch_game(
 
             finish_game_stats(
                 rom,
-                active_seconds);
+                active_seconds,
+                launched_any);
             return -1;
         }
 
@@ -5433,11 +5436,9 @@ static int launch_game(
             rom->path);
 
         /*
-         * This next launch is a continuation of the lid-suspended session,
-         * not a new user launch decision. Skip Game Options exactly once.
-         *
-         * active_seconds intentionally spans each emulator segment but not the
-         * lid-sleep interval above, so play-time stats reflect actual play.
+         * This next launch is a continuation of the lid-suspended session.
+         * The session runtime reports only actual emulator child time, so the
+         * sleep interval above never inflates play-time statistics.
          */
         automatic_resume = 1;
     }
