@@ -21,6 +21,9 @@ assert '"PLAY TIME"' in SOURCE
 assert '"LAUNCHES"' in SOURCE
 assert 'SCREEN_STATS' in SOURCE
 assert 'draw_stats(' in SOURCE
+assert 'SCREEN_GAME_DETAILS' in SOURCE
+assert 'draw_game_details(' in SOURCE
+assert '"A LAUNCH   Y DETAILS   B BACK"' in SOURCE
 assert '"END PAUSED GAME?"' in SOURCE
 assert '"REMOVE FROM LIST?"' in SOURCE
 assert '"RUN STABILITY TEST"' in SOURCE
