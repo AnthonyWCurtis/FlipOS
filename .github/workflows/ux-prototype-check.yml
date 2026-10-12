@@ -1,0 +1,36 @@
+name: UX Prototype Checks
+
+on:
+  push:
+    branches:
+      - ux/console-home-v1
+
+jobs:
+  ux-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install AArch64 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
+
+      - name: Play stats unit test
+        run: make test-game-stats
+
+      - name: UX architecture checks
+        run: |
+          python3 tests/test_play_stats_architecture.py
+          python3 tests/test_frontend_ux_architecture.py
+          python3 tests/test_ui_scale_architecture.py
+          python3 tests/test_settings_navigation_architecture.py
+          python3 tests/test_session_adapter_architecture.py
+          python3 tests/test_session_persistence_architecture.py
+
+      - name: Build frontend
+        run: make frontend
+
+      - name: Diff whitespace check
+        run: git diff --check
