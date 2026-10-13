@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ux/console-home-v1
+      - fix/**
   pull_request:
     branches:
       - main
