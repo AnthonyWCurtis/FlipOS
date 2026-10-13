@@ -89,6 +89,22 @@ int flip_cpu_dynamic_init(
     if (controller->allowed_index <= controller->current_index)
         return 0;
 
+    /*
+     * The ondemand governor can otherwise dive to the hardware minimum
+     * between emulation frames even when we have raised only its ceiling.
+     * That produces the exact bursty workload failure this controller is
+     * intended to prevent: the next frame begins at a low OPP, misses its
+     * deadline, and the governor reacts too late.
+     *
+     * While dynamic control owns the session, run at the selected OPP by
+     * keeping min and max together. The controller can still reclaim power by
+     * probing one lower OPP after sustained healthy full-speed operation.
+     */
+    if (flip_cpu_policy_set_limits(
+            controller->current_max_khz,
+            controller->current_max_khz) < 0)
+        return -1;
+
     controller->enabled = 1;
     return 1;
 }
@@ -175,7 +191,7 @@ int flip_cpu_dynamic_sample(
             next_index = controller->allowed_index;
 
         unsigned next_khz = controller->frequencies_khz[next_index];
-        if (flip_cpu_policy_set_max(next_khz) < 0)
+        if (flip_cpu_policy_set_limits(next_khz, next_khz) < 0)
             return -1;
 
         controller->current_index = next_index;
@@ -199,7 +215,7 @@ int flip_cpu_dynamic_sample(
             next_index = controller->base_index;
 
         unsigned next_khz = controller->frequencies_khz[next_index];
-        if (flip_cpu_policy_set_max(next_khz) < 0)
+        if (flip_cpu_policy_set_limits(next_khz, next_khz) < 0)
             return -1;
 
         controller->current_index = next_index;

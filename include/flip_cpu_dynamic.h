@@ -31,10 +31,13 @@ typedef struct {
 } flip_cpu_dynamic_t;
 
 /*
- * Initialize dynamic ceiling escalation from the current cpufreq policy.
- * The controller never exceeds allowed_max_khz and never lowers below the
- * session's initial ceiling. Temporary escalation is reclaimed after a long
- * run of healthy full-speed performance.
+ * Initialize dynamic OPP control from the current cpufreq policy.
+ * While active, the controller keeps scaling_min_freq and scaling_max_freq
+ * together at the selected OPP so the ondemand governor cannot dive below the
+ * proven performance floor between emulation frames. The controller never
+ * exceeds allowed_max_khz and never lowers below the session's initial OPP.
+ * Temporary escalation is reclaimed after a long run of healthy full-speed
+ * performance.
  *
  * Returns:
  *   1 = dynamic escalation available
@@ -49,8 +52,8 @@ int flip_cpu_dynamic_init(
  * Feed one performance window, normally about one second.
  *
  * Returns:
- *   2 = ceiling lowered by one OPP after sustained healthy performance
- *   1 = ceiling raised by one OPP
+ *   2 = selected OPP lowered by one step after sustained healthy performance
+ *   1 = selected OPP raised by one step
  *   0 = unchanged
  *  -1 = policy update failed
  */

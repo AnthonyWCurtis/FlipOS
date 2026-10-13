@@ -60,6 +60,8 @@ static void test_healthy_workload_stays_put(void)
 
     flip_cpu_dynamic_t controller;
     assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
+    assert(read_unsigned_value("scaling_max_freq") == 1104000);
     consume_warmup(&controller);
 
     for (int i = 0; i < 20; ++i) {
@@ -67,6 +69,7 @@ static void test_healthy_workload_stays_put(void)
             &controller, 59.72, 59.728, 11000, 0) == 0);
     }
 
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     assert(controller.raise_count == 0);
 }
@@ -84,6 +87,7 @@ static void test_full_speed_near_budget_does_not_raise(void)
             &controller, 59.976, 59.728, 16626, 0) == 0);
     }
 
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     assert(controller.raise_count == 0);
 }
@@ -101,6 +105,7 @@ static void test_ffvi_style_816_rescue_raises_to_1104(void)
     assert(flip_cpu_dynamic_sample(
         &controller, 53.8, 59.728, 19000, 0) == 1);
 
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     assert(controller.current_max_khz == 1104000);
     assert(controller.raise_count == 1);
@@ -120,6 +125,7 @@ static void test_single_timing_wobble_does_not_raise(void)
     assert(flip_cpu_dynamic_sample(
         &controller, 59.73, 59.728, 12000, 0) == 0);
 
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     assert(controller.raise_count == 0);
 }
@@ -138,6 +144,7 @@ static void test_two_bad_windows_raise_one_opp(void)
     assert(flip_cpu_dynamic_sample(
         &controller, 59.18, 59.728, 16000, 0) == 1);
 
+    assert(read_unsigned_value("scaling_min_freq") == 1416000);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
     assert(controller.current_max_khz == 1416000);
     assert(controller.raise_count == 1);
@@ -154,6 +161,7 @@ static void test_severe_slowdown_raises_immediately_one_opp(void)
     assert(flip_cpu_dynamic_sample(
         &controller, 53.5, 59.728, 18500, 0) == 1);
 
+    assert(read_unsigned_value("scaling_min_freq") == 1416000);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
     assert(controller.raise_count == 1);
 }
@@ -169,6 +177,7 @@ static void test_audio_drop_raises_immediately(void)
     assert(flip_cpu_dynamic_sample(
         &controller, 59.72, 59.728, 12000, 1) == 1);
 
+    assert(read_unsigned_value("scaling_min_freq") == 1416000);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
 }
 
@@ -183,11 +192,13 @@ static void test_allowed_max_is_never_exceeded(void)
     assert(flip_cpu_dynamic_sample(
         &controller, 53.0, 59.728, 19000, 0) == 1);
 
+    assert(read_unsigned_value("scaling_min_freq") == 1416000);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
     assert(controller.enabled == 1);
 
     assert(flip_cpu_dynamic_sample(
         &controller, 40.0, 59.728, 25000, 5) == 0);
+    assert(read_unsigned_value("scaling_min_freq") == 1416000);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
 }
 
@@ -201,16 +212,19 @@ static void test_temporary_escalation_is_reclaimed(void)
 
     assert(flip_cpu_dynamic_sample(
         &controller, 53.0, 59.728, 19000, 0) == 1);
+    assert(read_unsigned_value("scaling_min_freq") == 1416000);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
 
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER - 1; ++i) {
         assert(flip_cpu_dynamic_sample(
             &controller, 59.728, 59.728, 7000, 0) == 0);
     }
+    assert(read_unsigned_value("scaling_min_freq") == 1416000);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
 
     assert(flip_cpu_dynamic_sample(
         &controller, 59.728, 59.728, 7000, 0) == 2);
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     assert(controller.lower_count == 1);
 }
@@ -228,10 +242,12 @@ static void test_lowering_never_goes_below_session_base(void)
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER; ++i)
         (void)flip_cpu_dynamic_sample(&controller, 59.728, 59.728, 7000, 0);
 
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER * 2U; ++i)
         assert(flip_cpu_dynamic_sample(
             &controller, 59.728, 59.728, 7000, 0) == 0);
+    assert(read_unsigned_value("scaling_min_freq") == 1104000);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
 }
 
@@ -246,16 +262,19 @@ static void test_failed_lower_probe_learns_session_floor(void)
     /* Temporary pressure raises 408 -> 600. */
     assert(flip_cpu_dynamic_sample(
         &controller, 50.0, 59.728, 20000, 0) == 1);
+    assert(read_unsigned_value("scaling_min_freq") == 600000);
     assert(read_unsigned_value("scaling_max_freq") == 600000);
 
     /* Healthy operation eventually probes back down to 408. */
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER; ++i)
         (void)flip_cpu_dynamic_sample(&controller, 59.728, 59.728, 7000, 0);
+    assert(read_unsigned_value("scaling_min_freq") == 408000);
     assert(read_unsigned_value("scaling_max_freq") == 408000);
 
     /* Immediate regression means 408 was too low: return to 600 and learn it. */
     assert(flip_cpu_dynamic_sample(
         &controller, 50.0, 59.728, 20000, 0) == 1);
+    assert(read_unsigned_value("scaling_min_freq") == 600000);
     assert(read_unsigned_value("scaling_max_freq") == 600000);
     assert(controller.frequencies_khz[controller.base_index] == 600000);
 
@@ -263,6 +282,7 @@ static void test_failed_lower_probe_learns_session_floor(void)
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER * 2U; ++i)
         assert(flip_cpu_dynamic_sample(
             &controller, 59.728, 59.728, 7000, 0) == 0);
+    assert(read_unsigned_value("scaling_min_freq") == 600000);
     assert(read_unsigned_value("scaling_max_freq") == 600000);
 }
 
@@ -279,6 +299,7 @@ static void test_controller_does_not_lower_policy(void)
             &controller, 59.728, 59.728, 7000, 0) == 0);
     }
 
+    assert(read_unsigned_value("scaling_min_freq") == 1608000);
     assert(read_unsigned_value("scaling_max_freq") == 1608000);
 }
 
