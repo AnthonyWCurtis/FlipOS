@@ -3,6 +3,7 @@
 #include "flip_drm.h"
 #include "flip_draw.h"
 #include "flip_input.h"
+#include "flip_controls.h"
 #include "flip_hotkeys.h"
 #include "flip_keyboard.h"
 #include "flip_setup.h"
@@ -91,7 +92,8 @@ typedef enum {
     SCREEN_FIRST_BOOT_READY,
     SCREEN_UPDATE,
     SCREEN_OPTIMIZER,
-    SCREEN_OPTIMIZER_RESULTS
+    SCREEN_OPTIMIZER_RESULTS,
+    SCREEN_POWER
 } screen_t;
 
 typedef struct {
@@ -330,6 +332,15 @@ static const char *home_items[] = {
 #define OPT_UI_FOOTER_Y            458
 #define OPT_RESULTS_PANEL_Y        136
 #define OPT_RESULTS_PANEL_H        276
+
+#define POWER_MENU_MARGIN_X         72
+#define POWER_MENU_CONTENT_W       496
+#define POWER_MENU_PANEL_Y          92
+#define POWER_MENU_ROW_Y           142
+#define POWER_MENU_ROW_H            58
+#define POWER_MENU_ROW_GAP          10
+#define POWER_MENU_CONFIRM_Y       356
+#define POWER_MENU_FOOTER_Y        458
 
 
 static const char *settings_items[] = {
@@ -1455,6 +1466,7 @@ static const char *screen_name(screen_t screen)
     case SCREEN_UPDATE: return "UPDATE";
     case SCREEN_OPTIMIZER: return "OPTIMIZER";
     case SCREEN_OPTIMIZER_RESULTS: return "OPTIMIZER_RESULTS";
+    case SCREEN_POWER: return "POWER";
     default: return "UNKNOWN";
     }
 }
@@ -5718,6 +5730,184 @@ static void format_played_date(
             (char)toupper(
                 (unsigned char)out[i]);
     }
+}
+
+static void draw_power_menu(
+    flip_drm_t *drm,
+    int selected,
+    int confirm_action,
+    double poweroff_progress)
+{
+    static const char *items[] = {
+        "SLEEP",
+        "RESTART",
+        "POWER OFF"
+    };
+
+    flip_draw_clear(
+        drm,
+        BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "POWER",
+            UI_SCALE_BODY),
+        14,
+        "POWER",
+        UI_SCALE_BODY,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "DEVICE POWER",
+            1),
+        44,
+        "DEVICE POWER",
+        1,
+        DIM);
+
+    flip_draw_rect(
+        drm,
+        POWER_MENU_MARGIN_X,
+        POWER_MENU_PANEL_Y,
+        POWER_MENU_CONTENT_W,
+        250,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        POWER_MENU_MARGIN_X,
+        POWER_MENU_PANEL_Y,
+        POWER_MENU_CONTENT_W,
+        250,
+        1,
+        DIM);
+
+    for (int i = 0;
+         i < 3;
+         ++i) {
+
+        int y =
+            POWER_MENU_ROW_Y +
+            i *
+                (POWER_MENU_ROW_H +
+                 POWER_MENU_ROW_GAP);
+
+        int active =
+            i == selected;
+
+        if (active) {
+            flip_draw_rect(
+                drm,
+                POWER_MENU_MARGIN_X + 24,
+                y,
+                POWER_MENU_CONTENT_W - 48,
+                POWER_MENU_ROW_H,
+                PANEL);
+        }
+
+        flip_draw_rect_outline(
+            drm,
+            POWER_MENU_MARGIN_X + 24,
+            y,
+            POWER_MENU_CONTENT_W - 48,
+            POWER_MENU_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                items[i],
+                UI_SCALE_BODY,
+                POWER_MENU_MARGIN_X + 24,
+                POWER_MENU_CONTENT_W - 48),
+            y + 20,
+            items[i],
+            UI_SCALE_BODY,
+            active
+                ? FG
+                : DIM);
+    }
+
+    if (confirm_action != 0) {
+
+        const char *confirm =
+            confirm_action == 1
+                ? "RESTART FLIPOS?"
+                : "POWER OFF FLIPOS?";
+
+        flip_draw_rect(
+            drm,
+            POWER_MENU_MARGIN_X,
+            POWER_MENU_CONFIRM_Y,
+            POWER_MENU_CONTENT_W,
+            72,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            POWER_MENU_MARGIN_X,
+            POWER_MENU_CONFIRM_Y,
+            POWER_MENU_CONTENT_W,
+            72,
+            2,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                confirm,
+                UI_SCALE_BODY,
+                POWER_MENU_MARGIN_X,
+                POWER_MENU_CONTENT_W),
+            POWER_MENU_CONFIRM_Y + 12,
+            confirm,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "A CONFIRM   B CANCEL",
+                1,
+                POWER_MENU_MARGIN_X,
+                POWER_MENU_CONTENT_W),
+            POWER_MENU_CONFIRM_Y + 48,
+            "A CONFIRM   B CANCEL",
+            1,
+            DIM);
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            confirm_action
+                ? "B CANCEL"
+                : "A SELECT   B BACK",
+            1),
+        POWER_MENU_FOOTER_Y,
+        confirm_action
+            ? "B CANCEL"
+            : "A SELECT   B BACK",
+        1,
+        DIM);
+
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void draw_home(
