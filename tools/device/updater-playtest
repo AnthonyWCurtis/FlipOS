@@ -107,6 +107,8 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     [ ! -f "$ROOT/bin/flip-optimizer-deadman" ] || chmod 755 "$ROOT/bin/flip-optimizer-deadman"
     [ ! -f "$ROOT/bin/flip-optimizer-guard" ] || chmod 755 "$ROOT/bin/flip-optimizer-guard"
     [ ! -f "$ROOT/bin/flip-optimizer-calibration" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration"
+    [ ! -f "$ROOT/bin/flip-optimizer-calibration-experimental" ] || chmod 755 "$ROOT/bin/flip-optimizer-calibration-experimental"
+    [ ! -f "$ROOT/bin/flip-optimizer-candidate-experimental" ] || chmod 755 "$ROOT/bin/flip-optimizer-candidate-experimental"
     [ ! -f "$ROOT/bin/flip-optimizer-session" ] || chmod 755 "$ROOT/bin/flip-optimizer-session"
     [ ! -f "$ROOT/bin/flip-optimizer-progress" ] || chmod 755 "$ROOT/bin/flip-optimizer-progress"
 fi
@@ -136,6 +138,14 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
        [ -f "$ROOT/state/optimizer/cpu-calibration" ]; then
         if ! "$ROOT/bin/flip-optimizer-calibration" recover-boot >> "$LOG_TARGET" 2>&1; then
             echo "OPTIMIZER_CALIBRATION: boot reconcile failed; calibration paused" >> "$LOG_TARGET"
+            printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+        fi
+    fi
+
+    if [ -x "$ROOT/bin/flip-optimizer-calibration-experimental" ] && \
+       [ -f "$ROOT/state/optimizer/cpu-calibration-experimental" ]; then
+        if ! "$ROOT/bin/flip-optimizer-calibration-experimental" recover-boot >> "$LOG_TARGET" 2>&1; then
+            echo "OPTIMIZER_EXPERIMENTAL: boot reconcile failed; experimental trial paused" >> "$LOG_TARGET"
             printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
         fi
     fi
@@ -202,6 +212,29 @@ if [ "$SD_WRITABLE" -eq 1 ] && \
     else
         echo "OPTIMIZER_UI: snapshot restore failed; keeping UI marker for inspection" >> "$LOG_TARGET"
         printf 'stock-safe\n' > "$RAM_STOCK_SAFE"
+    fi
+fi
+
+EXPERIMENTAL_REQUEST="$ROOT/state/optimizer/experimental-trial-request"
+if [ "$SD_WRITABLE" -eq 1 ] && \
+   [ -f "$EXPERIMENTAL_REQUEST" ] && \
+   [ -x "$ROOT/bin/flip-optimizer-candidate-experimental" ] && \
+   [ -x "$ROOT/bin/flip-optimizer-calibration-experimental" ] && \
+   [ -f "$ROOT/state/optimizer/cpu-calibration-experimental" ]; then
+    if [ -e "$RAM_STOCK_SAFE" ]; then
+        echo "OPTIMIZER_EXPERIMENTAL: trial blocked by stock-safe latch" >> "$LOG_TARGET"
+    elif ! optimizer_wait_external_power_online; then
+        echo "OPTIMIZER_EXPERIMENTAL: trial cancelled - charger absent" >> "$LOG_TARGET"
+        "$ROOT/bin/flip-optimizer-calibration-experimental" cancel-unapplied >> "$LOG_TARGET" 2>&1 || true
+        rm -f "$EXPERIMENTAL_REQUEST"
+        sync
+    else
+        rm -f "$EXPERIMENTAL_REQUEST"
+        sync
+        echo "OPTIMIZER_EXPERIMENTAL: starting one below-spec candidate" >> "$LOG_TARGET"
+        if ! "$ROOT/bin/flip-optimizer-candidate-experimental" live-once 20 >> "$LOG_TARGET" 2>&1; then
+            echo "OPTIMIZER_EXPERIMENTAL: candidate returned without recovery reboot" >> "$LOG_TARGET"
+        fi
     fi
 fi
 
