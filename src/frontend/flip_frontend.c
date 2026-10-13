@@ -252,6 +252,28 @@ static const char *home_items[] = {
 #define LIBRARY_GAME_GAP            4
 #define LIBRARY_FOOTER_Y          458
 
+/* Play Stats and Game Details share the same safe 24 px content frame. */
+#define STATS_MARGIN_X             24
+#define STATS_CONTENT_W           592
+#define STATS_SUMMARY_Y            76
+#define STATS_SUMMARY_H            78
+#define STATS_SUMMARY_W           192
+#define STATS_SUMMARY_GAP           8
+#define STATS_LIST_Y              214
+#define STATS_ROW_H                48
+#define STATS_ROW_GAP               4
+#define STATS_FOOTER_Y            458
+
+#define DETAILS_MARGIN_X           24
+#define DETAILS_CONTENT_W         592
+#define DETAILS_CARD_Y            118
+#define DETAILS_CARD_H             82
+#define DETAILS_CARD_W            288
+#define DETAILS_CARD_GAP           16
+#define DETAILS_ROWS_Y            224
+#define DETAILS_ROW_H              38
+#define DETAILS_FOOTER_Y          458
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -4587,59 +4609,87 @@ static void draw_stats(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
         centred_text_x(
             "PLAY STATS",
-            UI_SCALE_TITLE),
-        20,
+            UI_SCALE_BODY),
+        14,
         "PLAY STATS",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     flip_draw_text(
         drm,
         centred_text_x(
             "YOUR FLIPOS PLAY HISTORY",
-            UI_SCALE_META),
-        58,
+            1),
+        44,
         "YOUR FLIPOS PLAY HISTORY",
-        UI_SCALE_META,
+        1,
         DIM);
 
     if (play_stats_summary.games_tracked == 0) {
+
+        flip_draw_rect(
+            drm,
+            STATS_MARGIN_X,
+            112,
+            STATS_CONTENT_W,
+            210,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            STATS_MARGIN_X,
+            112,
+            STATS_CONTENT_W,
+            210,
+            1,
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "NO PLAY STATS YET",
-                UI_SCALE_SECTION),
-            185,
+                UI_SCALE_SECTION,
+                STATS_MARGIN_X,
+                STATS_CONTENT_W),
+            165,
             "NO PLAY STATS YET",
             UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "LAUNCH A GAME AND FLIPOS WILL",
-                UI_SCALE_BODY),
-            230,
+                UI_SCALE_BODY,
+                STATS_MARGIN_X,
+                STATS_CONTENT_W),
+            221,
             "LAUNCH A GAME AND FLIPOS WILL",
             UI_SCALE_BODY,
             DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "START BUILDING YOUR HISTORY.",
-                UI_SCALE_BODY),
-            258,
+                UI_SCALE_BODY,
+                STATS_MARGIN_X,
+                STATS_CONTENT_W),
+            250,
             "START BUILDING YOUR HISTORY.",
             UI_SCALE_BODY,
             DIM);
+
     } else {
+
         char total_time[32];
         char longest[32];
         char average[32];
@@ -4672,16 +4722,19 @@ static void draw_stats(
         };
 
         char values[3][32];
+
         snprintf(
             values[0],
             sizeof(values[0]),
             "%s",
             total_time);
+
         snprintf(
             values[1],
             sizeof(values[1]),
             "%llu",
             play_stats_summary.total_launches);
+
         snprintf(
             values[2],
             sizeof(values[2]),
@@ -4693,71 +4746,97 @@ static void draw_stats(
              ++i) {
 
             int x =
-                28 + i * 198;
+                STATS_MARGIN_X +
+                i *
+                    (STATS_SUMMARY_W +
+                     STATS_SUMMARY_GAP);
 
             flip_draw_rect(
                 drm,
                 x,
-                83,
-                188,
-                72,
+                STATS_SUMMARY_Y,
+                STATS_SUMMARY_W,
+                STATS_SUMMARY_H,
                 PANEL);
 
             flip_draw_rect_outline(
                 drm,
                 x,
-                83,
-                188,
-                72,
+                STATS_SUMMARY_Y,
+                STATS_SUMMARY_W,
+                STATS_SUMMARY_H,
                 1,
                 DIM);
 
             flip_draw_text(
                 drm,
-                x + (188 -
-                    (int)strlen(labels[i]) *
-                    6 * UI_SCALE_META) / 2,
-                96,
+                centred_text_x_in_rect(
+                    labels[i],
+                    1,
+                    x,
+                    STATS_SUMMARY_W),
+                STATS_SUMMARY_Y + 14,
                 labels[i],
-                UI_SCALE_META,
+                1,
                 DIM);
+
+            char value_visible[32];
+
+            fit_text_to_width(
+                values[i],
+                value_visible,
+                sizeof(value_visible),
+                STATS_SUMMARY_W - 20,
+                UI_SCALE_SECTION);
 
             flip_draw_text(
                 drm,
-                x + (188 -
-                    (int)strlen(values[i]) *
-                    6 * UI_SCALE_SECTION) / 2,
-                122,
-                values[i],
+                centred_text_x_in_rect(
+                    value_visible,
+                    UI_SCALE_SECTION,
+                    x,
+                    STATS_SUMMARY_W),
+                STATS_SUMMARY_Y + 40,
+                value_visible,
                 UI_SCALE_SECTION,
                 FG);
         }
 
         char session_line[96];
+
         snprintf(
             session_line,
             sizeof(session_line),
-            "LONGEST SESSION %s   AVERAGE %s",
+            "LONGEST %s   AVERAGE %s",
             longest,
             average);
+
+        char session_visible[96];
+
+        fit_text_to_width(
+            session_line,
+            session_visible,
+            sizeof(session_visible),
+            STATS_CONTENT_W,
+            1);
 
         flip_draw_text(
             drm,
             centred_text_x(
-                session_line,
-                UI_SCALE_META),
+                session_visible,
+                1),
             174,
-            session_line,
-            UI_SCALE_META,
+            session_visible,
+            1,
             DIM);
 
         flip_draw_text(
             drm,
-            48,
-            205,
+            STATS_MARGIN_X,
+            196,
             "MOST PLAYED",
-            UI_SCALE_BODY,
-            FG);
+            1,
+            DIM);
 
         for (size_t i = 0;
              i < play_stats_top_count &&
@@ -4765,9 +4844,30 @@ static void draw_stats(
              ++i) {
 
             int y =
-                236 + (int)i * 43;
+                STATS_LIST_Y +
+                (int)i *
+                    (STATS_ROW_H +
+                     STATS_ROW_GAP);
+
+            flip_draw_rect(
+                drm,
+                STATS_MARGIN_X,
+                y,
+                STATS_CONTENT_W,
+                STATS_ROW_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                STATS_MARGIN_X,
+                y,
+                STATS_CONTENT_W,
+                STATS_ROW_H,
+                1,
+                DIM);
 
             char title[64];
+
             const char *base =
                 strrchr(
                     play_stats_top[i].rom,
@@ -4778,24 +4878,27 @@ static void draw_stats(
                     ? base + 1
                     : play_stats_top[i].rom;
 
-            const flip_system_t *system =
+            const flip_system_t *entry_system =
                 flip_system_find(
                     play_stats_top[i].system);
 
             make_display_name(
-                system,
+                entry_system,
                 title,
                 sizeof(title),
                 base);
 
-            char visible[25];
-            snprintf(
+            char visible[64];
+
+            fit_text_to_width(
+                title,
                 visible,
                 sizeof(visible),
-                "%.22s",
-                title);
+                332,
+                UI_SCALE_BODY);
 
             char rank[8];
+
             snprintf(
                 rank,
                 sizeof(rank),
@@ -4804,49 +4907,61 @@ static void draw_stats(
 
             flip_draw_text(
                 drm,
-                52,
-                y,
+                STATS_MARGIN_X + 16,
+                y + 15,
                 rank,
                 UI_SCALE_BODY,
                 DIM);
 
             flip_draw_text(
                 drm,
-                86,
-                y,
+                STATS_MARGIN_X + 48,
+                y + 13,
                 visible,
                 UI_SCALE_BODY,
                 FG);
 
             char played[32];
+
             format_play_duration(
                 play_stats_top[i].total_play_seconds,
                 played,
                 sizeof(played));
 
-            flip_draw_text(
-                drm,
-                472,
-                y,
-                played,
-                UI_SCALE_BODY,
-                FG);
+            char activity[64];
 
-            char launches[40];
             snprintf(
-                launches,
-                sizeof(launches),
-                "%llu LAUNCH%s",
+                activity,
+                sizeof(activity),
+                "%s   %llu LAUNCH%s",
+                played,
                 play_stats_top[i].launches,
                 play_stats_top[i].launches == 1
                     ? ""
                     : "ES");
 
+            char activity_visible[64];
+
+            fit_text_to_width(
+                activity,
+                activity_visible,
+                sizeof(activity_visible),
+                170,
+                1);
+
+            int activity_width =
+                ui_text_width_px(
+                    activity_visible,
+                    1);
+
             flip_draw_text(
                 drm,
-                87,
-                y + 22,
-                launches,
+                STATS_MARGIN_X +
+                    STATS_CONTENT_W -
+                    16 -
+                    activity_width,
+                y + 20,
+                activity_visible,
                 1,
                 DIM);
         }
@@ -4855,10 +4970,10 @@ static void draw_stats(
     flip_draw_text(
         drm,
         centred_text_x(
-            "STATS ARE STORED LOCALLY ON YOUR SD CARD",
+            "STATS STORED LOCALLY ON YOUR SD CARD",
             1),
-        420,
-        "STATS ARE STORED LOCALLY ON YOUR SD CARD",
+        434,
+        "STATS STORED LOCALLY ON YOUR SD CARD",
         1,
         DIM);
 
@@ -4866,19 +4981,23 @@ static void draw_stats(
         drm,
         centred_text_x(
             "B BACK",
-            UI_SCALE_HINT),
-        452,
+            1),
+        STATS_FOOTER_Y,
         "B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
+    draw_battery_indicator(
+        drm);
 
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 
@@ -4886,35 +5005,54 @@ static void draw_game_details(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
         centred_text_x(
             "GAME DETAILS",
-            UI_SCALE_TITLE),
-        18,
+            UI_SCALE_BODY),
+        14,
         "GAME DETAILS",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
-    char game_name[32];
-    snprintf(
-        game_name,
-        sizeof(game_name),
-        "%.29s",
+    const char *raw_name =
         details_rom.display[0]
             ? details_rom.display
-            : "GAME");
+            : "GAME";
+
+    int title_scale =
+        UI_SCALE_SECTION;
+
+    while (title_scale > 1 &&
+           ui_text_width_px(
+               raw_name,
+               title_scale) >
+               DETAILS_CONTENT_W) {
+
+        title_scale--;
+    }
+
+    char game_name[96];
+
+    fit_text_to_width(
+        raw_name,
+        game_name,
+        sizeof(game_name),
+        DETAILS_CONTENT_W,
+        title_scale);
 
     flip_draw_text(
         drm,
         centred_text_x(
             game_name,
-            UI_SCALE_SECTION),
-        63,
+            title_scale),
+        48,
         game_name,
-        UI_SCALE_SECTION,
+        title_scale,
         FG);
 
     const char *system_name =
@@ -4930,6 +5068,7 @@ static void draw_game_details(
             details_rom.path);
 
     char system_status[96];
+
     snprintf(
         system_status,
         sizeof(system_status),
@@ -4939,17 +5078,29 @@ static void draw_game_details(
             ? "   RESUME READY"
             : "");
 
+    char system_visible[96];
+
+    fit_text_to_width(
+        system_status,
+        system_visible,
+        sizeof(system_visible),
+        DETAILS_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
         centred_text_x(
-            system_status,
-            UI_SCALE_META),
-        96,
-        system_status,
-        UI_SCALE_META,
-        can_resume ? FG : DIM);
+            system_visible,
+            1),
+        88,
+        system_visible,
+        1,
+        can_resume
+            ? FG
+            : DIM);
 
     flip_game_stats_t stats;
+
     int have_stats =
         details_rom.system &&
         details_rom.system->id &&
@@ -4959,53 +5110,62 @@ static void draw_game_details(
             &stats) == 1;
 
     if (!have_stats) {
+
         flip_draw_rect(
             drm,
-            84,
-            150,
-            472,
-            150,
+            DETAILS_MARGIN_X,
+            DETAILS_CARD_Y,
+            DETAILS_CONTENT_W,
+            210,
             PANEL);
 
         flip_draw_rect_outline(
             drm,
-            84,
-            150,
-            472,
-            150,
+            DETAILS_MARGIN_X,
+            DETAILS_CARD_Y,
+            DETAILS_CONTENT_W,
+            210,
             1,
             DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "NO PLAY STATS YET",
-                UI_SCALE_SECTION),
-            181,
+                UI_SCALE_SECTION,
+                DETAILS_MARGIN_X,
+                DETAILS_CONTENT_W),
+            168,
             "NO PLAY STATS YET",
             UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "PLAY THIS GAME TO START",
-                UI_SCALE_BODY),
-            231,
+                UI_SCALE_BODY,
+                DETAILS_MARGIN_X,
+                DETAILS_CONTENT_W),
+            224,
             "PLAY THIS GAME TO START",
             UI_SCALE_BODY,
             DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "BUILDING ITS HISTORY.",
-                UI_SCALE_BODY),
-            260,
+                UI_SCALE_BODY,
+                DETAILS_MARGIN_X,
+                DETAILS_CONTENT_W),
+            253,
             "BUILDING ITS HISTORY.",
             UI_SCALE_BODY,
             DIM);
+
     } else {
+
         char played[32];
         char last_session[32];
         char longest[32];
@@ -5049,78 +5209,84 @@ static void draw_game_details(
             last_played,
             sizeof(last_played));
 
-        const int card_y = 125;
-        const int card_w = 250;
-
-        flip_draw_rect(
-            drm,
-            58,
-            card_y,
-            card_w,
-            82,
-            PANEL);
-        flip_draw_rect_outline(
-            drm,
-            58,
-            card_y,
-            card_w,
-            82,
-            1,
-            DIM);
-
-        flip_draw_text(
-            drm,
-            78,
-            card_y + 14,
+        static const char *card_labels[2] = {
             "TOTAL PLAY TIME",
-            UI_SCALE_META,
-            DIM);
-        flip_draw_text(
-            drm,
-            78,
-            card_y + 42,
-            played,
-            UI_SCALE_SECTION,
-            FG);
-
-        flip_draw_rect(
-            drm,
-            332,
-            card_y,
-            card_w,
-            82,
-            PANEL);
-        flip_draw_rect_outline(
-            drm,
-            332,
-            card_y,
-            card_w,
-            82,
-            1,
-            DIM);
-
-        flip_draw_text(
-            drm,
-            352,
-            card_y + 14,
-            "LAUNCHES",
-            UI_SCALE_META,
-            DIM);
+            "LAUNCHES"
+        };
 
         char launches[32];
+
         snprintf(
             launches,
             sizeof(launches),
             "%llu",
             stats.launches);
 
-        flip_draw_text(
-            drm,
-            352,
-            card_y + 42,
-            launches,
-            UI_SCALE_SECTION,
-            FG);
+        const char *card_values[2] = {
+            played,
+            launches
+        };
+
+        for (int i = 0;
+             i < 2;
+             ++i) {
+
+            int x =
+                DETAILS_MARGIN_X +
+                i *
+                    (DETAILS_CARD_W +
+                     DETAILS_CARD_GAP);
+
+            flip_draw_rect(
+                drm,
+                x,
+                DETAILS_CARD_Y,
+                DETAILS_CARD_W,
+                DETAILS_CARD_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                x,
+                DETAILS_CARD_Y,
+                DETAILS_CARD_W,
+                DETAILS_CARD_H,
+                1,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    card_labels[i],
+                    1,
+                    x,
+                    DETAILS_CARD_W),
+                DETAILS_CARD_Y + 15,
+                card_labels[i],
+                1,
+                DIM);
+
+            char value_visible[32];
+
+            fit_text_to_width(
+                card_values[i],
+                value_visible,
+                sizeof(value_visible),
+                DETAILS_CARD_W - 24,
+                UI_SCALE_SECTION);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    value_visible,
+                    UI_SCALE_SECTION,
+                    x,
+                    DETAILS_CARD_W),
+                DETAILS_CARD_Y + 43,
+                value_visible,
+                UI_SCALE_SECTION,
+                FG);
+        }
 
         static const char *labels[] = {
             "LAST SESSION",
@@ -5143,27 +5309,41 @@ static void draw_game_details(
              ++i) {
 
             int y =
-                229 + i * 34;
+                DETAILS_ROWS_Y +
+                i *
+                    DETAILS_ROW_H;
 
             flip_draw_text(
                 drm,
-                74,
+                DETAILS_MARGIN_X + 16,
                 y,
                 labels[i],
-                UI_SCALE_META,
+                UI_SCALE_BODY,
                 DIM);
 
+            char value_visible[48];
+
+            fit_text_to_width(
+                values[i],
+                value_visible,
+                sizeof(value_visible),
+                220,
+                UI_SCALE_BODY);
+
             int value_width =
-                (int)strlen(values[i]) *
-                6 *
-                UI_SCALE_META;
+                ui_text_width_px(
+                    value_visible,
+                    UI_SCALE_BODY);
 
             flip_draw_text(
                 drm,
-                566 - value_width,
+                DETAILS_MARGIN_X +
+                    DETAILS_CONTENT_W -
+                    16 -
+                    value_width,
                 y,
-                values[i],
-                UI_SCALE_META,
+                value_visible,
+                UI_SCALE_BODY,
                 FG);
         }
     }
@@ -5173,7 +5353,7 @@ static void draw_game_details(
         centred_text_x(
             "Y FROM LIBRARY OR GAMESWITCHER OPENS DETAILS",
             1),
-        420,
+        434,
         "Y FROM LIBRARY OR GAMESWITCHER OPENS DETAILS",
         1,
         DIM);
@@ -5182,20 +5362,25 @@ static void draw_game_details(
         drm,
         centred_text_x(
             "B BACK",
-            UI_SCALE_HINT),
-        452,
+            1),
+        DETAILS_FOOTER_Y,
         "B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
+    draw_battery_indicator(
+        drm);
 
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_systems(
     flip_drm_t *drm,
