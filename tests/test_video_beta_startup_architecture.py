@@ -23,6 +23,8 @@ for token in [
     "connect_ready_service(",
     "pipe(ready_pipe)",
     "FLIP_GPU_CLIENT: service ready",
+    "#define FLIP_GPU_READY_POLL_MS 100",
+    "#define FLIP_GPU_READY_TIMEOUT_MS 15000",
 ]:
     assert token in client, f"GPU client readiness handoff missing: {token}"
 
