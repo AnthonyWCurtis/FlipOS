@@ -27,7 +27,7 @@ def define_int(source: str, name: str) -> int:
 # through the digital button table, while event1 remains the lid-only path.
 assert "FLIP_BTN_POWER" in input_h
 assert "case 116: return FLIP_BTN_POWER;" in input_c
-assert 'HALL_DEVICE "/dev/input/event1"' in input_c
+assert 'HALL_DEVICE    "/dev/input/event1"' in input_c
 
 # Short press is recognized on release; a hold past the tap window is cancelled
 # so userspace does not replace the physical emergency long-hold behaviour.
