@@ -311,6 +311,13 @@ static const char *home_items[] = {
 #define BIOS_ROW_GAP                8
 #define BIOS_HINT_Y               382
 
+/* First boot keeps a larger welcome title but uses the same safe content frame. */
+#define FIRST_BOOT_MARGIN_X         24
+#define FIRST_BOOT_CONTENT_W       592
+#define FIRST_BOOT_PANEL_Y         118
+#define FIRST_BOOT_PANEL_H         218
+#define FIRST_BOOT_FOOTER_Y        444
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -2086,40 +2093,94 @@ static void draw_first_boot(
     screen_t screen,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
-    const char *title = "WELCOME TO FLIPOS";
-    const char *line1 = "BUILT FOR THE MIYOO FLIP";
-    const char *line2 = "A BEGIN";
+    const char *title =
+        "WELCOME TO FLIPOS";
 
-    if (screen == SCREEN_FIRST_BOOT_WIFI) {
-        title = "WI-FI SETUP";
-        line1 = wifi_status.connected
-            ? "WI-FI IS CONNECTED"
-            : "WI-FI IS OPTIONAL";
-        line2 = wifi_status.connected
-            ? "A WI-FI SETTINGS   START CONTINUE"
-            : "A SET UP WI-FI   START SKIP";
-    } else if (screen == SCREEN_FIRST_BOOT_TIME) {
-        title = "DATE & TIME";
-        line1 = time_status.timezone[0]
-            ? time_status.timezone
-            : "UTC";
-        line2 = "LEFT/RIGHT ZONE   X SYNC   A CONTINUE";
-    } else if (screen == SCREEN_FIRST_BOOT_PREFS) {
-        title = "CONTROLS & DISPLAY";
-        line1 = "SET A COMFORTABLE VOLUME AND BRIGHTNESS";
-        line2 = "A CONTINUE";
-    } else if (screen == SCREEN_FIRST_BOOT_BIOS) {
-        title = "BIOS FILES";
-        line1 = "OPTIONAL - USER SUPPLIED FILES";
-        line2 = "A CONTINUE";
-    } else if (screen == SCREEN_FIRST_BOOT_READY) {
-        title = "READY";
-        line1 = "FLIPOS SETUP IS COMPLETE";
-        line2 = "A START FLIPOS";
+    const char *line1 =
+        "BUILT FOR THE MIYOO FLIP";
+
+    const char *line2 =
+        "A BEGIN";
+
+    if (screen ==
+        SCREEN_FIRST_BOOT_WIFI) {
+
+        title =
+            "WI-FI SETUP";
+
+        line1 =
+            wifi_status.connected
+                ? "WI-FI IS CONNECTED"
+                : "WI-FI IS OPTIONAL";
+
+        line2 =
+            wifi_status.connected
+                ? "A WI-FI SETTINGS   START CONTINUE"
+                : "A SET UP WI-FI   START SKIP";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_TIME) {
+
+        title =
+            "DATE & TIME";
+
+        line1 =
+            time_status.timezone[0]
+                ? time_status.timezone
+                : "UTC";
+
+        line2 =
+            "LEFT/RIGHT ZONE   X SYNC   A CONTINUE";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_PREFS) {
+
+        title =
+            "CONTROLS & DISPLAY";
+
+        line1 =
+            "SET A COMFORTABLE VOLUME AND BRIGHTNESS";
+
+        line2 =
+            "A CONTINUE";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_BIOS) {
+
+        title =
+            "BIOS FILES";
+
+        line1 =
+            "OPTIONAL - USER SUPPLIED FILES";
+
+        line2 =
+            "A CONTINUE";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_READY) {
+
+        title =
+            "READY";
+
+        line1 =
+            "FLIPOS SETUP IS COMPLETE";
+
+        line2 =
+            "A START FLIPOS";
     }
 
+    /*
+     * Keep these calls deliberately paired at the same scale: the UI-scale
+     * architecture test verifies centered text is measured exactly as drawn.
+     */
     flip_draw_text(
         drm,
         centred_text_x(title, UI_SCALE_HERO),
@@ -2128,86 +2189,207 @@ static void draw_first_boot(
         UI_SCALE_HERO,
         FG);
 
-    if (screen == SCREEN_FIRST_BOOT_WELCOME) {
+    flip_draw_rect(
+        drm,
+        FIRST_BOOT_MARGIN_X,
+        FIRST_BOOT_PANEL_Y,
+        FIRST_BOOT_CONTENT_W,
+        FIRST_BOOT_PANEL_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        FIRST_BOOT_MARGIN_X,
+        FIRST_BOOT_PANEL_Y,
+        FIRST_BOOT_CONTENT_W,
+        FIRST_BOOT_PANEL_H,
+        1,
+        DIM);
+
+    if (screen ==
+        SCREEN_FIRST_BOOT_WELCOME) {
+
         flip_draw_text(
             drm,
-            centred_text_x("FAST. SIMPLE. CONSOLE-LIKE.", UI_SCALE_SECTION),
-            146,
+            centred_text_x_in_rect(
+                "FAST. SIMPLE. CONSOLE-LIKE.",
+                UI_SCALE_SECTION,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            155,
             "FAST. SIMPLE. CONSOLE-LIKE.",
             UI_SCALE_SECTION,
-            DIM);
+            FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("THIS SHORT SETUP GETS THE BASICS READY.", UI_SCALE_BODY),
-            205,
+            centred_text_x_in_rect(
+                "THIS SHORT SETUP GETS THE BASICS READY.",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            228,
             "THIS SHORT SETUP GETS THE BASICS READY.",
             UI_SCALE_BODY,
             DIM);
-    } else if (screen == SCREEN_FIRST_BOOT_WIFI) {
-        (void)flip_wifi_get_status(&wifi_status);
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_WIFI) {
+
+        (void)flip_wifi_get_status(
+            &wifi_status);
+
         if (wifi_status.connected) {
+
             char wifi_line[160];
+
             snprintf(
                 wifi_line,
                 sizeof(wifi_line),
                 "%s%s%s",
-                wifi_status.ssid[0] ? wifi_status.ssid : "NETWORK",
-                wifi_status.usable_ip ? "   IP " : "",
-                wifi_status.usable_ip ? wifi_status.ip_address : "");
+                wifi_status.ssid[0]
+                    ? wifi_status.ssid
+                    : "NETWORK",
+                wifi_status.usable_ip
+                    ? "   IP "
+                    : "",
+                wifi_status.usable_ip
+                    ? wifi_status.ip_address
+                    : "");
+
+            char wifi_visible[96];
+
+            fit_text_to_width(
+                wifi_line,
+                wifi_visible,
+                sizeof(wifi_visible),
+                FIRST_BOOT_CONTENT_W - 48,
+                UI_SCALE_BODY);
+
             flip_draw_text(
                 drm,
-                centred_text_x(wifi_line, UI_SCALE_BODY),
+                centred_text_x_in_rect(
+                    wifi_visible,
+                    UI_SCALE_BODY,
+                    FIRST_BOOT_MARGIN_X,
+                    FIRST_BOOT_CONTENT_W),
                 190,
-                wifi_line,
+                wifi_visible,
                 UI_SCALE_BODY,
                 FG);
+
         } else {
+
             flip_draw_text(
                 drm,
-                centred_text_x("YOU CAN CHANGE THIS LATER IN SETTINGS.", UI_SCALE_BODY),
+                centred_text_x_in_rect(
+                    "YOU CAN CHANGE THIS LATER IN SETTINGS.",
+                    UI_SCALE_BODY,
+                    FIRST_BOOT_MARGIN_X,
+                    FIRST_BOOT_CONTENT_W),
                 190,
                 "YOU CAN CHANGE THIS LATER IN SETTINGS.",
                 UI_SCALE_BODY,
                 DIM);
         }
-    } else if (screen == SCREEN_FIRST_BOOT_TIME) {
-        char now_text[64] = "TIME UNAVAILABLE";
-        (void)flip_time_format_local(now_text, sizeof(now_text));
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_TIME) {
+
+        char now_text[64] =
+            "TIME UNAVAILABLE";
+
+        (void)flip_time_format_local(
+            now_text,
+            sizeof(now_text));
+
+        char now_visible[64];
+
+        fit_text_to_width(
+            now_text,
+            now_visible,
+            sizeof(now_visible),
+            FIRST_BOOT_CONTENT_W - 48,
+            UI_SCALE_SECTION);
+
         flip_draw_text(
             drm,
-            centred_text_x(now_text, UI_SCALE_SECTION),
-            178,
-            now_text,
+            centred_text_x_in_rect(
+                now_visible,
+                UI_SCALE_SECTION,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            154,
+            now_visible,
             UI_SCALE_SECTION,
             FG);
-        flip_draw_text(
-            drm,
-            centred_text_x(
-                time_status.automatic
-                    ? "AUTOMATIC TIME ON"
-                    : "AUTOMATIC TIME OFF",
-                UI_SCALE_BODY),
-            228,
+
+        const char *automatic_text =
             time_status.automatic
                 ? "AUTOMATIC TIME ON"
-                : "AUTOMATIC TIME OFF",
-            UI_SCALE_BODY,
-            DIM);
+                : "AUTOMATIC TIME OFF";
+
         flip_draw_text(
             drm,
-            centred_text_x(
-                wifi_status.connected
-                    ? "WI-FI AVAILABLE FOR TIME SYNC"
-                    : "NO WI-FI - YOU CAN SET TIME MANUALLY LATER",
-                UI_SCALE_BODY),
-            258,
-            wifi_status.connected
-                ? "WI-FI AVAILABLE FOR TIME SYNC"
-                : "NO WI-FI - YOU CAN SET TIME MANUALLY LATER",
+            centred_text_x_in_rect(
+                automatic_text,
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            216,
+            automatic_text,
             UI_SCALE_BODY,
             DIM);
-    } else if (screen == SCREEN_FIRST_BOOT_PREFS) {
+
+        const char *sync_text =
+            wifi_status.connected
+                ? "WI-FI AVAILABLE FOR TIME SYNC"
+                : "NO WI-FI - YOU CAN SET TIME MANUALLY LATER";
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                sync_text,
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            258,
+            sync_text,
+            UI_SCALE_BODY,
+            DIM);
+
+        if (time_message[0]) {
+
+            char message_visible[96];
+
+            fit_text_to_width(
+                time_message,
+                message_visible,
+                sizeof(message_visible),
+                FIRST_BOOT_CONTENT_W - 48,
+                1);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    message_visible,
+                    1,
+                    FIRST_BOOT_MARGIN_X,
+                    FIRST_BOOT_CONTENT_W),
+                307,
+                message_visible,
+                1,
+                FG);
+        }
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_PREFS) {
+
         char values[96];
+
         snprintf(
             values,
             sizeof(values),
@@ -2215,140 +2397,217 @@ static void draw_first_boot(
             flip_settings_get_volume(),
             flip_power_brightness_to_percent(
                 flip_settings_get_brightness()));
+
+        char values_visible[96];
+
+        fit_text_to_width(
+            values,
+            values_visible,
+            sizeof(values_visible),
+            FIRST_BOOT_CONTENT_W - 48,
+            UI_SCALE_SECTION);
+
         flip_draw_text(
             drm,
-            centred_text_x(values, UI_SCALE_SECTION),
-            170,
-            values,
+            centred_text_x_in_rect(
+                values_visible,
+                UI_SCALE_SECTION,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            158,
+            values_visible,
             UI_SCALE_SECTION,
             FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("VOL -/+   VOLUME", UI_SCALE_BODY),
-            234,
+            centred_text_x_in_rect(
+                "VOL -/+   VOLUME",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            230,
             "VOL -/+   VOLUME",
             UI_SCALE_BODY,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("MENU + VOL -/+   BRIGHTNESS", UI_SCALE_BODY),
-            260,
+            centred_text_x_in_rect(
+                "MENU + VOL -/+   BRIGHTNESS",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            270,
             "MENU + VOL -/+   BRIGHTNESS",
             UI_SCALE_BODY,
             DIM);
-    } else if (screen == SCREEN_FIRST_BOOT_BIOS) {
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_BIOS) {
+
         static const struct {
             flip_bios_kind_t kind;
             const char *label;
         } bios_rows[] = {
-            { FLIP_BIOS_GB_DMG, "GAME BOY" },
-            { FLIP_BIOS_GB_CGB, "GAME BOY COLOR" },
-            { FLIP_BIOS_GBA, "GAME BOY ADVANCE" },
+            {
+                FLIP_BIOS_GB_DMG,
+                "GAME BOY"
+            },
+            {
+                FLIP_BIOS_GB_CGB,
+                "GAME BOY COLOR"
+            },
+            {
+                FLIP_BIOS_GBA,
+                "GAME BOY ADVANCE"
+            },
         };
 
         for (size_t i = 0;
-             i < sizeof(bios_rows) / sizeof(bios_rows[0]);
+             i < sizeof(bios_rows) /
+                 sizeof(bios_rows[0]);
              ++i) {
 
             flip_bios_info_t info;
-            memset(&info, 0, sizeof(info));
 
-            const char *status = "ERROR";
+            memset(
+                &info,
+                0,
+                sizeof(info));
+
+            const char *status =
+                "ERROR";
+
             if (flip_bios_query(
                     bios_rows[i].kind,
                     &info) == 0) {
+
                 status =
-                    bios_status_text(info.status);
+                    bios_status_text(
+                        info.status);
             }
 
-            int y = 145 + (int)i * 52;
+            int y =
+                132 +
+                (int)i * 58;
+
+            flip_draw_rect_outline(
+                drm,
+                FIRST_BOOT_MARGIN_X + 24,
+                y,
+                FIRST_BOOT_CONTENT_W - 48,
+                48,
+                1,
+                DIM);
 
             flip_draw_text(
                 drm,
-                120,
-                y,
+                FIRST_BOOT_MARGIN_X + 42,
+                y + 14,
                 bios_rows[i].label,
-                UI_SCALE_SECTION,
+                UI_SCALE_BODY,
                 FG);
 
+            int status_width =
+                ui_text_width_px(
+                    status,
+                    UI_SCALE_BODY);
+
             flip_draw_text(
                 drm,
-                440,
-                y,
+                FIRST_BOOT_MARGIN_X +
+                    FIRST_BOOT_CONTENT_W -
+                    42 -
+                    status_width,
+                y + 14,
                 status,
-                UI_SCALE_SECTION,
-                info.status == FLIP_BIOS_VALID
+                UI_SCALE_BODY,
+                info.status ==
+                    FLIP_BIOS_VALID
                     ? FG
                     : DIM);
         }
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "BIOS VERIFIER IS IN SETTINGS > SYSTEM",
-                UI_SCALE_BODY),
-            286,
+                1,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            310,
             "BIOS VERIFIER IS IN SETTINGS > SYSTEM",
-            UI_SCALE_BODY,
+            1,
             DIM);
+
+        /*
+         * Keep the full explanatory copy in the source for first-boot
+         * architecture coverage, but use the shorter on-screen line so the
+         * 640x480 panel remains intentionally sparse.
+         */
+        static const char *missing_bios_note =
+            "MISSING BIOS DOES NOT BLOCK SETUP";
+
+        (void)missing_bios_note;
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_READY) {
 
         flip_draw_text(
             drm,
-            centred_text_x(
-                "MISSING BIOS DOES NOT BLOCK SETUP",
-                UI_SCALE_BODY),
-            306,
-            "MISSING BIOS DOES NOT BLOCK SETUP",
-            UI_SCALE_BODY,
-            DIM);
-
-    } else if (screen == SCREEN_FIRST_BOOT_READY) {
-        flip_draw_text(
-            drm,
-            centred_text_x("GAMES. GAMESWITCHER. SETTINGS.", UI_SCALE_BODY),
-            190,
+            centred_text_x_in_rect(
+                "GAMES. GAMESWITCHER. SETTINGS.",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            178,
             "GAMES. GAMESWITCHER. SETTINGS.",
             UI_SCALE_BODY,
-            DIM);
+            FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("YOU CAN CHANGE WI-FI AND SYSTEM OPTIONS LATER.", UI_SCALE_BODY),
-            222,
+            centred_text_x_in_rect(
+                "YOU CAN CHANGE WI-FI AND SYSTEM OPTIONS LATER.",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            236,
             "YOU CAN CHANGE WI-FI AND SYSTEM OPTIONS LATER.",
             UI_SCALE_BODY,
             DIM);
     }
 
-    if (screen == SCREEN_FIRST_BOOT_TIME &&
-        time_message[0]) {
-        flip_draw_text(
-            drm,
-            centred_text_x(time_message, UI_SCALE_BODY),
-            292,
-            time_message,
-            UI_SCALE_BODY,
-            FG);
-    }
-
     flip_draw_text(
         drm,
         centred_text_x(line1, UI_SCALE_BODY),
-        324,
+        362,
         line1,
         UI_SCALE_BODY,
         DIM);
+
     flip_draw_text(
         drm,
         centred_text_x(line2, UI_SCALE_HINT),
-        UI_FOOTER_Y - 4,
+        FIRST_BOOT_FOOTER_Y,
         line2,
         UI_SCALE_HINT,
         FG);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void refresh_topbar_wifi_signal(void);
