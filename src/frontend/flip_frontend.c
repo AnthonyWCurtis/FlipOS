@@ -7837,6 +7837,33 @@ int main(void)
                 load_recent_history();
                 refresh_play_stats();
 
+                /*
+                 * "Quit Game" is a deliberate end to the current session.
+                 * GameSwitcher is reserved for suspended games, so a normal
+                 * emulator exit always returns to Home.
+                 */
+                if (recent_game_result ==
+                    FLIP_SESSION_ACTION_EXIT) {
+
+                    screen =
+                        SCREEN_HOME;
+
+                    home_selected = 0;
+                    message[0] = '\0';
+
+                    fprintf(
+                        stderr,
+                        "FRONTEND_GAME quit_to_home\n");
+
+                    draw_home(
+                        &drm,
+                        home_selected,
+                        message,
+                        0.0);
+
+                    continue;
+                }
+
                 if (recent_selected >=
                     recent_count)
                     recent_selected =
@@ -7956,6 +7983,28 @@ int main(void)
                         &drm,
                         game_system,
                         recent_selected,
+                        0.0);
+
+                    continue;
+                }
+
+                if (game_result ==
+                    FLIP_SESSION_ACTION_EXIT) {
+
+                    screen =
+                        SCREEN_HOME;
+
+                    home_selected = 0;
+                    message[0] = '\0';
+
+                    fprintf(
+                        stderr,
+                        "FRONTEND_GAME quit_to_home\n");
+
+                    draw_home(
+                        &drm,
+                        home_selected,
+                        message,
                         0.0);
 
                     continue;
