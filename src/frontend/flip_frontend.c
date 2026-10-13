@@ -3524,67 +3524,50 @@ static void draw_time_settings(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("DATE & TIME", UI_SCALE_TITLE),
-        28,
+        centred_text_x(
+            "DATE & TIME",
+            UI_SCALE_BODY),
+        14,
         "DATE & TIME",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
-    char now_text[64] = "TIME UNAVAILABLE";
-    (void)flip_time_format_local(now_text, sizeof(now_text));
+    char now_text[64] =
+        "TIME UNAVAILABLE";
+
+    (void)flip_time_format_local(
+        now_text,
+        sizeof(now_text));
+
+    char now_visible[64];
+
+    fit_text_to_width(
+        now_text,
+        now_visible,
+        sizeof(now_visible),
+        SETTINGS_CONTENT_W,
+        UI_SCALE_BODY);
+
     flip_draw_text(
         drm,
-        centred_text_x(now_text, UI_SCALE_SECTION),
-        82,
-        now_text,
-        UI_SCALE_SECTION,
+        centred_text_x(
+            now_visible,
+            UI_SCALE_BODY),
+        44,
+        now_visible,
+        UI_SCALE_BODY,
         FG);
-
-    char auto_text[80];
-    snprintf(
-        auto_text,
-        sizeof(auto_text),
-        "AUTOMATIC TIME   %s",
-        time_status.automatic ? "ON" : "OFF");
-
-    char zone_text[96];
-    snprintf(
-        zone_text,
-        sizeof(zone_text),
-        "TIME ZONE   %s",
-        time_status.timezone[0] ? time_status.timezone : "UTC");
-
-    const char *rows[4] = {
-        auto_text,
-        zone_text,
-        "SYNC TIME NOW",
-        "SET DATE & TIME MANUALLY"
-    };
-
-    for (int i = 0; i < 4; ++i) {
-        int y = 150 + i * 58;
-        int disabled = i == 3 && time_status.automatic;
-        if (i == time_selected && !time_manual_editing) {
-            flip_draw_rect(drm, 70, y - 10, 500, 42, PANEL);
-            flip_draw_rect_outline(drm, 70, y - 10, 500, 42, 2, FG);
-        }
-
-        int scale = strlen(rows[i]) > 24 ? UI_SCALE_BODY : UI_SCALE_SECTION;
-        flip_draw_text(
-            drm,
-            centred_text_x(rows[i], scale),
-            y,
-            rows[i],
-            scale,
-            disabled ? DIM : (i == time_selected ? FG : DIM));
-    }
 
     if (time_manual_editing) {
+
         char edit_text[96];
+
         snprintf(
             edit_text,
             sizeof(edit_text),
@@ -3595,59 +3578,234 @@ static void draw_time_settings(
             time_manual_value.tm_hour,
             time_manual_value.tm_min);
 
-        flip_draw_rect(drm, 72, 354, 496, 84, PANEL);
-        flip_draw_rect_outline(drm, 72, 354, 496, 84, 2, FG);
+        flip_draw_rect(
+            drm,
+            SETTINGS_MARGIN_X,
+            112,
+            SETTINGS_CONTENT_W,
+            246,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SETTINGS_MARGIN_X,
+            112,
+            SETTINGS_CONTENT_W,
+            246,
+            2,
+            FG);
+
         flip_draw_text(
             drm,
-            centred_text_x(edit_text, UI_SCALE_SECTION),
-            369,
+            centred_text_x_in_rect(
+                "SET DATE & TIME",
+                1,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            137,
+            "SET DATE & TIME",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                edit_text,
+                UI_SCALE_SECTION,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            188,
             edit_text,
             UI_SCALE_SECTION,
             FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "LEFT/RIGHT FIELD",
+                UI_SCALE_BODY,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            257,
+            "LEFT/RIGHT FIELD",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "UP/DOWN CHANGE",
+                UI_SCALE_BODY,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            289,
+            "UP/DOWN CHANGE",
+            UI_SCALE_BODY,
+            DIM);
+
         flip_draw_text(
             drm,
             centred_text_x(
-                "LEFT/RIGHT FIELD   UP/DOWN CHANGE",
-                UI_SCALE_BODY),
-            403,
-            "LEFT/RIGHT FIELD   UP/DOWN CHANGE",
-            UI_SCALE_BODY,
-            DIM);
-        flip_draw_text(
-            drm,
-            centred_text_x("A SAVE   B CANCEL", UI_SCALE_HINT),
-            UI_FOOTER_Y,
+                "A SAVE   B CANCEL",
+                UI_SCALE_HINT),
+            SETTINGS_FOOTER_Y,
             "A SAVE   B CANCEL",
             UI_SCALE_HINT,
             FG);
+
     } else {
+
+        char auto_text[80];
+
+        snprintf(
+            auto_text,
+            sizeof(auto_text),
+            "AUTOMATIC TIME   %s",
+            time_status.automatic
+                ? "ON"
+                : "OFF");
+
+        char zone_text[96];
+
+        snprintf(
+            zone_text,
+            sizeof(zone_text),
+            "TIME ZONE   %s",
+            time_status.timezone[0]
+                ? time_status.timezone
+                : "UTC");
+
+        const char *rows[4] = {
+            auto_text,
+            zone_text,
+            "SYNC TIME NOW",
+            "SET DATE & TIME MANUALLY"
+        };
+
+        for (int i = 0;
+             i < 4;
+             ++i) {
+
+            int y =
+                SETTINGS_LIST_Y +
+                i *
+                    (SETTINGS_ROW_H +
+                     SETTINGS_ROW_GAP);
+
+            int disabled =
+                i == 3 &&
+                time_status.automatic;
+
+            int active =
+                i ==
+                    time_selected;
+
+            flip_draw_rect(
+                drm,
+                SETTINGS_MARGIN_X,
+                y,
+                SETTINGS_CONTENT_W,
+                SETTINGS_ROW_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                SETTINGS_MARGIN_X,
+                y,
+                SETTINGS_CONTENT_W,
+                SETTINGS_ROW_H,
+                active ? 2 : 1,
+                active
+                    ? FG
+                    : DIM);
+
+            int scale =
+                UI_SCALE_SECTION;
+
+            if (ui_text_width_px(
+                    rows[i],
+                    scale) >
+                SETTINGS_CONTENT_W - 48) {
+
+                scale =
+                    UI_SCALE_BODY;
+            }
+
+            char row_visible[96];
+
+            fit_text_to_width(
+                rows[i],
+                row_visible,
+                sizeof(row_visible),
+                SETTINGS_CONTENT_W - 48,
+                scale);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    row_visible,
+                    scale,
+                    SETTINGS_MARGIN_X,
+                    SETTINGS_CONTENT_W),
+                y + 23,
+                row_visible,
+                scale,
+                disabled
+                    ? DIM
+                    : active
+                        ? FG
+                        : DIM);
+        }
+
         const char *footer =
             time_selected == 1
                 ? "LEFT/RIGHT TIME ZONE   A SELECT   B BACK"
                 : "A SELECT   B BACK";
+
         flip_draw_text(
             drm,
-            centred_text_x(footer, UI_SCALE_HINT),
-            UI_FOOTER_Y,
+            centred_text_x(
+                footer,
+                UI_SCALE_HINT),
+            SETTINGS_FOOTER_Y,
             footer,
             UI_SCALE_HINT,
             DIM);
     }
 
     if (time_message[0]) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            time_message,
+            message_visible,
+            sizeof(message_visible),
+            SETTINGS_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(time_message, UI_SCALE_BODY),
-            420,
-            time_message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                message_visible,
+                1),
+            410,
+            message_visible,
+            1,
             FG);
     }
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void draw_settings_menu(
