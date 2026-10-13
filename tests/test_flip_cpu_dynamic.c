@@ -46,10 +46,27 @@ static void reset_policy(unsigned max_khz)
     write_value("scaling_governor", "ondemand\n");
 }
 
+static int sample(
+    flip_cpu_dynamic_t *controller,
+    double measured_fps,
+    double target_fps,
+    uint64_t host_avg_us,
+    uint64_t audio_dropped_frames)
+{
+    return flip_cpu_dynamic_sample(
+        controller,
+        measured_fps,
+        target_fps,
+        host_avg_us,
+        0,
+        0,
+        audio_dropped_frames);
+}
+
 static void consume_warmup(flip_cpu_dynamic_t *controller)
 {
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_WARMUP_WINDOWS; ++i) {
-        assert(flip_cpu_dynamic_sample(
+        assert(sample(
             controller, 59.728, 59.728, 10000, 0) == 0);
     }
 }
@@ -63,7 +80,7 @@ static void test_healthy_workload_stays_put(void)
     consume_warmup(&controller);
 
     for (int i = 0; i < 20; ++i) {
-        assert(flip_cpu_dynamic_sample(
+        assert(sample(
             &controller, 59.72, 59.728, 11000, 0) == 0);
     }
 
@@ -80,7 +97,7 @@ static void test_full_speed_near_budget_does_not_raise(void)
     consume_warmup(&controller);
 
     for (int i = 0; i < 8; ++i) {
-        assert(flip_cpu_dynamic_sample(
+        assert(sample(
             &controller, 59.976, 59.728, 16626, 0) == 0);
     }
 
@@ -98,7 +115,7 @@ static void test_ffvi_style_816_rescue_raises_to_1104(void)
 
     assert(controller.current_max_khz == 816000);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 53.8, 59.728, 19000, 0) == 1);
 
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
@@ -114,10 +131,10 @@ static void test_single_timing_wobble_does_not_raise(void)
     assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
     consume_warmup(&controller);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 59.35, 59.728, 15000, 0) == 0);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 59.73, 59.728, 12000, 0) == 0);
 
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
@@ -132,10 +149,10 @@ static void test_two_bad_windows_raise_one_opp(void)
     assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
     consume_warmup(&controller);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 59.20, 59.728, 16000, 0) == 0);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 59.18, 59.728, 16000, 0) == 1);
 
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
@@ -151,7 +168,7 @@ static void test_severe_slowdown_raises_immediately_one_opp(void)
     assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
     consume_warmup(&controller);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 53.5, 59.728, 18500, 0) == 1);
 
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
@@ -166,10 +183,98 @@ static void test_audio_drop_raises_immediately(void)
     assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
     consume_warmup(&controller);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 59.72, 59.728, 12000, 1) == 1);
 
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
+}
+
+static void test_single_visible_late_burst_does_not_raise(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    consume_warmup(&controller);
+
+    /*
+     * 6 ms late at ~59.7 Hz is visibly rough, but one isolated window should
+     * not spend extra power.
+     */
+    assert(flip_cpu_dynamic_sample(
+        &controller,
+        59.72,
+        59.728,
+        11000,
+        6000,
+        0,
+        0) == 0);
+
+    assert(flip_cpu_dynamic_sample(
+        &controller,
+        59.728,
+        59.728,
+        9000,
+        0,
+        0,
+        0) == 0);
+
+    assert(read_unsigned_value("scaling_max_freq") == 1104000);
+}
+
+static void test_repeated_visible_late_bursts_raise_with_healthy_average_fps(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    consume_warmup(&controller);
+
+    /*
+     * This models the Beta 4 FFVI report: average FPS can still look healthy
+     * while repeated deadline bursts are visible as skipped frames.
+     */
+    assert(flip_cpu_dynamic_sample(
+        &controller,
+        59.72,
+        59.728,
+        11000,
+        6000,
+        0,
+        0) == 0);
+
+    assert(flip_cpu_dynamic_sample(
+        &controller,
+        59.72,
+        59.728,
+        11000,
+        6500,
+        0,
+        0) == 1);
+
+    assert(read_unsigned_value("scaling_max_freq") == 1416000);
+    assert(controller.raise_count == 1);
+}
+
+static void test_timing_resync_raises_immediately(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    consume_warmup(&controller);
+
+    assert(flip_cpu_dynamic_sample(
+        &controller,
+        59.72,
+        59.728,
+        11000,
+        18000,
+        1,
+        0) == 1);
+
+    assert(read_unsigned_value("scaling_max_freq") == 1416000);
+    assert(controller.raise_count == 1);
 }
 
 static void test_allowed_max_is_never_exceeded(void)
@@ -180,13 +285,13 @@ static void test_allowed_max_is_never_exceeded(void)
     assert(flip_cpu_dynamic_init(&controller, 1416000) == 1);
     consume_warmup(&controller);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 53.0, 59.728, 19000, 0) == 1);
 
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
     assert(controller.enabled == 1);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 40.0, 59.728, 25000, 5) == 0);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
 }
@@ -199,17 +304,17 @@ static void test_temporary_escalation_is_reclaimed(void)
     assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
     consume_warmup(&controller);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 53.0, 59.728, 19000, 0) == 1);
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
 
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER - 1; ++i) {
-        assert(flip_cpu_dynamic_sample(
+        assert(sample(
             &controller, 59.728, 59.728, 7000, 0) == 0);
     }
     assert(read_unsigned_value("scaling_max_freq") == 1416000);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 59.728, 59.728, 7000, 0) == 2);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     assert(controller.lower_count == 1);
@@ -223,14 +328,14 @@ static void test_lowering_never_goes_below_session_base(void)
     assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
     consume_warmup(&controller);
 
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 53.0, 59.728, 19000, 0) == 1);
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER; ++i)
-        (void)flip_cpu_dynamic_sample(&controller, 59.728, 59.728, 7000, 0);
+        (void)sample(&controller, 59.728, 59.728, 7000, 0);
 
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER * 2U; ++i)
-        assert(flip_cpu_dynamic_sample(
+        assert(sample(
             &controller, 59.728, 59.728, 7000, 0) == 0);
     assert(read_unsigned_value("scaling_max_freq") == 1104000);
 }
@@ -244,24 +349,24 @@ static void test_failed_lower_probe_learns_session_floor(void)
     consume_warmup(&controller);
 
     /* Temporary pressure raises 408 -> 600. */
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 50.0, 59.728, 20000, 0) == 1);
     assert(read_unsigned_value("scaling_max_freq") == 600000);
 
     /* Healthy operation eventually probes back down to 408. */
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER; ++i)
-        (void)flip_cpu_dynamic_sample(&controller, 59.728, 59.728, 7000, 0);
+        (void)sample(&controller, 59.728, 59.728, 7000, 0);
     assert(read_unsigned_value("scaling_max_freq") == 408000);
 
     /* Immediate regression means 408 was too low: return to 600 and learn it. */
-    assert(flip_cpu_dynamic_sample(
+    assert(sample(
         &controller, 50.0, 59.728, 20000, 0) == 1);
     assert(read_unsigned_value("scaling_max_freq") == 600000);
     assert(controller.frequencies_khz[controller.base_index] == 600000);
 
     /* Do not keep oscillating back to the proven-bad lower ceiling. */
     for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER * 2U; ++i)
-        assert(flip_cpu_dynamic_sample(
+        assert(sample(
             &controller, 59.728, 59.728, 7000, 0) == 0);
     assert(read_unsigned_value("scaling_max_freq") == 600000);
 }
@@ -275,7 +380,7 @@ static void test_controller_does_not_lower_policy(void)
     consume_warmup(&controller);
 
     for (int i = 0; i < 60; ++i) {
-        assert(flip_cpu_dynamic_sample(
+        assert(sample(
             &controller, 59.728, 59.728, 7000, 0) == 0);
     }
 
@@ -291,6 +396,9 @@ int main(void)
     test_two_bad_windows_raise_one_opp();
     test_severe_slowdown_raises_immediately_one_opp();
     test_audio_drop_raises_immediately();
+    test_single_visible_late_burst_does_not_raise();
+    test_repeated_visible_late_bursts_raise_with_healthy_average_fps();
+    test_timing_resync_raises_immediately();
     test_allowed_max_is_never_exceeded();
     test_temporary_escalation_is_reclaimed();
     test_lowering_never_goes_below_session_base();
