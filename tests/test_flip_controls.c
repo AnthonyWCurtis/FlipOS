@@ -96,6 +96,77 @@ int main(void)
     assert(out.system.gameswitcher_requested == 0);
 
     /*
+     * A short POWER press opens the software Power Menu on release.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_POWER] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 0);
+
+    clear_input(
+        &input);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 1);
+
+    /*
+     * A long POWER hold belongs to the hardware/emergency path and must not
+     * become a software menu request.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_POWER] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    struct timespec power_hold = {
+        .tv_sec = 0,
+        .tv_nsec = 750000000L
+    };
+
+    nanosleep(
+        &power_hold,
+        NULL);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 0);
+
+    clear_input(
+        &input);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 0);
+
+    /*
      * Holding MENU is a separate deliberate GameSwitcher gesture.
      */
     flip_controls_init(
