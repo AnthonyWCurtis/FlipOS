@@ -441,6 +441,7 @@ test-architecture:
 	python3 tests/test_frontend_ux_architecture.py
 	python3 tests/test_home_layout_architecture.py
 	python3 tests/test_gameswitcher_layout_architecture.py
+	python3 tests/test_library_layout_architecture.py
 	python3 tests/test_ui_scale_architecture.py
 	python3 tests/test_keyboard_case_architecture.py
 	python3 tests/test_settings_navigation_architecture.py
