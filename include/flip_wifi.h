@@ -56,6 +56,7 @@ typedef struct {
     char ssid[FLIP_WIFI_SSID_MAX];
     int signal_dbm;
     int secure;
+    int saved;
     char flags[96];
 } flip_wifi_network_t;
 
@@ -88,6 +89,13 @@ int flip_wifi_connect(
 int flip_wifi_disconnect(void);
 
 int flip_wifi_forget(void);
+
+/* Use stored credentials without displaying or retyping the password. */
+int flip_wifi_connect_saved(const char *ssid);
+int flip_wifi_network_is_saved(const char *ssid);
+
+/* Remove only the selected SSID; preserve all other saved profiles. */
+int flip_wifi_forget_network(const char *ssid);
 
 int flip_wifi_get_status(
     flip_wifi_status_t *status);

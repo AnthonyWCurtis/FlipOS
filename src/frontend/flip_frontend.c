@@ -2894,6 +2894,16 @@ static void draw_wifi(
             UI_SCALE_BODY,
             row_color);
 
+        if (network->saved) {
+            flip_draw_text(
+                drm,
+                WIFI_MARGIN_X + WIFI_CONTENT_W - 127,
+                y + 15,
+                "SV",
+                1,
+                row_color);
+        }
+
         if (network->secure) {
             draw_wifi_lock_icon(
                 drm,
@@ -9578,12 +9588,14 @@ int main(void)
                 screen = SCREEN_WIFI;
                 if (connect_result == FLIP_WIFI_CONNECT_OK &&
                     wifi_status.connected && wifi_status.usable_ip) {
+                    wifi_networks[wifi_selected].saved = 1;
                     snprintf(wifi_message, sizeof(wifi_message),
                         "CONNECTED");
                     if (wifi_return_screen == SCREEN_FIRST_BOOT_WIFI)
                         screen = SCREEN_FIRST_BOOT_TIME;
                 } else if (connect_result == FLIP_WIFI_CONNECT_AUTH_NO_IP &&
                            wifi_status.connected) {
+                    wifi_networks[wifi_selected].saved = 1;
                     snprintf(wifi_message, sizeof(wifi_message),
                         "CONNECTED - NO NETWORK ADDRESS");
                 } else {
@@ -10042,7 +10054,17 @@ int main(void)
 
         if (screen == SCREEN_WIFI &&
             y_button && !prev_y) {
-            if (flip_wifi_forget() == 0) {
+            const char *selected_ssid =
+                wifi_network_count > 0 &&
+                wifi_selected >= 0 &&
+                wifi_selected < wifi_network_count
+                    ? wifi_networks[wifi_selected].ssid
+                    : wifi_status.ssid;
+            if (flip_wifi_forget_network(selected_ssid) == 0) {
+                if (wifi_network_count > 0 &&
+                    wifi_selected >= 0 &&
+                    wifi_selected < wifi_network_count)
+                    wifi_networks[wifi_selected].saved = 0;
                 memset(&wifi_status, 0, sizeof(wifi_status));
                 snprintf(wifi_message, sizeof(wifi_message),
                     "SAVED NETWORK FORGOTTEN");
@@ -10690,7 +10712,8 @@ int main(void)
                 if (wifi_network_count > 0) {
                     const flip_wifi_network_t *network =
                         &wifi_networks[wifi_selected];
-                    if (network->secure) {
+                    if (network->secure &&
+                        !network->saved) {
                         clear_wifi_password();
                         wifi_password_message[0] = '\0';
                         flip_keyboard_init(&wifi_keyboard);
@@ -10700,15 +10723,20 @@ int main(void)
                             "CONNECTING...");
                         draw_wifi(&drm, wifi_selected, 0.0);
                         int connect_result =
-                            flip_wifi_connect(network->ssid, NULL);
+                            network->saved
+                                ? flip_wifi_connect_saved(network->ssid)
+                                : flip_wifi_connect(network->ssid, NULL);
                         if (connect_result == FLIP_WIFI_CONNECT_OK) {
+                            wifi_networks[wifi_selected].saved = 1;
                             snprintf(wifi_message, sizeof(wifi_message),
                                 "CONNECTED");
                             if (wifi_return_screen == SCREEN_FIRST_BOOT_WIFI)
                                 screen = SCREEN_FIRST_BOOT_TIME;
-                        } else if (connect_result == FLIP_WIFI_CONNECT_AUTH_NO_IP)
+                        } else if (connect_result == FLIP_WIFI_CONNECT_AUTH_NO_IP) {
+                            wifi_networks[wifi_selected].saved = 1;
                             snprintf(wifi_message, sizeof(wifi_message),
                                 "CONNECTED - NO NETWORK ADDRESS");
+                        }
                         else
                             snprintf(wifi_message, sizeof(wifi_message),
                                 "CONNECTION FAILED");
