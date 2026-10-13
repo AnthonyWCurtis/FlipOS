@@ -94,12 +94,19 @@ int flip_gpu_client_open(
         client);
 }
 
+#define FLIP_GPU_READY_POLL_MS 100
+#define FLIP_GPU_READY_TIMEOUT_MS 15000
+
 static int wait_for_service_ready(
     pid_t pid,
     int ready_fd)
 {
-    const int poll_slice_ms = 100;
-    const unsigned max_slices = 50;
+    const int poll_slice_ms =
+        FLIP_GPU_READY_POLL_MS;
+
+    const unsigned max_slices =
+        FLIP_GPU_READY_TIMEOUT_MS /
+        FLIP_GPU_READY_POLL_MS;
 
     for (unsigned attempt = 0;
          attempt < max_slices;
