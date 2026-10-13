@@ -3,6 +3,7 @@
 #include "flip_video.h"
 
 #include "flip_drm.h"
+#include "flip_draw.h"
 #include "flip_gpu_client.h"
 #include "flip_osd.h"
 #include "flip_video_layout.h"
@@ -17,6 +18,8 @@ static flip_drm_t video_overlay_drm;
 static uint32_t video_overlay_pixels[640u * 480u];
 static uint32_t video_osd_pixels[420u * 36u];
 static uint32_t video_perf_pixels[190u * 100u];
+static uint32_t video_quick_base_pixels[640u * 480u];
+static int video_quick_base_valid = 0;
 static flip_gpu_client_t video_gpu;
 
 static int video_open = 0;
@@ -682,6 +685,268 @@ static void update_gpu_overlays(void)
 {
     update_gpu_osd_overlay();
     update_gpu_perf_overlay();
+}
+
+
+static int quick_menu_copy_from_drm(void)
+{
+    if (!video_open ||
+        video_gpu_active ||
+        !video_drm.pixels ||
+        video_drm.width != 640 ||
+        video_drm.height != 480)
+        return -1;
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    for (unsigned y = 0;
+         y < 480;
+         ++y) {
+
+        memcpy(
+            video_quick_base_pixels +
+                y * 640u,
+            video_drm.pixels +
+                y * stride,
+            640u * sizeof(uint32_t));
+    }
+
+    return 0;
+}
+
+static void quick_menu_restore_to_drm(void)
+{
+    if (!video_quick_base_valid ||
+        !video_drm.pixels)
+        return;
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    for (unsigned y = 0;
+         y < 480;
+         ++y) {
+
+        memcpy(
+            video_drm.pixels +
+                y * stride,
+            video_quick_base_pixels +
+                y * 640u,
+            640u * sizeof(uint32_t));
+    }
+}
+
+int flip_video_quick_menu_begin(void)
+{
+    if (quick_menu_copy_from_drm() < 0)
+        return -1;
+
+    video_quick_base_valid = 1;
+    return 0;
+}
+
+int flip_video_quick_menu_present(
+    const flip_video_quick_menu_view_t *view)
+{
+    if (!view ||
+        !video_quick_base_valid ||
+        !video_open ||
+        video_gpu_active)
+        return -1;
+
+    quick_menu_restore_to_drm();
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    /*
+     * Dim the frozen game frame rather than replacing it. The player keeps
+     * visual context while the core itself remains paused.
+     */
+    for (unsigned y = 0;
+         y < 480;
+         ++y) {
+
+        uint32_t *row =
+            video_drm.pixels +
+            y * stride;
+
+        for (unsigned x = 0;
+             x < 640;
+             ++x) {
+
+            row[x] =
+                (row[x] >> 2) &
+                0x003f3f3f;
+        }
+    }
+
+    const uint32_t panel = 0x00181818;
+    const uint32_t fg = 0x00ffffff;
+    const uint32_t dim = 0x00909090;
+
+    const int panel_x = 92;
+    const int panel_y = 34;
+    const int panel_w = 456;
+    const int panel_h = 412;
+
+    flip_draw_rect(
+        &video_drm,
+        panel_x,
+        panel_y,
+        panel_w,
+        panel_h,
+        panel);
+
+    flip_draw_rect_outline(
+        &video_drm,
+        panel_x,
+        panel_y,
+        panel_w,
+        panel_h,
+        2,
+        fg);
+
+    flip_draw_text(
+        &video_drm,
+        214,
+        54,
+        "QUICK MENU",
+        3,
+        fg);
+
+    static const char *labels[] = {
+        "RESUME",
+        "SAVE STATE",
+        "LOAD STATE",
+        "VOLUME",
+        "BRIGHTNESS",
+        "PERFORMANCE HUD",
+        "GAMESWITCHER",
+        "QUIT GAME"
+    };
+
+    const int item_count =
+        (int)(sizeof(labels) /
+              sizeof(labels[0]));
+
+    for (int i = 0;
+         i < item_count;
+         ++i) {
+
+        int y =
+            104 +
+            i * 36;
+
+        int selected =
+            i == view->selected;
+
+        if (selected) {
+            flip_draw_rect(
+                &video_drm,
+                118,
+                y - 9,
+                404,
+                29,
+                fg);
+        }
+
+        flip_draw_text(
+            &video_drm,
+            136,
+            y,
+            labels[i],
+            2,
+            selected
+                ? 0x00000000
+                : fg);
+
+        char value[32];
+
+        value[0] = '\0';
+
+        if (i == 3) {
+            snprintf(
+                value,
+                sizeof(value),
+                "%d",
+                view->volume_percent);
+        } else if (i == 4) {
+            snprintf(
+                value,
+                sizeof(value),
+                "%d",
+                view->brightness_percent);
+        } else if (i == 5) {
+            snprintf(
+                value,
+                sizeof(value),
+                "%s",
+                view->performance_enabled
+                    ? "ON"
+                    : "OFF");
+        }
+
+        if (value[0]) {
+            int text_x =
+                470 -
+                (int)strlen(value) * 12;
+
+            flip_draw_text(
+                &video_drm,
+                text_x,
+                y,
+                value,
+                2,
+                selected
+                    ? 0x00000000
+                    : dim);
+        }
+    }
+
+    if (view->status &&
+        view->status[0]) {
+
+        flip_draw_text(
+            &video_drm,
+            124,
+            402,
+            view->status,
+            1,
+            fg);
+    }
+
+    flip_draw_text(
+        &video_drm,
+        124,
+        424,
+        "A SELECT   B OR MENU RESUME   LEFT RIGHT ADJUST",
+        1,
+        dim);
+
+    return flip_drm_present(
+        &video_drm);
+}
+
+void flip_video_quick_menu_end(void)
+{
+    if (!video_quick_base_valid)
+        return;
+
+    if (video_open &&
+        !video_gpu_active) {
+
+        quick_menu_restore_to_drm();
+
+        (void)flip_drm_present(
+            &video_drm);
+    }
+
+    video_quick_base_valid = 0;
 }
 
 int flip_video_submit(
