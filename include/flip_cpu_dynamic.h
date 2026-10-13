@@ -48,6 +48,11 @@ int flip_cpu_dynamic_init(
 /*
  * Feed one performance window, normally about one second.
  *
+ * Average FPS is not enough to detect every visible hitch. late_max_us and
+ * timing_resyncs carry frame-pacing burst evidence from the shared host so a
+ * short cluster of missed deadlines can request more headroom even when the
+ * one-second FPS average still looks healthy.
+ *
  * Returns:
  *   2 = ceiling lowered by one OPP after sustained healthy performance
  *   1 = ceiling raised by one OPP
@@ -59,6 +64,8 @@ int flip_cpu_dynamic_sample(
     double measured_fps,
     double target_fps,
     uint64_t host_avg_us,
+    uint64_t late_max_us,
+    uint64_t timing_resyncs,
     uint64_t audio_dropped_frames);
 
 #endif
