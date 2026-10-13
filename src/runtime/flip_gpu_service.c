@@ -32,6 +32,34 @@ static uint64_t monotonic_us(void)
     return (uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_nsec / 1000ULL;
 }
 
+
+static int signal_parent_ready(void)
+{
+    const char *text = getenv(FLIP_GPU_READY_FD_ENV);
+    if (!text || !text[0])
+        return 0;
+
+    errno = 0;
+    char *end = NULL;
+    long parsed = strtol(text, &end, 10);
+    if (errno || end == text || *end != '\0' ||
+        parsed < 0 || parsed > 0x7fffffffL)
+        return -1;
+
+    int fd = (int)parsed;
+    unsigned char ready = FLIP_GPU_READY_BYTE;
+    ssize_t written;
+    do {
+        written = write(fd, &ready, sizeof(ready));
+    } while (written < 0 && errno == EINTR);
+
+    int saved_errno = errno;
+    close(fd);
+    unsetenv(FLIP_GPU_READY_FD_ENV);
+    errno = saved_errno;
+    return written == 1 ? 0 : -1;
+}
+
 int main(int argc, char **argv)
 {
     int rc = 1;
@@ -104,6 +132,11 @@ int main(int argc, char **argv)
     payload = malloc(FLIP_GPU_MAX_PAYLOAD);
     if (!payload)
         goto out;
+
+    if (signal_parent_ready() < 0) {
+        perror("FLIP_GPU_SERVICE: readiness signal");
+        goto out;
+    }
 
     fprintf(stderr, "FLIP_GPU_SERVICE: LISTENING socket=%s\n", FLIP_GPU_SOCKET_PATH);
 

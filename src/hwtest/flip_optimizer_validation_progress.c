@@ -24,7 +24,7 @@
 #define VALIDATION_MANUAL_STOP \
     "/mnt/SDCARD/flipos-dev/state/optimizer/validation-manual-stop"
 
-#define VALIDATION_LEVELS 5U
+#define VALIDATION_LEVELS 8U
 
 static const unsigned validation_frequencies_khz[VALIDATION_LEVELS] = {
     1992000U,
@@ -32,6 +32,9 @@ static const unsigned validation_frequencies_khz[VALIDATION_LEVELS] = {
     1608000U,
     1416000U,
     1104000U,
+    816000U,
+    600000U,
+    408000U,
 };
 
 static volatile sig_atomic_t running = 1;
@@ -402,9 +405,9 @@ static void draw_level_timeline(
     flip_drm_t *drm,
     unsigned tested_opps)
 {
-    const int box_w = 98;
+    const int box_w = 64;
     const int box_h = 27;
-    const int gap = 8;
+    const int gap = 6;
     const int total_w =
         (int)VALIDATION_LEVELS * box_w +
         ((int)VALIDATION_LEVELS - 1) * gap;

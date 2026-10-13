@@ -2268,13 +2268,19 @@ static void draw_first_boot(
         if (wifi_status.connected) {
 
             char wifi_line[160];
+            char wifi_ssid_display[FLIP_WIFI_SSID_MAX];
+
+            flip_wifi_format_ssid_for_display(
+                wifi_status.ssid,
+                wifi_ssid_display,
+                sizeof(wifi_ssid_display));
 
             snprintf(
                 wifi_line,
                 sizeof(wifi_line),
                 "%s%s%s",
-                wifi_status.ssid[0]
-                    ? wifi_status.ssid
+                wifi_ssid_display[0]
+                    ? wifi_ssid_display
                     : "NETWORK",
                 wifi_status.usable_ip
                     ? "   IP "
@@ -2733,12 +2739,18 @@ static void draw_wifi(
         wifi_status.connected &&
         wifi_status.usable_ip) {
 
+        char wifi_ssid_display[FLIP_WIFI_SSID_MAX];
+        flip_wifi_format_ssid_for_display(
+            wifi_status.ssid,
+            wifi_ssid_display,
+            sizeof(wifi_ssid_display));
+
         snprintf(
             status_text,
             sizeof(status_text),
             "CONNECTED: %s",
-            wifi_status.ssid[0]
-                ? wifi_status.ssid
+            wifi_ssid_display[0]
+                ? wifi_ssid_display
                 : "NETWORK");
 
     } else if (
@@ -2877,10 +2889,16 @@ static void draw_wifi(
                 ? FG
                 : DIM;
 
+        char ssid_display[FLIP_WIFI_SSID_MAX];
         char ssid_visible[64];
 
-        fit_text_to_width(
+        flip_wifi_format_ssid_for_display(
             network->ssid,
+            ssid_display,
+            sizeof(ssid_display));
+
+        fit_text_to_width(
+            ssid_display,
             ssid_visible,
             sizeof(ssid_visible),
             WIFI_CONTENT_W - 142,
@@ -2893,6 +2911,16 @@ static void draw_wifi(
             ssid_visible,
             UI_SCALE_BODY,
             row_color);
+
+        if (network->saved) {
+            flip_draw_text(
+                drm,
+                WIFI_MARGIN_X + WIFI_CONTENT_W - 127,
+                y + 15,
+                "SV",
+                1,
+                row_color);
+        }
 
         if (network->secure) {
             draw_wifi_lock_icon(
@@ -4689,16 +4717,36 @@ static void draw_optimizer_results(
                 OPTIMIZER_RUNTIME_QUARANTINE_PATH,
                 F_OK) == 0;
 
-        const char *status =
-            quarantined
-                ? "FAILED"
-                : passed
-                    ? "PASSED"
-                    : cancelled
-                        ? "CANCELLED"
-                        : have_validation
-                            ? "FAILED"
-                            : "TEST NEEDED";
+        char status[48];
+
+        if (quarantined) {
+            snprintf(
+                status,
+                sizeof(status),
+                "FAILED");
+        } else if (passed) {
+            snprintf(
+                status,
+                sizeof(status),
+                "VERIFIED %u/%zu",
+                validation.tested_opps,
+                result.opp_count);
+        } else if (cancelled) {
+            snprintf(
+                status,
+                sizeof(status),
+                "CANCELLED");
+        } else if (have_validation) {
+            snprintf(
+                status,
+                sizeof(status),
+                "FAILED");
+        } else {
+            snprintf(
+                status,
+                sizeof(status),
+                "TEST NEEDED");
+        }
 
         flip_draw_text(
             drm,
@@ -4849,18 +4897,12 @@ static void draw_optimizer_results(
         for (size_t reverse =
                  result.opp_count;
              reverse > 0 &&
-             shown < 5;
+             shown < 8;
              --reverse) {
 
             const flip_optimizer_opp_t *opp =
                 &result.opps[
                     reverse - 1];
-
-            if (opp->optimized_uv >=
-                opp->stock_uv) {
-
-                continue;
-            }
 
             char frequency[32];
             char stock[32];
@@ -4888,8 +4930,8 @@ static void draw_optimizer_results(
                     1000U);
 
             int y =
-                194 +
-                shown * 39;
+                184 +
+                shown * 27;
 
             flip_draw_text(
                 drm,
@@ -9578,12 +9620,14 @@ int main(void)
                 screen = SCREEN_WIFI;
                 if (connect_result == FLIP_WIFI_CONNECT_OK &&
                     wifi_status.connected && wifi_status.usable_ip) {
+                    wifi_networks[wifi_selected].saved = 1;
                     snprintf(wifi_message, sizeof(wifi_message),
                         "CONNECTED");
                     if (wifi_return_screen == SCREEN_FIRST_BOOT_WIFI)
                         screen = SCREEN_FIRST_BOOT_TIME;
                 } else if (connect_result == FLIP_WIFI_CONNECT_AUTH_NO_IP &&
                            wifi_status.connected) {
+                    wifi_networks[wifi_selected].saved = 1;
                     snprintf(wifi_message, sizeof(wifi_message),
                         "CONNECTED - NO NETWORK ADDRESS");
                 } else {
@@ -10042,7 +10086,17 @@ int main(void)
 
         if (screen == SCREEN_WIFI &&
             y_button && !prev_y) {
-            if (flip_wifi_forget() == 0) {
+            const char *selected_ssid =
+                wifi_network_count > 0 &&
+                wifi_selected >= 0 &&
+                wifi_selected < wifi_network_count
+                    ? wifi_networks[wifi_selected].ssid
+                    : wifi_status.ssid;
+            if (flip_wifi_forget_network(selected_ssid) == 0) {
+                if (wifi_network_count > 0 &&
+                    wifi_selected >= 0 &&
+                    wifi_selected < wifi_network_count)
+                    wifi_networks[wifi_selected].saved = 0;
                 memset(&wifi_status, 0, sizeof(wifi_status));
                 snprintf(wifi_message, sizeof(wifi_message),
                     "SAVED NETWORK FORGOTTEN");
@@ -10690,7 +10744,8 @@ int main(void)
                 if (wifi_network_count > 0) {
                     const flip_wifi_network_t *network =
                         &wifi_networks[wifi_selected];
-                    if (network->secure) {
+                    if (network->secure &&
+                        !network->saved) {
                         clear_wifi_password();
                         wifi_password_message[0] = '\0';
                         flip_keyboard_init(&wifi_keyboard);
@@ -10700,15 +10755,20 @@ int main(void)
                             "CONNECTING...");
                         draw_wifi(&drm, wifi_selected, 0.0);
                         int connect_result =
-                            flip_wifi_connect(network->ssid, NULL);
+                            network->saved
+                                ? flip_wifi_connect_saved(network->ssid)
+                                : flip_wifi_connect(network->ssid, NULL);
                         if (connect_result == FLIP_WIFI_CONNECT_OK) {
+                            wifi_networks[wifi_selected].saved = 1;
                             snprintf(wifi_message, sizeof(wifi_message),
                                 "CONNECTED");
                             if (wifi_return_screen == SCREEN_FIRST_BOOT_WIFI)
                                 screen = SCREEN_FIRST_BOOT_TIME;
-                        } else if (connect_result == FLIP_WIFI_CONNECT_AUTH_NO_IP)
+                        } else if (connect_result == FLIP_WIFI_CONNECT_AUTH_NO_IP) {
+                            wifi_networks[wifi_selected].saved = 1;
                             snprintf(wifi_message, sizeof(wifi_message),
                                 "CONNECTED - NO NETWORK ADDRESS");
+                        }
                         else
                             snprintf(wifi_message, sizeof(wifi_message),
                                 "CONNECTION FAILED");

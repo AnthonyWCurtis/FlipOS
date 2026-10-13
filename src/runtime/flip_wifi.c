@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "flip_wifi.h"
+#include "flip_wifi_profiles.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -54,22 +55,6 @@ static int ensure_config_dir(void)
         return -1;
 
     return chmod(path, 0700);
-}
-
-static int write_escaped(FILE *f, const char *value)
-{
-    if (!f || !value)
-        return -1;
-
-    for (const unsigned char *p = (const unsigned char *)value; *p; ++p) {
-        if (*p == '\\' || *p == '"') {
-            if (fputc('\\', f) == EOF)
-                return -1;
-        }
-        if (fputc(*p, f) == EOF)
-            return -1;
-    }
-    return 0;
 }
 
 static int derive_psk(
@@ -126,56 +111,7 @@ int flip_wifi_write_config(
         derive_psk(ssid, passphrase, hex_psk, sizeof(hex_psk)) < 0)
         return -1;
 
-    if (ensure_config_dir() < 0)
-        return -1;
-
-    char tmp[640];
-    int written = snprintf(
-        tmp, sizeof(tmp), "%s.tmp", FLIP_WIFI_CONFIG_FILE);
-    if (written < 0 || (size_t)written >= sizeof(tmp))
-        return -1;
-
-    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd < 0)
-        return -1;
-
-    FILE *f = fdopen(fd, "w");
-    if (!f) {
-        close(fd);
-        unlink(tmp);
-        return -1;
-    }
-
-    int ok = 1;
-    ok &= fprintf(f,
-        "ctrl_interface=/var/run/wpa_supplicant\n"
-        "update_config=0\n"
-        "network={\n"
-        "    ssid=\"") >= 0;
-    ok &= write_escaped(f, ssid) == 0;
-    ok &= fprintf(f, "\"\n") >= 0;
-
-    if (open_network) {
-        ok &= fprintf(f, "    key_mgmt=NONE\n") >= 0;
-    } else {
-        /* Store only WPA's derived 256-bit PSK; never the plaintext secret. */
-        ok &= fprintf(f, "    psk=%s\n", hex_psk) >= 0;
-    }
-
-    ok &= fprintf(f, "}\n") >= 0;
-
-    if (!ok || fflush(f) != 0 || fsync(fd) != 0 || fclose(f) != 0) {
-        unlink(tmp);
-        return -1;
-    }
-
-    if (chmod(tmp, 0600) < 0 ||
-        rename(tmp, FLIP_WIFI_CONFIG_FILE) < 0) {
-        unlink(tmp);
-        return -1;
-    }
-
-    return 0;
+    return flip_wifi_profiles_upsert(ssid, hex_psk, open_network);
 }
 
 static int run_capture(
@@ -449,6 +385,111 @@ static int decode_scan_ssid(
     return 0;
 }
 
+void flip_wifi_format_ssid_for_display(
+    const char *ssid,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    out[0] = '\0';
+    if (!ssid)
+        return;
+
+    size_t in = 0;
+    size_t used = 0;
+
+    while (ssid[in] != '\0' && used + 1 < out_size) {
+        const unsigned char *p =
+            (const unsigned char *)ssid + in;
+        size_t remaining = strlen(ssid + in);
+        char replacement = '\0';
+        size_t consumed = 1;
+
+        /*
+         * wpa_cli normally gives runtime code real UTF-8 bytes after
+         * decode_scan_ssid(). Keep a display-only fallback for its printable
+         * \\xNN representation too, since some control-interface paths expose
+         * that form directly.
+         */
+        if (strncmp(ssid + in, "\\xe2\\x80\\x98", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x98", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x99", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x99", 12) == 0) {
+            replacement = '\'';
+            consumed = 12;
+        } else if (
+            strncmp(ssid + in, "\\xe2\\x80\\x9c", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x9C", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x9d", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x9D", 12) == 0) {
+            replacement = '"';
+            consumed = 12;
+        } else if (
+            strncmp(ssid + in, "\\xe2\\x80\\x90", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x90", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x91", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x91", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x92", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x92", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x93", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x93", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x94", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x94", 12) == 0) {
+            replacement = '-';
+            consumed = 12;
+        } else if (
+            remaining >= 3 &&
+            p[0] == 0xe2 && p[1] == 0x80 &&
+            (p[2] == 0x98 || p[2] == 0x99)) {
+            replacement = '\'';
+            consumed = 3;
+        } else if (
+            remaining >= 3 &&
+            p[0] == 0xe2 && p[1] == 0x80 &&
+            (p[2] == 0x9c || p[2] == 0x9d)) {
+            replacement = '"';
+            consumed = 3;
+        } else if (
+            remaining >= 3 &&
+            p[0] == 0xe2 && p[1] == 0x80 &&
+            p[2] >= 0x90 && p[2] <= 0x94) {
+            replacement = '-';
+            consumed = 3;
+        } else if (
+            remaining >= 2 &&
+            p[0] == 0xc2 && p[1] == 0xa0) {
+            replacement = ' ';
+            consumed = 2;
+        } else if (p[0] < 0x80) {
+            replacement =
+                (p[0] >= 0x20 && p[0] != 0x7f)
+                    ? (char)p[0]
+                    : '?';
+        } else {
+            /*
+             * Unsupported Unicode remains one visible placeholder per code
+             * point rather than one placeholder per UTF-8 byte.
+             */
+            replacement = '?';
+            if ((p[0] & 0xe0) == 0xc0 && remaining >= 2)
+                consumed = 2;
+            else if ((p[0] & 0xf0) == 0xe0 &&
+                     remaining >= 3)
+                consumed = 3;
+            else if ((p[0] & 0xf8) == 0xf0 &&
+                     remaining >= 4)
+                consumed = 4;
+        }
+
+        out[used++] = replacement;
+        in += consumed;
+    }
+
+    out[used] = '\0';
+}
+
 static int parse_tab_line(
     char *line,
     flip_wifi_network_t *network)
@@ -546,6 +587,28 @@ int flip_wifi_parse_scan_results(
     return count;
 }
 
+static void mark_saved_networks(
+    flip_wifi_network_t *networks,
+    int count)
+{
+    if (!networks || count <= 0)
+        return;
+
+    flip_wifi_saved_profile_t profiles[FLIP_WIFI_SAVED_LIMIT];
+    int profile_count = flip_wifi_profiles_load(profiles);
+    if (profile_count <= 0)
+        return;
+
+    for (int i = 0; i < count; ++i) {
+        for (int j = 0; j < profile_count; ++j) {
+            if (strcmp(networks[i].ssid, profiles[j].ssid) == 0) {
+                networks[i].saved = 1;
+                break;
+            }
+        }
+    }
+}
+
 int flip_wifi_scan(
     flip_wifi_network_t *networks,
     int max_networks)
@@ -581,8 +644,10 @@ int flip_wifi_scan(
 
         int count = flip_wifi_parse_scan_results(
             output, networks, max_networks);
-        if (count > 0)
+        if (count > 0) {
+            mark_saved_networks(networks, count);
             return count;
+        }
     }
 
     /* A successful scan can legitimately find no broadcast SSIDs. */
@@ -660,70 +725,216 @@ static int status_usable_ip(const char *status)
     return usable_ipv4_address(address);
 }
 
-int flip_wifi_connect(
-    const char *ssid,
-    const char *passphrase)
-{
-    if (flip_wifi_write_config(ssid, passphrase) < 0 ||
-        !interface_present() || interface_up() < 0)
-        return -1;
+static void copy_status_value(
+    const char *text,
+    const char *key,
+    char *out,
+    size_t out_size);
 
-    char *terminate_argv[] = {
+static void copy_status_ssid(
+    const char *text,
+    char *out,
+    size_t out_size)
+{
+    char escaped[FLIP_WIFI_SSID_MAX * 4] = "";
+    copy_status_value(text, "ssid", escaped, sizeof(escaped));
+    if (decode_scan_ssid(escaped, out, out_size) < 0 && out_size > 0)
+        out[0] = '\0';
+}
+
+static int reconfigure_supplicant(void)
+{
+    char reply[64];
+    char *argv[] = {
         (char *)FLIP_WIFI_WPA_CLI,
         "-i", (char *)FLIP_WIFI_INTERFACE,
-        "terminate", NULL
+        "reconfigure", NULL
     };
-    (void)run_capture(terminate_argv, NULL, 0);
+    return run_capture(argv, reply, sizeof(reply)) == 0 &&
+        strstr(reply, "OK") != NULL ? 0 : -1;
+}
 
-    char *supplicant_argv[] = {
-        (char *)FLIP_WIFI_WPA_SUPPLICANT,
-        "-B",
+static void enable_all_networks(void)
+{
+    char *argv[] = {
+        (char *)FLIP_WIFI_WPA_CLI,
         "-i", (char *)FLIP_WIFI_INTERFACE,
-        "-c", (char *)FLIP_WIFI_CONFIG_FILE,
-        NULL
+        "enable_network", "all", NULL
     };
-    if (run_capture(supplicant_argv, NULL, 0) != 0)
+    (void)run_capture(argv, NULL, 0);
+}
+
+static int select_configured_network(const char *ssid)
+{
+    char output[8192];
+    char *list_argv[] = {
+        (char *)FLIP_WIFI_WPA_CLI,
+        "-i", (char *)FLIP_WIFI_INTERFACE,
+        "list_networks", NULL
+    };
+    if (run_capture(list_argv, output, sizeof(output)) != 0)
         return -1;
 
-    /* Wait for WPA association instead of assuming it finishes in 2 seconds. */
+    char *save = NULL;
+    char *line = strtok_r(output, "\r\n", &save);
+    while (line) {
+        char *id = line;
+        char *listed_ssid = strchr(id, '\t');
+        if (listed_ssid) {
+            *listed_ssid++ = '\0';
+            char *end = strchr(listed_ssid, '\t');
+            if (end)
+                *end = '\0';
+
+            int numeric = id[0] != '\0';
+            for (const char *digit = id; *digit; ++digit)
+                if (!isdigit((unsigned char)*digit))
+                    numeric = 0;
+
+            char decoded[FLIP_WIFI_SSID_MAX] = "";
+            if (numeric && strlen(id) < 8 &&
+                decode_scan_ssid(listed_ssid, decoded, sizeof(decoded)) == 0 &&
+                strcmp(decoded, ssid) == 0) {
+                char reply[64];
+                char *select_argv[] = {
+                    (char *)FLIP_WIFI_WPA_CLI,
+                    "-i", (char *)FLIP_WIFI_INTERFACE,
+                    "select_network", id, NULL
+                };
+                return run_capture(select_argv, reply, sizeof(reply)) == 0 &&
+                    strstr(reply, "OK") != NULL ? 0 : -1;
+            }
+        }
+        line = strtok_r(NULL, "\r\n", &save);
+    }
+    return -1;
+}
+
+static int connect_profile(
+    const char *ssid,
+    const char *hex_psk,
+    int open_network)
+{
+    if (!valid_text(ssid, FLIP_WIFI_SSID_MAX - 1) ||
+        !interface_present() || interface_up() < 0)
+        return FLIP_WIFI_CONNECT_ERROR;
+
+    /* Keep a verified snapshot until association to this exact SSID succeeds. */
+    flip_wifi_saved_profile_t previous[FLIP_WIFI_SAVED_LIMIT];
+    int previous_count = flip_wifi_profiles_load(previous);
+    if (previous_count < 0 ||
+        flip_wifi_profiles_upsert(ssid, hex_psk, open_network) < 0)
+        return FLIP_WIFI_CONNECT_ERROR;
+
+    if (ensure_supplicant() != 0 || reconfigure_supplicant() != 0)
+        goto rollback;
+
+    int selected = 0;
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        struct timespec wait = { .tv_sec = 0, .tv_nsec = 100000000L };
+        nanosleep(&wait, NULL);
+        if (select_configured_network(ssid) == 0) {
+            selected = 1;
+            break;
+        }
+    }
+    if (!selected)
+        goto rollback;
+
     int associated = 0;
     for (int attempt = 0; attempt < 30; ++attempt) {
         struct timespec wait = { .tv_sec = 0, .tv_nsec = 500000000L };
         nanosleep(&wait, NULL);
 
         char status[2048];
-        if (wpa_status_text(status, sizeof(status)) == 0 &&
-            strstr(status, "wpa_state=COMPLETED") != NULL) {
+        char active_ssid[FLIP_WIFI_SSID_MAX] = "";
+        if (wpa_status_text(status, sizeof(status)) != 0)
+            continue;
+        copy_status_ssid(status, active_ssid, sizeof(active_ssid));
+        if (strstr(status, "wpa_state=COMPLETED") != NULL &&
+            strcmp(active_ssid, ssid) == 0) {
             associated = 1;
             break;
         }
     }
 
     if (!associated)
-        return -1;
+        goto rollback;
 
     /*
-     * dhcpcd starts before Wi-Fi association in the stock image and may settle
-     * on IPv4 link-local.  Re-submit wlan0 after WPA completes so the already
-     * running dhcpcd manager immediately performs DHCP on the live link.
+     * select_network intentionally disables the other profiles. Re-enable
+     * them once the requested network is active so automatic failover still
+     * works. The requested profile is already highest priority on disk.
      */
+    enable_all_networks();
+
+    /* WPA association succeeded. Keep the profile even if DHCP times out. */
     stop_udhcpc();
     request_dhcpcd();
 
     for (int attempt = 0; attempt < 30; ++attempt) {
         char status[2048];
+        char active_ssid[FLIP_WIFI_SSID_MAX] = "";
         if (wpa_status_text(status, sizeof(status)) == 0) {
+            copy_status_ssid(status, active_ssid, sizeof(active_ssid));
+            if (strcmp(active_ssid, ssid) != 0 ||
+                strstr(status, "wpa_state=COMPLETED") == NULL)
+                return FLIP_WIFI_CONNECT_ERROR;
             if (status_usable_ip(status))
                 return FLIP_WIFI_CONNECT_OK;
-            if (strstr(status, "wpa_state=COMPLETED") == NULL)
-                return FLIP_WIFI_CONNECT_ERROR;
         }
-
         struct timespec wait = { .tv_sec = 0, .tv_nsec = 500000000L };
         nanosleep(&wait, NULL);
     }
-
     return FLIP_WIFI_CONNECT_AUTH_NO_IP;
+
+rollback:
+    /* Wrong credentials must never overwrite previously working networks. */
+    if (flip_wifi_profiles_store(previous, previous_count) == 0 &&
+        ensure_supplicant() == 0) {
+        (void)reconfigure_supplicant();
+        enable_all_networks();
+    }
+    return FLIP_WIFI_CONNECT_ERROR;
+}
+
+int flip_wifi_connect(
+    const char *ssid,
+    const char *passphrase)
+{
+    if (!valid_text(ssid, FLIP_WIFI_SSID_MAX - 1))
+        return FLIP_WIFI_CONNECT_ERROR;
+    int open_network = !passphrase || !passphrase[0];
+    char psk[65] = "";
+    if (!open_network) {
+        size_t length = strlen(passphrase);
+        if (length < 8 || length > 63 ||
+            !valid_text(passphrase, 63) ||
+            derive_psk(ssid, passphrase, psk, sizeof(psk)) < 0)
+            return FLIP_WIFI_CONNECT_ERROR;
+    }
+    return connect_profile(ssid, psk, open_network);
+}
+
+int flip_wifi_connect_saved(const char *ssid)
+{
+    if (!valid_text(ssid, FLIP_WIFI_SSID_MAX - 1))
+        return FLIP_WIFI_CONNECT_ERROR;
+    flip_wifi_saved_profile_t profiles[FLIP_WIFI_SAVED_LIMIT];
+    int count = flip_wifi_profiles_load(profiles);
+    if (count < 0)
+        return FLIP_WIFI_CONNECT_ERROR;
+    for (int i = 0; i < count; ++i) {
+        if (strcmp(profiles[i].ssid, ssid) == 0)
+            return connect_profile(
+                ssid, profiles[i].psk, profiles[i].open_network);
+    }
+    return FLIP_WIFI_CONNECT_ERROR;
+}
+
+int flip_wifi_network_is_saved(const char *ssid)
+{
+    return flip_wifi_profiles_contains(ssid);
 }
 
 int flip_wifi_disconnect(void)
@@ -766,27 +977,93 @@ static void copy_status_value(
     }
 }
 
-int flip_wifi_forget(void)
+int flip_wifi_forget_network(const char *ssid)
 {
-    stop_udhcpc();
+    if (!valid_text(ssid, FLIP_WIFI_SSID_MAX - 1))
+        return -1;
+    if (flip_wifi_profiles_forget(ssid) != 0)
+        return -1;
 
-    char *terminate_argv[] = {
+    /* Refresh live WPA state so a forgotten AP cannot reconnect. */
+    char *argv[] = {
         (char *)FLIP_WIFI_WPA_CLI,
         "-i", (char *)FLIP_WIFI_INTERFACE,
-        "terminate", NULL
+        "reconfigure", NULL
     };
-    (void)run_capture(terminate_argv, NULL, 0);
+    (void)run_capture(argv, NULL, 0);
+    return 0;
+}
 
-    int result = 0;
-    if (unlink(FLIP_WIFI_CONFIG_FILE) < 0 && errno != ENOENT)
-        result = -1;
+int flip_wifi_forget(void)
+{
+    /* Compatibility API: forget current network, or lone saved profile. */
+    flip_wifi_status_t status;
+    if (flip_wifi_get_status(&status) == 0 &&
+        status.connected && status.ssid[0])
+        return flip_wifi_forget_network(status.ssid);
 
-    char tmp[640];
-    int written = snprintf(tmp, sizeof(tmp), "%s.tmp", FLIP_WIFI_CONFIG_FILE);
-    if (written > 0 && (size_t)written < sizeof(tmp))
-        (void)unlink(tmp);
+    flip_wifi_saved_profile_t profiles[FLIP_WIFI_SAVED_LIMIT];
+    int count = flip_wifi_profiles_load(profiles);
+    if (count == 1)
+        return flip_wifi_forget_network(profiles[0].ssid);
+    return -1;
+}
 
-    return result;
+/* Apply a new successful network's rank without dropping the live link. */
+static void sync_live_priorities(void)
+{
+    flip_wifi_saved_profile_t profiles[FLIP_WIFI_SAVED_LIMIT];
+    int count = flip_wifi_profiles_load(profiles);
+    if (count <= 0)
+        return;
+
+    char *list_argv[] = {
+        (char *)FLIP_WIFI_WPA_CLI,
+        "-i", (char *)FLIP_WIFI_INTERFACE,
+        "list_networks", NULL
+    };
+    char output[8192];
+    if (run_capture(list_argv, output, sizeof(output)) != 0)
+        return;
+
+    char *save = NULL;
+    char *line = strtok_r(output, "\r\n", &save);
+    while (line) {
+        char *id = line;
+        char *ssid = strchr(id, '\t');
+        if (ssid) {
+            *ssid++ = '\0';
+            char *end = strchr(ssid, '\t');
+            if (end)
+                *end = '\0';
+
+            /* IDs come from wpa_cli, but still never pass arbitrary text. */
+            int numeric = id[0] != '\0';
+            for (const char *digit = id; *digit; ++digit) {
+                if (!isdigit((unsigned char)*digit))
+                    numeric = 0;
+            }
+
+            char decoded[FLIP_WIFI_SSID_MAX] = "";
+            if (numeric && strlen(id) < 8 &&
+                decode_scan_ssid(ssid, decoded, sizeof(decoded)) == 0) {
+                for (int i = 0; i < count; ++i) {
+                    if (strcmp(decoded, profiles[i].ssid) != 0)
+                        continue;
+                    char priority[16];
+                    snprintf(priority, sizeof(priority), "%d", profiles[i].priority);
+                    char *set_argv[] = {
+                        (char *)FLIP_WIFI_WPA_CLI,
+                        "-i", (char *)FLIP_WIFI_INTERFACE,
+                        "set_network", id, "priority", priority, NULL
+                    };
+                    (void)run_capture(set_argv, NULL, 0);
+                    break;
+                }
+            }
+        }
+        line = strtok_r(NULL, "\r\n", &save);
+    }
 }
 
 int flip_wifi_get_status(
@@ -801,15 +1078,28 @@ int flip_wifi_get_status(
         return 0;
 
     char output[2048];
-    if (wpa_status_text(output, sizeof(output)) != 0)
-        return 0;
+    if (wpa_status_text(output, sizeof(output)) != 0) {
+        /* Restore automatic connections after boot when WPA is not running. */
+        flip_wifi_saved_profile_t saved[FLIP_WIFI_SAVED_LIMIT];
+        int count = flip_wifi_profiles_load(saved);
+        if (count <= 0 || ensure_supplicant() != 0 ||
+            wpa_status_text(output, sizeof(output)) != 0)
+            return 0;
+    }
 
     status->enabled = 1;
     char state[64] = "";
     copy_status_value(output, "wpa_state", state, sizeof(state));
-    copy_status_value(output, "ssid", status->ssid, sizeof(status->ssid));
+    copy_status_ssid(output, status->ssid, sizeof(status->ssid));
     copy_status_value(output, "ip_address", status->ip_address, sizeof(status->ip_address));
     status->connected = strcmp(state, "COMPLETED") == 0;
     status->usable_ip = usable_ipv4_address(status->ip_address);
+    if (status->connected && status->usable_ip && status->ssid[0]) {
+        flip_wifi_saved_profile_t profiles[FLIP_WIFI_SAVED_LIMIT];
+        int count = flip_wifi_profiles_load(profiles);
+        if (count > 0 && strcmp(profiles[0].ssid, status->ssid) != 0 &&
+            flip_wifi_profiles_promote(status->ssid) == 0)
+            sync_live_priorities();
+    }
     return 0;
 }

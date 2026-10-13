@@ -3,7 +3,10 @@
 #include "flip_gpu_client.h"
 
 #include <errno.h>
+#include <poll.h>
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -91,6 +94,122 @@ int flip_gpu_client_open(
         client);
 }
 
+#define FLIP_GPU_READY_POLL_MS 100
+#define FLIP_GPU_READY_TIMEOUT_MS 15000
+
+static int wait_for_service_ready(
+    pid_t pid,
+    int ready_fd)
+{
+    const int poll_slice_ms =
+        FLIP_GPU_READY_POLL_MS;
+
+    const unsigned max_slices =
+        FLIP_GPU_READY_TIMEOUT_MS /
+        FLIP_GPU_READY_POLL_MS;
+
+    for (unsigned attempt = 0;
+         attempt < max_slices;
+         ++attempt) {
+
+        struct pollfd pfd = {
+            .fd = ready_fd,
+            .events = POLLIN | POLLHUP
+        };
+
+        int poll_rc;
+
+        do {
+            poll_rc = poll(
+                &pfd,
+                1,
+                poll_slice_ms);
+        } while (
+            poll_rc < 0 &&
+            errno == EINTR);
+
+        if (poll_rc < 0)
+            return -1;
+
+        if (poll_rc > 0 &&
+            (pfd.revents & (POLLIN | POLLHUP))) {
+
+            unsigned char ready = 0;
+            ssize_t n;
+
+            do {
+                n = read(
+                    ready_fd,
+                    &ready,
+                    sizeof(ready));
+            } while (
+                n < 0 &&
+                errno == EINTR);
+
+            if (n == 1 &&
+                ready == FLIP_GPU_READY_BYTE)
+                return 0;
+
+            if (n == 0 ||
+                (n < 0 &&
+                 errno != EAGAIN &&
+                 errno != EWOULDBLOCK))
+                return -1;
+        }
+
+        int status = 0;
+        pid_t wait_result =
+            waitpid(
+                pid,
+                &status,
+                WNOHANG);
+
+        if (wait_result == pid)
+            return -1;
+        if (wait_result < 0 &&
+            errno != EINTR)
+            return -1;
+    }
+
+    errno = ETIMEDOUT;
+    return -1;
+}
+
+static int connect_ready_service(
+    flip_gpu_client_t *client)
+{
+    const struct timespec delay = {
+        .tv_sec = 0,
+        .tv_nsec = 10 * 1000 * 1000L
+    };
+
+    int last_error = 0;
+
+    for (unsigned attempt = 0;
+         attempt < 50;
+         ++attempt) {
+
+        if (client_connect_socket(client) == 0)
+            return 0;
+
+        last_error = errno;
+
+        struct timespec remaining =
+            delay;
+
+        while (nanosleep(
+                   &remaining,
+                   &remaining) < 0 &&
+               errno == EINTR) {
+        }
+    }
+
+    if (last_error)
+        errno = last_error;
+
+    return -1;
+}
+
 int flip_gpu_client_launch(
     flip_gpu_client_t *client,
     const char *service_path,
@@ -105,12 +224,38 @@ int flip_gpu_client_launch(
 
     client_reset(client);
 
-    pid_t pid = fork();
-
-    if (pid < 0)
+    int ready_pipe[2] = {-1, -1};
+    if (pipe(ready_pipe) < 0)
         return -1;
 
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        close(ready_pipe[0]);
+        close(ready_pipe[1]);
+        return -1;
+    }
+
     if (pid == 0) {
+        close(ready_pipe[0]);
+
+        char ready_fd[32];
+        int n = snprintf(
+            ready_fd,
+            sizeof(ready_fd),
+            "%d",
+            ready_pipe[1]);
+
+        if (n < 0 ||
+            (size_t)n >= sizeof(ready_fd) ||
+            setenv(
+                FLIP_GPU_READY_FD_ENV,
+                ready_fd,
+                1) < 0) {
+
+            _exit(126);
+        }
+
         if (scanout) {
             execl(
                 service_path,
@@ -127,47 +272,61 @@ int flip_gpu_client_launch(
         _exit(127);
     }
 
+    close(ready_pipe[1]);
+    ready_pipe[1] = -1;
+
     client->service_pid = pid;
 
-    const struct timespec delay = {
-        .tv_sec = 0,
-        .tv_nsec = 10000000L
-    };
+    if (wait_for_service_ready(
+            pid,
+            ready_pipe[0]) < 0) {
 
-    /*
-     * A real frontend -> emulator DRM handoff can make
-     * GBM/EGL/KMS initialisation take a little over one
-     * second. Allow up to five seconds, while still bailing
-     * out immediately if the helper process itself exits.
-     */
-    for (unsigned attempt = 0;
-         attempt < 500;
-         ++attempt) {
+        int saved_errno = errno;
 
-        if (client_connect_socket(client) == 0)
-            return 0;
+        fprintf(
+            stderr,
+            "FLIP_GPU_CLIENT: service readiness failed pid=%d errno=%d\n",
+            (int)pid,
+            saved_errno);
 
-        int status = 0;
-        pid_t wait_result =
-            waitpid(
-                pid,
-                &status,
-                WNOHANG);
+        close(ready_pipe[0]);
+        ready_pipe[0] = -1;
 
-        if (wait_result == pid) {
-            client->service_pid = -1;
-            return -1;
-        }
+        (void)kill(
+            pid,
+            SIGTERM);
 
-        struct timespec remaining =
-            delay;
-
-        while (nanosleep(
-                   &remaining,
-                   &remaining) < 0 &&
+        while (waitpid(
+                   pid,
+                   NULL,
+                   0) < 0 &&
                errno == EINTR) {
         }
+
+        client->service_pid = -1;
+        errno = saved_errno;
+        return -1;
     }
+
+    close(ready_pipe[0]);
+    ready_pipe[0] = -1;
+
+    if (connect_ready_service(client) == 0) {
+        fprintf(
+            stderr,
+            "FLIP_GPU_CLIENT: service ready pid=%d socket=%s\n",
+            (int)pid,
+            FLIP_GPU_SOCKET_PATH);
+        return 0;
+    }
+
+    int saved_errno = errno;
+
+    fprintf(
+        stderr,
+        "FLIP_GPU_CLIENT: ready service socket connect failed pid=%d errno=%d\n",
+        (int)pid,
+        saved_errno);
 
     (void)kill(
         pid,
@@ -181,6 +340,7 @@ int flip_gpu_client_launch(
     }
 
     client->service_pid = -1;
+    errno = saved_errno;
     return -1;
 }
 

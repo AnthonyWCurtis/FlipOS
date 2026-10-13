@@ -244,19 +244,13 @@ static int unload_module(void)
     return rc == 0 ? 0 : -1;
 }
 
-static int park_cpu(
-    flip_cpu_policy_snapshot_t *snapshot)
+static int wait_for_frequency(unsigned khz)
 {
     unsigned current = 0;
 
-    if (!snapshot ||
-        flip_cpu_policy_snapshot(snapshot) < 0 ||
-        flip_cpu_policy_set_limits(PARK_KHZ, PARK_KHZ) < 0)
-        return -1;
-
     for (int i = 0; i < 50; ++i) {
         if (flip_cpu_policy_get_current(&current) == 0 &&
-            current == PARK_KHZ)
+            current == khz)
             return 0;
 
         struct timespec delay = {
@@ -266,8 +260,46 @@ static int park_cpu(
         nanosleep(&delay, NULL);
     }
 
-    (void)flip_cpu_policy_restore(snapshot);
     return -1;
+}
+
+static int pin_cpu(unsigned khz)
+{
+    return flip_cpu_policy_set_limits(khz, khz) == 0 &&
+        wait_for_frequency(khz) == 0
+            ? 0
+            : -1;
+}
+
+static unsigned choose_alternate_frequency(unsigned avoid_khz)
+{
+    flip_cpu_policy_info_t info;
+    unsigned chosen = 0;
+
+    if (flip_cpu_policy_query_info(&info) < 0)
+        return 0;
+
+    for (size_t i = 0; i < info.frequency_count; ++i) {
+        unsigned khz = info.frequencies_khz[i];
+
+        if (khz == avoid_khz)
+            continue;
+        if (!chosen || khz < chosen)
+            chosen = khz;
+    }
+
+    return chosen;
+}
+
+static int park_cpu(
+    flip_cpu_policy_snapshot_t *snapshot)
+{
+    if (!snapshot ||
+        flip_cpu_policy_snapshot(snapshot) < 0 ||
+        pin_cpu(PARK_KHZ) < 0)
+        return -1;
+
+    return 0;
 }
 
 static int apply_one(
@@ -298,6 +330,30 @@ static int apply_one(
 
 static int clear_runtime_active_marker(void);
 
+/*
+ * The kernel helper intentionally refuses to rewrite the OPP the CPU is
+ * currently executing. A full-range profile can include the 408 MHz parking
+ * OPP, so restore in two passes when necessary: the first pass restores every
+ * inactive OPP, then move onto one of those stock-restored OPPs and retry.
+ */
+static int restore_all_with_handoff(void)
+{
+    if (write_text(RUNTIME_CONTROL, "restore-all") == 0)
+        return 0;
+
+    unsigned current_khz = 0;
+    if (flip_cpu_policy_get_current(&current_khz) < 0)
+        return -1;
+
+    unsigned handoff_khz =
+        choose_alternate_frequency(current_khz);
+    if (!handoff_khz ||
+        pin_cpu(handoff_khz) < 0)
+        return -1;
+
+    return write_text(RUNTIME_CONTROL, "restore-all");
+}
+
 static int restore_loaded_profile(void)
 {
     flip_cpu_policy_snapshot_t snapshot;
@@ -311,7 +367,7 @@ static int restore_loaded_profile(void)
         return -1;
     parked = 1;
 
-    if (write_text(RUNTIME_CONTROL, "restore-all") < 0)
+    if (restore_all_with_handoff() < 0)
         goto out;
 
     if (unload_module() < 0)
@@ -465,6 +521,14 @@ static int apply_profile(
         goto rollback;
     loaded = 1;
 
+    const flip_optimizer_opp_t *park_opp = NULL;
+
+    /*
+     * Apply every changed OPP except the frequency the CPU is parked on.
+     * If 408 MHz itself is tuned, hand off to another already-safe OPP before
+     * changing 408. This preserves the kernel module's invariant that an
+     * executing OPP is never rewritten underneath the CPU.
+     */
     for (size_t i = 0; i < result.opp_count; ++i) {
         const flip_optimizer_opp_t *opp = &result.opps[i];
         opp_triplet_t stock;
@@ -472,11 +536,33 @@ static int apply_profile(
         if (opp->optimized_uv == opp->stock_uv)
             continue;
 
+        if (opp->frequency_khz == PARK_KHZ) {
+            park_opp = opp;
+            continue;
+        }
+
         if (read_opp_triplet(opp->frequency_khz, &stock) < 0 ||
             stock.target_uv != opp->stock_uv ||
             stock.min_uv > stock.target_uv ||
             stock.target_uv > stock.max_uv ||
             apply_one(opp, &stock) < 0)
+            goto rollback;
+
+        applied++;
+    }
+
+    if (park_opp) {
+        unsigned handoff_khz =
+            choose_alternate_frequency(PARK_KHZ);
+        opp_triplet_t stock;
+
+        if (!handoff_khz ||
+            pin_cpu(handoff_khz) < 0 ||
+            read_opp_triplet(park_opp->frequency_khz, &stock) < 0 ||
+            stock.target_uv != park_opp->stock_uv ||
+            stock.min_uv > stock.target_uv ||
+            stock.target_uv > stock.max_uv ||
+            apply_one(park_opp, &stock) < 0)
             goto rollback;
 
         applied++;
@@ -490,7 +576,7 @@ static int apply_profile(
 
 rollback:
     if (loaded) {
-        (void)write_text(RUNTIME_CONTROL, "restore-all");
+        (void)restore_all_with_handoff();
         (void)unload_module();
     }
 
@@ -503,7 +589,7 @@ out:
             if (module_loaded()) {
                 flip_cpu_policy_snapshot_t cleanup_snapshot;
                 if (park_cpu(&cleanup_snapshot) == 0) {
-                    (void)write_text(RUNTIME_CONTROL, "restore-all");
+                    (void)restore_all_with_handoff();
                     (void)unload_module();
                     (void)flip_cpu_policy_restore(&cleanup_snapshot);
                 }

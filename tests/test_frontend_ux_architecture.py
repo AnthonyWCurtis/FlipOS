@@ -72,7 +72,10 @@ assert 'flipos-dev-suppress-low-battery-poweroff' in SOURCE
 
 assert 'Y FORGET' in SOURCE
 
-assert 'flip_wifi_forget()' in SOURCE
+assert 'flip_wifi_forget_network(selected_ssid)' in SOURCE
+assert 'flip_wifi_connect_saved(network->ssid)' in SOURCE
+assert 'if (network->saved)' in SOURCE
+assert 'flip_wifi_network_is_saved(network->ssid)' not in SOURCE
 
 assert 'SAVED NETWORK FORGOTTEN' in SOURCE
 

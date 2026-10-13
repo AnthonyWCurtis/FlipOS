@@ -23,10 +23,13 @@ def define_int(source: str, name: str) -> int:
     return int(match.group(1))
 
 
-# Physical POWER is independent from the hall sensor: event0 KEY_POWER maps
-# through the digital button table, while event1 remains the lid-only path.
+# Physical POWER is independent from the hall sensor: the RK817 PMIC key is
+# exposed as event2, while event1 remains the lid-only wake path.
 assert "FLIP_BTN_POWER" in input_h
-assert "case 116: return FLIP_BTN_POWER;" in input_c
+assert '#define POWER_DEVICE   "/dev/input/event2"' in input_c
+assert 'open(POWER_DEVICE, O_RDONLY | O_NONBLOCK)' in input_c
+assert 'ev.code != KEY_POWER' in input_c
+assert 'state->down[FLIP_BTN_POWER]' in input_c
 assert 'HALL_DEVICE    "/dev/input/event1"' in input_c
 
 # Short press is recognized on release; a hold past the tap window is cancelled

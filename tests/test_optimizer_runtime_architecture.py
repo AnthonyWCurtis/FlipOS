@@ -12,6 +12,11 @@ for token in [
     'Keep cpuinfo only as a legacy',
     'fopen(DT_SERIAL_PATH, "rb")',
     'DT_SERIAL_PATH "/sys/firmware/devicetree/base/serial-number"',
+    "wait_for_frequency(",
+    "choose_alternate_frequency(",
+    "restore_all_with_handoff(",
+    "opp->frequency_khz == PARK_KHZ",
+    "pin_cpu(handoff_khz)",
 ]:
     if token not in source:
         errors.append(f"runtime validation apply support missing: {token}")

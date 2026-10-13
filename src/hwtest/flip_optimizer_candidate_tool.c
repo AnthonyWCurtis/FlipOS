@@ -3187,8 +3187,9 @@ static int run_validate_profile(
     int runtime_applied = 0;
 
     /*
-     * Keep the CPU on the stock-preserved 408 MHz OPP while the optimized
-     * table is installed and until the full recovery envelope is armed.
+     * Keep the CPU parked at 408 MHz while the optimized table is installed
+     * and until the full recovery envelope is armed. The recovery envelope
+     * is armed before the table is exposed because 408 MHz is tunable too.
      * Never expose the normal governor to a newly applied runtime table
      * before watchdog/TSADC/deadman protection exists.
      */
@@ -3508,7 +3509,7 @@ static int run_validate_profile(
             /*
              * A production validation repeatedly traverses the voltage and
              * frequency transition path instead of only soaking one static
-             * OPP. Always park at the stock-preserved OPP between chunks.
+             * OPP. Always return to the guarded 408 MHz parking OPP between chunks.
              */
             if (flip_cpu_policy_set_limits(
                     FLIP_OPTIMIZER_VALIDATION_PARK_KHZ,
@@ -3544,7 +3545,7 @@ static int run_validate_profile(
     }
 
     /*
-     * Return to the stock-preserved parking OPP before touching the live OPP
+     * Return to the guarded parking OPP before touching the live OPP
      * table again. Restore stock voltages first; only then restore the user's
      * normal governor/frequency limits.
      */

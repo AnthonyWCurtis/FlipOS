@@ -67,7 +67,13 @@ for token in (
     '"CPU SPEED"',
     '"DEFAULT"',
     '"TUNED"',
+    '"VERIFIED %u/%zu"',
+    "shown < 8",
+    "184 +",
+    "shown * 27",
 ):
     assert token in results, token
+
+assert "shown < 5" not in results
 
 print("optimizer layout architecture tests passed")

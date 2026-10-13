@@ -31,6 +31,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_battery.o \
 	$(BUILD)/flip_power_policy.o \
 	$(BUILD)/flip_wifi.o \
+	$(BUILD)/flip_wifi_profiles.o \
 	$(BUILD)/flip_keyboard.o \
 	$(BUILD)/flip_setup.o \
 	$(BUILD)/flip_time.o \
@@ -339,6 +340,7 @@ test-optimizer-supervisor: $(BUILD)/test-flip-optimizer-supervisor
 
 test-optimizer-calibration: $(BUILD)/test-flip-optimizer-calibration
 	$(BUILD)/test-flip-optimizer-calibration
+	python3 tests/test_optimizer_full_range_architecture.py
 
 test-optimizer-calibration-session: $(BUILD)/test-flip-optimizer-calibration-session
 	$(BUILD)/test-flip-optimizer-calibration-session
@@ -521,13 +523,13 @@ $(BUILD)/test-flip-charger: tests/test_flip_charger.c src/runtime/flip_charger.c
 		tests/test_flip_charger.c src/runtime/flip_charger.c src/runtime/flip_power_policy.c \
 		-o $@
 
-$(BUILD)/test-flip-wifi: tests/test_flip_wifi.c src/runtime/flip_wifi.c include/flip_wifi.h include/flip_paths.h | $(BUILD)
+$(BUILD)/test-flip-wifi: tests/test_flip_wifi.c src/runtime/flip_wifi.c src/runtime/flip_wifi_profiles.c include/flip_wifi.h include/flip_wifi_profiles.h include/flip_paths.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
 		-D_POSIX_C_SOURCE=200809L \
 		-DFLIP_WIFI_CONFIG_DIR='"/tmp/flipos-wifi-test/network"' \
 		-DFLIP_WIFI_CONFIG_FILE='"/tmp/flipos-wifi-test/network/wpa_supplicant.conf"' \
 		-DFLIP_WIFI_WPA_PASSPHRASE='"/tmp/flipos-wifi-test/wpa_passphrase"' \
-		-Iinclude tests/test_flip_wifi.c src/runtime/flip_wifi.c \
+		-Iinclude tests/test_flip_wifi.c src/runtime/flip_wifi.c src/runtime/flip_wifi_profiles.c \
 		-o $@
 
 $(BUILD)/test-flip-keyboard: tests/test_flip_keyboard.c src/runtime/flip_keyboard.c include/flip_keyboard.h | $(BUILD)
@@ -914,7 +916,10 @@ $(BUILD)/flip_power_policy.o: src/runtime/flip_power_policy.c include/flip_power
 $(BUILD)/flip_charger.o: src/runtime/flip_charger.c include/flip_charger.h include/flip_power_policy.h include/flip_battery.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/flip_wifi.o: src/runtime/flip_wifi.c include/flip_wifi.h include/flip_paths.h | $(BUILD)
+$(BUILD)/flip_wifi.o: src/runtime/flip_wifi.c include/flip_wifi.h include/flip_wifi_profiles.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_wifi_profiles.o: src/runtime/flip_wifi_profiles.c include/flip_wifi_profiles.h include/flip_wifi.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/flip_keyboard.o: src/runtime/flip_keyboard.c include/flip_keyboard.h | $(BUILD)
@@ -1172,9 +1177,9 @@ $(BUILD)/flip-gpu-sender: \
 		src/runtime/flip_gpu_protocol.c \
 		-o $@
 
-$(BUILD)/flip-wifi-tool: src/hwtest/flip_wifi_tool.c src/runtime/flip_wifi.c include/flip_wifi.h include/flip_paths.h | $(BUILD)
+$(BUILD)/flip-wifi-tool: src/hwtest/flip_wifi_tool.c src/runtime/flip_wifi.c src/runtime/flip_wifi_profiles.c include/flip_wifi.h include/flip_wifi_profiles.h include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -static -Iinclude \
-		src/hwtest/flip_wifi_tool.c src/runtime/flip_wifi.c -o $@
+		src/hwtest/flip_wifi_tool.c src/runtime/flip_wifi.c src/runtime/flip_wifi_profiles.c -o $@
 
 $(BUILD)/flip-charge-service: src/runtime/flip_charge_service.c src/runtime/flip_charger.c src/runtime/flip_power_policy.c src/runtime/flip_battery.c src/runtime/flip_log.c src/runtime/flip_paths.c include/flip_charger.h include/flip_power_policy.h include/flip_battery.h include/flip_log.h include/flip_paths.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -static -Iinclude \
