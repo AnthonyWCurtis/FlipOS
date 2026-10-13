@@ -183,14 +183,40 @@ static char gameswitcher_confirm_system[32];
 static char gameswitcher_confirm_rom[512];
 
 static const char *home_items[] = {
+    "CONTINUE",
     "LIBRARY",
-    "GAMESWITCHER",
+    "SWITCHER",
     "PLAY STATS",
     "SETTINGS"
 };
 
 #define HOME_ITEM_COUNT \
     ((int)(sizeof(home_items) / sizeof(home_items[0])))
+
+/*
+ * Home is authored against the Miyoo Flip's native 640x480 framebuffer.
+ * Keep these as explicit geometry rather than eyeballed draw coordinates:
+ * architecture tests validate the regions remain on-screen and non-overlapping.
+ */
+#define HOME_SCREEN_W          640
+#define HOME_SCREEN_H          480
+#define HOME_MARGIN_X           24
+#define HOME_CONTENT_W         592
+#define HOME_HERO_X             24
+#define HOME_HERO_Y             68
+#define HOME_HERO_W            592
+#define HOME_HERO_H            210
+#define HOME_RECENT_LABEL_Y    292
+#define HOME_RECENT_Y          310
+#define HOME_RECENT_H           76
+#define HOME_RECENT_CARD_W     192
+#define HOME_RECENT_GAP          8
+#define HOME_NAV_Y             399
+#define HOME_NAV_H              36
+#define HOME_NAV_W             142
+#define HOME_NAV_GAP             8
+#define HOME_MESSAGE_Y         440
+#define HOME_FOOTER_Y          458
 
 
 static const char *settings_items[] = {
@@ -1346,6 +1372,93 @@ static int centred_text_x(
         scale;
 
     return (640 - width) / 2;
+}
+
+static int ui_text_width_px(
+    const char *text,
+    int scale)
+{
+    if (!text ||
+        scale <= 0)
+        return 0;
+
+    return (int)strlen(text) *
+        6 *
+        scale;
+}
+
+static int centred_text_x_in_rect(
+    const char *text,
+    int scale,
+    int x,
+    int width)
+{
+    int text_width =
+        ui_text_width_px(
+            text,
+            scale);
+
+    return x +
+        (width - text_width) / 2;
+}
+
+static void fit_text_to_width(
+    const char *source,
+    char *destination,
+    size_t destination_size,
+    int max_width,
+    int scale)
+{
+    if (!destination ||
+        destination_size == 0)
+        return;
+
+    destination[0] = '\0';
+
+    if (!source ||
+        max_width <= 0 ||
+        scale <= 0)
+        return;
+
+    int max_chars =
+        max_width /
+        (6 * scale);
+
+    if (max_chars <= 0)
+        return;
+
+    size_t source_length =
+        strlen(source);
+
+    if ((int)source_length <=
+        max_chars) {
+
+        snprintf(
+            destination,
+            destination_size,
+            "%s",
+            source);
+
+        return;
+    }
+
+    if (max_chars <= 3) {
+        snprintf(
+            destination,
+            destination_size,
+            "%.*s",
+            max_chars,
+            source);
+
+        return;
+    }
+
+    snprintf(
+        destination,
+        destination_size,
+        "%.*s...",
+        max_chars - 3,
+        source);
 }
 
 static int read_int_file(
@@ -3928,116 +4041,59 @@ static void draw_home(
     const char *message,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
+    /*
+     * Top bar is reserved for version, Wi-Fi and battery. The centred wordmark
+     * is deliberately only 72 px wide at scale 2, so it cannot collide with
+     * the status regions at either edge.
+     */
     flip_draw_text(
         drm,
-        centred_text_x("FLIPOS", UI_SCALE_TITLE),
-        18,
+        centred_text_x(
+            "FLIPOS",
+            UI_SCALE_BODY),
+        14,
         "FLIPOS",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     flip_draw_text(
         drm,
         centred_text_x(
-            "YOUR GAMES. YOUR TIME.",
+            "CONTINUE",
             UI_SCALE_META),
-        56,
-        "YOUR GAMES. YOUR TIME.",
+        44,
+        "CONTINUE",
         UI_SCALE_META,
-        DIM);
-
-    const int menu_x = 28;
-    const int menu_w = 176;
-    const int menu_y = 104;
-    const int menu_step = 58;
-
-    for (int i = 0;
-         i < HOME_ITEM_COUNT;
-         ++i) {
-
-        int y =
-            menu_y + i * menu_step;
-
-        if (i == selected) {
-            flip_draw_rect(
-                drm,
-                menu_x,
-                y - 8,
-                menu_w,
-                43,
-                PANEL);
-
-            flip_draw_rect_outline(
-                drm,
-                menu_x,
-                y - 8,
-                menu_w,
-                43,
-                2,
-                FG);
-        }
-
-        flip_draw_text(
-            drm,
-            menu_x + 15,
-            y,
-            home_items[i],
-            UI_SCALE_BODY,
-            i == selected
-                ? FG
-                : DIM);
-    }
-
-    const int panel_x = 222;
-    const int panel_y = 88;
-    const int panel_w = 388;
-    const int panel_h = 292;
+        selected == 0
+            ? FG
+            : DIM);
 
     flip_draw_rect(
         drm,
-        panel_x,
-        panel_y,
-        panel_w,
-        panel_h,
+        HOME_HERO_X,
+        HOME_HERO_Y,
+        HOME_HERO_W,
+        HOME_HERO_H,
         PANEL);
 
     flip_draw_rect_outline(
         drm,
-        panel_x,
-        panel_y,
-        panel_w,
-        panel_h,
-        1,
-        DIM);
+        HOME_HERO_X,
+        HOME_HERO_Y,
+        HOME_HERO_W,
+        HOME_HERO_H,
+        selected == 0 ? 2 : 1,
+        selected == 0
+            ? FG
+            : DIM);
 
     if (recent_count > 0) {
         const rom_entry_t *recent =
             &recent_roms[0];
-
-        flip_draw_text(
-            drm,
-            panel_x + 18,
-            panel_y + 17,
-            "LAST PLAYED",
-            UI_SCALE_META,
-            DIM);
-
-        char game_name[22];
-        snprintf(
-            game_name,
-            sizeof(game_name),
-            "%.19s",
-            recent->display);
-
-        flip_draw_text(
-            drm,
-            panel_x + 18,
-            panel_y + 49,
-            game_name,
-            UI_SCALE_SECTION,
-            FG);
 
         const char *system_name =
             recent->system &&
@@ -4050,263 +4106,447 @@ static void draw_home(
                 recent->system,
                 recent->path);
 
+        char system_visible[64];
+
+        fit_text_to_width(
+            system_name,
+            system_visible,
+            sizeof(system_visible),
+            HOME_HERO_W - 48,
+            1);
+
         flip_draw_text(
             drm,
-            panel_x + 18,
-            panel_y + 84,
-            system_name,
-            UI_SCALE_META,
+            centred_text_x_in_rect(
+                system_visible,
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            87,
+            system_visible,
+            1,
             DIM);
 
-        if (can_resume) {
-            flip_draw_text(
-                drm,
-                panel_x + 18,
-                panel_y + 107,
-                "RESUME READY",
-                1,
-                FG);
+        int title_scale =
+            UI_SCALE_SECTION;
+
+        while (title_scale > 1 &&
+               ui_text_width_px(
+                   recent->display,
+                   title_scale) >
+                   HOME_HERO_W - 64) {
+
+            title_scale--;
         }
 
-        if (last_played_stats_valid) {
-            char played[32];
-            char last_played[32];
+        char game_name[96];
 
+        fit_text_to_width(
+            recent->display,
+            game_name,
+            sizeof(game_name),
+            HOME_HERO_W - 64,
+            title_scale);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                game_name,
+                title_scale,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            111,
+            game_name,
+            title_scale,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                can_resume
+                    ? "RESUME READY"
+                    : "LAST PLAYED GAME",
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            149,
+            can_resume
+                ? "RESUME READY"
+                : "LAST PLAYED GAME",
+            1,
+            can_resume
+                ? FG
+                : DIM);
+
+        flip_draw_rect(
+            drm,
+            HOME_HERO_X + 32,
+            172,
+            HOME_HERO_W - 64,
+            1,
+            DIM);
+
+        char played[32] = "0M";
+        char launches[24] = "0";
+        char last_played[32] = "NOT YET";
+
+        if (last_played_stats_valid) {
             format_play_duration(
                 last_played_stats.total_play_seconds,
                 played,
                 sizeof(played));
 
-            format_last_played(
-                last_played_stats.last_played_epoch,
-                last_played,
-                sizeof(last_played));
-
-            flip_draw_text(
-                drm,
-                panel_x + 18,
-                panel_y + 126,
-                "PLAY TIME",
-                UI_SCALE_META,
-                DIM);
-
-            flip_draw_text(
-                drm,
-                panel_x + 18,
-                panel_y + 149,
-                played,
-                UI_SCALE_SECTION,
-                FG);
-
-            flip_draw_text(
-                drm,
-                panel_x + 205,
-                panel_y + 126,
-                "LAUNCHES",
-                UI_SCALE_META,
-                DIM);
-
-            char launches[24];
             snprintf(
                 launches,
                 sizeof(launches),
                 "%llu",
                 last_played_stats.launches);
 
-            flip_draw_text(
-                drm,
-                panel_x + 205,
-                panel_y + 149,
-                launches,
-                UI_SCALE_SECTION,
-                FG);
-
-            char last_session[32];
-            format_play_duration(
-                last_played_stats.last_session_seconds,
-                last_session,
-                sizeof(last_session));
-
-            flip_draw_text(
-                drm,
-                panel_x + 18,
-                panel_y + 194,
-                "LAST SESSION",
-                1,
-                DIM);
-
-            flip_draw_text(
-                drm,
-                panel_x + 18,
-                panel_y + 214,
-                last_session,
-                UI_SCALE_BODY,
-                FG);
-
-            flip_draw_text(
-                drm,
-                panel_x + 186,
-                panel_y + 194,
-                "LAST PLAYED",
-                1,
-                DIM);
-
-            flip_draw_text(
-                drm,
-                panel_x + 186,
-                panel_y + 214,
+            format_last_played(
+                last_played_stats.last_played_epoch,
                 last_played,
-                UI_SCALE_BODY,
-                FG);
-        } else {
-            flip_draw_text(
-                drm,
-                panel_x + 18,
-                panel_y + 136,
-                "PLAY STATS START",
-                UI_SCALE_SECTION,
-                FG);
-
-            flip_draw_text(
-                drm,
-                panel_x + 18,
-                panel_y + 169,
-                "THE NEXT TIME YOU PLAY",
-                UI_SCALE_META,
-                DIM);
+                sizeof(last_played));
         }
 
-        char total_time[32];
-        format_play_duration(
-            play_stats_summary.total_play_seconds,
-            total_time,
-            sizeof(total_time));
+        static const int stat_center[3] = {
+            144, 320, 496
+        };
 
-        char all_stats[96];
-        snprintf(
-            all_stats,
-            sizeof(all_stats),
-            "ALL GAMES %s   %llu LAUNCHES",
-            total_time,
-            play_stats_summary.total_launches);
+        static const char *stat_label[3] = {
+            "PLAY TIME",
+            "LAUNCHES",
+            "LAST PLAYED"
+        };
+
+        const char *stat_value[3] = {
+            played,
+            launches,
+            last_played
+        };
+
+        for (int i = 0;
+             i < 3;
+             ++i) {
+
+            int label_width =
+                ui_text_width_px(
+                    stat_label[i],
+                    1);
+
+            flip_draw_text(
+                drm,
+                stat_center[i] -
+                    label_width / 2,
+                190,
+                stat_label[i],
+                1,
+                DIM);
+
+            char value_visible[32];
+
+            fit_text_to_width(
+                stat_value[i],
+                value_visible,
+                sizeof(value_visible),
+                150,
+                UI_SCALE_BODY);
+
+            int value_width =
+                ui_text_width_px(
+                    value_visible,
+                    UI_SCALE_BODY);
+
+            flip_draw_text(
+                drm,
+                stat_center[i] -
+                    value_width / 2,
+                211,
+                value_visible,
+                UI_SCALE_BODY,
+                FG);
+        }
+
+        const char *cta =
+            can_resume
+                ? "A CONTINUE"
+                : "A PLAY AGAIN";
 
         flip_draw_text(
             drm,
-            panel_x + 18,
-            panel_y + 257,
-            all_stats,
+            centred_text_x_in_rect(
+                cta,
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            255,
+            cta,
             1,
-            DIM);
+            selected == 0
+                ? FG
+                : DIM);
+
     } else {
+
         flip_draw_text(
             drm,
-            panel_x + 18,
-            panel_y + 23,
-            "WELCOME TO FLIPOS",
+            centred_text_x_in_rect(
+                "YOUR GAMES. YOUR TIME.",
+                UI_SCALE_SECTION,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            116,
+            "YOUR GAMES. YOUR TIME.",
             UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            panel_x + 18,
-            panel_y + 72,
-            "CHOOSE LIBRARY",
+            centred_text_x_in_rect(
+                "NO GAMES PLAYED YET",
+                UI_SCALE_BODY,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            175,
+            "NO GAMES PLAYED YET",
             UI_SCALE_BODY,
             DIM);
 
         flip_draw_text(
             drm,
-            panel_x + 18,
-            panel_y + 101,
-            "AND START A GAME.",
-            UI_SCALE_BODY,
+            centred_text_x_in_rect(
+                "A OPEN LIBRARY",
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            250,
+            "A OPEN LIBRARY",
+            1,
+            selected == 0
+                ? FG
+                : DIM);
+    }
+
+    flip_draw_text(
+        drm,
+        HOME_MARGIN_X,
+        HOME_RECENT_LABEL_Y,
+        "RECENT",
+        1,
+        DIM);
+
+    int recent_cards = 0;
+
+    for (int recent_index = 1;
+         recent_index < recent_count &&
+         recent_cards < 3;
+         ++recent_index,
+         ++recent_cards) {
+
+        int card_x =
+            HOME_MARGIN_X +
+            recent_cards *
+                (HOME_RECENT_CARD_W +
+                 HOME_RECENT_GAP);
+
+        flip_draw_rect(
+            drm,
+            card_x,
+            HOME_RECENT_Y,
+            HOME_RECENT_CARD_W,
+            HOME_RECENT_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            card_x,
+            HOME_RECENT_Y,
+            HOME_RECENT_CARD_W,
+            HOME_RECENT_H,
+            1,
             DIM);
+
+        int recent_scale =
+            UI_SCALE_BODY;
+
+        if (ui_text_width_px(
+                recent_roms[recent_index].display,
+                recent_scale) >
+            HOME_RECENT_CARD_W - 24) {
+
+            recent_scale = 1;
+        }
+
+        char recent_name[64];
+
+        fit_text_to_width(
+            recent_roms[recent_index].display,
+            recent_name,
+            sizeof(recent_name),
+            HOME_RECENT_CARD_W - 24,
+            recent_scale);
 
         flip_draw_text(
             drm,
-            panel_x + 18,
-            panel_y + 155,
-            "PLAY TIME, LAUNCHES,",
-            UI_SCALE_META,
-            DIM);
+            centred_text_x_in_rect(
+                recent_name,
+                recent_scale,
+                card_x,
+                HOME_RECENT_CARD_W),
+            328,
+            recent_name,
+            recent_scale,
+            FG);
+
+        const char *recent_system =
+            recent_roms[recent_index].system &&
+            recent_roms[recent_index].system->display_name
+                ? recent_roms[recent_index].system->display_name
+                : "GAME";
+
+        char recent_system_visible[32];
+
+        fit_text_to_width(
+            recent_system,
+            recent_system_visible,
+            sizeof(recent_system_visible),
+            HOME_RECENT_CARD_W - 24,
+            1);
 
         flip_draw_text(
             drm,
-            panel_x + 18,
-            panel_y + 179,
-            "LONGEST SESSIONS AND",
-            UI_SCALE_META,
-            DIM);
-
-        flip_draw_text(
-            drm,
-            panel_x + 18,
-            panel_y + 203,
-            "MORE WILL APPEAR HERE.",
-            UI_SCALE_META,
+            centred_text_x_in_rect(
+                recent_system_visible,
+                1,
+                card_x,
+                HOME_RECENT_CARD_W),
+            363,
+            recent_system_visible,
+            1,
             DIM);
     }
 
-    static const char *descriptions[] = {
-        "BROWSE EVERY GAME",
-        "RESUME OR SWITCH GAMES",
-        "SEE YOUR PLAY HISTORY",
-        "SYSTEM AND DEVICE OPTIONS"
+    if (recent_cards == 0) {
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                recent_count > 0
+                    ? "PLAY ANOTHER GAME TO BUILD RECENTS"
+                    : "RECENT GAMES WILL APPEAR HERE",
+                1),
+            346,
+            recent_count > 0
+                ? "PLAY ANOTHER GAME TO BUILD RECENTS"
+                : "RECENT GAMES WILL APPEAR HERE",
+            1,
+            DIM);
+    }
+
+    static const char *nav_label[4] = {
+        "LIBRARY",
+        "SWITCHER",
+        "PLAY STATS",
+        "SETTINGS"
     };
 
-    if (selected >= 0 &&
-        selected < HOME_ITEM_COUNT) {
+    for (int i = 0;
+         i < 4;
+         ++i) {
+
+        int nav_index =
+            i + 1;
+
+        int nav_x =
+            HOME_MARGIN_X +
+            i *
+                (HOME_NAV_W +
+                 HOME_NAV_GAP);
+
+        int active =
+            selected == nav_index;
+
+        if (active) {
+            flip_draw_rect(
+                drm,
+                nav_x,
+                HOME_NAV_Y,
+                HOME_NAV_W,
+                HOME_NAV_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                nav_x,
+                HOME_NAV_Y,
+                HOME_NAV_W,
+                HOME_NAV_H,
+                2,
+                FG);
+        }
 
         flip_draw_text(
             drm,
-            menu_x,
-            351,
-            descriptions[selected],
-            UI_SCALE_META,
-            DIM);
+            centred_text_x_in_rect(
+                nav_label[i],
+                UI_SCALE_BODY,
+                nav_x,
+                HOME_NAV_W),
+            HOME_NAV_Y + 9,
+            nav_label[i],
+            UI_SCALE_BODY,
+            active
+                ? FG
+                : DIM);
     }
 
     if (message &&
         message[0]) {
 
+        char visible_message[96];
+
+        fit_text_to_width(
+            message,
+            visible_message,
+            sizeof(visible_message),
+            HOME_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
             centred_text_x(
-                message,
-                UI_SCALE_BODY),
-            394,
-            message,
-            UI_SCALE_BODY,
+                visible_message,
+                1),
+            HOME_MESSAGE_Y,
+            visible_message,
+            1,
             FG);
     }
 
+    const char *footer =
+        selected == 0
+            ? "A PLAY   DOWN MORE"
+            : "A OPEN   UP CONTINUE   LEFT RIGHT";
+
     flip_draw_text(
         drm,
         centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
+            footer,
             1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
+        HOME_FOOTER_Y,
+        footer,
         1,
         DIM);
 
-    flip_draw_text(
-        drm,
-        centred_text_x(
-            "UP DOWN   A OPEN",
-            UI_SCALE_HINT),
-        452,
-        "UP DOWN   A OPEN",
-        UI_SCALE_HINT,
-        DIM);
-
-    draw_battery_indicator(drm);
+    draw_battery_indicator(
+        drm);
 
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void draw_stats(
@@ -6383,11 +6623,8 @@ int main(void)
 
             if (screen == SCREEN_HOME) {
 
-                home_selected--;
-
-                if (home_selected < 0)
-                    home_selected =
-                        HOME_ITEM_COUNT - 1;
+                if (home_selected != 0)
+                    home_selected = 0;
 
             } else if (
                 screen ==
@@ -6498,11 +6735,8 @@ int main(void)
 
             if (screen == SCREEN_HOME) {
 
-                home_selected++;
-
-                if (home_selected >=
-                    HOME_ITEM_COUNT)
-                    home_selected = 0;
+                if (home_selected == 0)
+                    home_selected = 1;
 
             } else if (
                 screen ==
@@ -6657,6 +6891,39 @@ int main(void)
         if (screen == SCREEN_WIFI_PASSWORD &&
             x && !prev_x) {
             flip_keyboard_toggle_reveal(&wifi_keyboard);
+            redraw = 1;
+        }
+
+        if (screen == SCREEN_HOME &&
+            left && !prev_left) {
+
+            if (home_selected == 0) {
+                home_selected =
+                    HOME_ITEM_COUNT - 1;
+            } else {
+                home_selected--;
+
+                if (home_selected < 1)
+                    home_selected =
+                        HOME_ITEM_COUNT - 1;
+            }
+
+            redraw = 1;
+        }
+
+        if (screen == SCREEN_HOME &&
+            right && !prev_right) {
+
+            if (home_selected == 0) {
+                home_selected = 1;
+            } else {
+                home_selected++;
+
+                if (home_selected >=
+                    HOME_ITEM_COUNT)
+                    home_selected = 1;
+            }
+
             redraw = 1;
         }
 
@@ -7412,6 +7679,152 @@ int main(void)
 
                 if (home_selected == 0) {
 
+                    if (recent_count <= 0) {
+                        refresh_available_systems();
+
+                        if (system_selected >=
+                            available_system_count) {
+
+                            system_selected = 0;
+                        }
+
+                        screen =
+                            SCREEN_SYSTEMS;
+
+                        redraw = 1;
+
+                    } else {
+
+                        flip_draw_clear(
+                            &drm,
+                            BG);
+
+                        int can_resume =
+                            flip_system_resume_available(
+                                recent_roms[0].system,
+                                recent_roms[0].path);
+
+                        const char *launch_text =
+                            can_resume
+                                ? "RESUMING"
+                                : "LAUNCHING";
+
+                        flip_draw_text(
+                            &drm,
+                            centred_text_x(
+                                launch_text,
+                                UI_SCALE_SECTION),
+                            185,
+                            launch_text,
+                            UI_SCALE_SECTION,
+                            FG);
+
+                        char launch_name[64];
+                        fit_text_to_width(
+                            recent_roms[0].display,
+                            launch_name,
+                            sizeof(launch_name),
+                            560,
+                            UI_SCALE_BODY);
+
+                        flip_draw_text(
+                            &drm,
+                            centred_text_x(
+                                launch_name,
+                                UI_SCALE_BODY),
+                            230,
+                            launch_name,
+                            UI_SCALE_BODY,
+                            DIM);
+
+                        flip_drm_present(
+                            &drm);
+
+                        int home_game_result =
+                            launch_game(
+                                &drm,
+                                &recent_roms[0]);
+
+                        if (home_game_result < 0) {
+                            fprintf(
+                                stderr,
+                                "FRONTEND_HOME lifecycle failed\n");
+                            return 3;
+                        }
+
+                        if (home_game_result ==
+                            FLIP_SESSION_ACTION_LOW_BATTERY) {
+
+                            power_off_low_battery(
+                                &drm);
+                            break;
+                        }
+
+                        memset(
+                            &state,
+                            0,
+                            sizeof(state));
+
+                        flip_hotkeys_init(
+                            &global_hotkeys);
+
+                        prev_up = 0;
+                        prev_down = 0;
+                        prev_a = 0;
+                        prev_b = 0;
+                        prev_x = 0;
+                        prev_y = 0;
+                        prev_left = 0;
+                        prev_right = 0;
+                        prev_start = 0;
+
+                        poweroff_active = 0;
+
+                        load_recent_history();
+                        refresh_play_stats();
+
+                        if (home_game_result ==
+                            FLIP_SESSION_ACTION_SUSPEND) {
+
+                            recent_selected = 0;
+
+                            select_suspended_recent(
+                                &recent_selected);
+
+                            screen =
+                                SCREEN_RECENT;
+
+                            fprintf(
+                                stderr,
+                                "FRONTEND_GAMESWITCHER entered_from_home\n");
+
+                            draw_recent(
+                                &drm,
+                                game_system,
+                                recent_selected,
+                                0.0);
+
+                            continue;
+                        }
+
+                        screen =
+                            SCREEN_HOME;
+
+                        home_selected = 0;
+                        message[0] = '\0';
+
+                        draw_home(
+                            &drm,
+                            home_selected,
+                            message,
+                            0.0);
+
+                        continue;
+                    }
+
+                } else if (
+                    home_selected == 1) {
+
                     refresh_available_systems();
 
                     if (system_selected >=
@@ -7426,7 +7839,7 @@ int main(void)
                     redraw = 1;
 
                 } else if (
-                    home_selected == 1) {
+                    home_selected == 2) {
 
                     load_recent_history();
                     refresh_play_stats();
@@ -7437,7 +7850,7 @@ int main(void)
                     redraw = 1;
 
                 } else if (
-                    home_selected == 2) {
+                    home_selected == 3) {
 
                     refresh_play_stats();
 
@@ -7447,18 +7860,19 @@ int main(void)
                     redraw = 1;
 
                 } else if (
-                    home_selected == 3) {
+                    home_selected == 4) {
 
                     screen =
                         SCREEN_SETTINGS;
 
                     settings_selected = 0;
                     message[0] = '\0';
+
                     fprintf(
                         stderr,
                         "FRONTEND_SETTINGS entered\n");
-                    redraw = 1;
 
+                    redraw = 1;
                 }
 
             } else if (
