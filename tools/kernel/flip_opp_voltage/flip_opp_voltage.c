@@ -7,7 +7,10 @@
 #include <linux/pm_opp.h>
 
 #define FLIP_OPP_STEP_UV 12500UL
+
+#ifndef FLIP_OPP_SAFE_MIN_UV
 #define FLIP_OPP_SAFE_MIN_UV 812500UL
+#endif
 
 struct flip_opp_adjustment {
     bool active;
