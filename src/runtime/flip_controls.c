@@ -7,6 +7,7 @@
 
 #define FLIP_HOTKEY_REPEAT_INITIAL_MS 450ULL
 #define FLIP_HOTKEY_REPEAT_INTERVAL_MS 120ULL
+#define FLIP_MENU_GAMESWITCHER_HOLD_MS 700ULL
 
 static uint64_t monotonic_ms(void)
 {
@@ -126,16 +127,33 @@ int flip_controls_update(
     int r1_now =
         input->down[FLIP_BTN_R1];
 
+    int select_now =
+        input->down[FLIP_BTN_SELECT];
+
     int vol_up_now =
         input->down[FLIP_BTN_VOL_UP];
 
     int vol_down_now =
         input->down[FLIP_BTN_VOL_DOWN];
 
+    uint64_t now_ms = monotonic_ms();
+
     if (menu_now &&
         !controls->previous_menu) {
 
         controls->menu_pending = 1;
+        controls->menu_pressed_at_ms = now_ms;
+    }
+
+    /*
+     * MENU+SELECT is deliberately not a FlipOS chord. SELECT remains a game
+     * button and consuming the pending MENU action prevents either Quick Menu
+     * or GameSwitcher from firing when the two are pressed together.
+     */
+    if (menu_now &&
+        select_now) {
+
+        controls->menu_pending = 0;
     }
 
     if (menu_now &&
@@ -145,8 +163,6 @@ int flip_controls_update(
         state->system.fps_toggle_requested = 1;
         controls->menu_pending = 0;
     }
-
-    uint64_t now_ms = monotonic_ms();
 
     int vol_up_step =
         held_repeat_due(
@@ -200,11 +216,26 @@ int flip_controls_update(
         }
     }
 
+    /*
+     * MENU is the single in-game FlipOS key:
+     *   tap         -> Quick Menu
+     *   hold 700 ms -> GameSwitcher
+     */
+    if (menu_now &&
+        controls->menu_pending &&
+        now_ms >= controls->menu_pressed_at_ms &&
+        now_ms - controls->menu_pressed_at_ms >=
+            FLIP_MENU_GAMESWITCHER_HOLD_MS) {
+
+        state->system.gameswitcher_requested = 1;
+        controls->menu_pending = 0;
+    }
+
     if (!menu_now &&
         controls->previous_menu &&
         controls->menu_pending) {
 
-        state->system.gameswitcher_requested = 1;
+        state->system.quick_menu_requested = 1;
         controls->menu_pending = 0;
     }
 
@@ -212,6 +243,7 @@ int flip_controls_update(
         controls->previous_menu) {
 
         controls->menu_pending = 0;
+        controls->menu_pressed_at_ms = 0;
     }
 
     controls->previous_menu =
