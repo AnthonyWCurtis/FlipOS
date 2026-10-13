@@ -60,6 +60,11 @@ for label in (
 assert "QUICK_MENU_INNER_W" in body
 assert "selected ? 2 : 1" in body
 assert '"A SELECT   B OR MENU RESUME   LEFT RIGHT ADJUST"' in body
-assert 'row[x] =\n                (row[x] >> 2)' in body
+assert "quick_menu_restore_to_drm();" in body
+assert "(row[x] >> 2) &" in body
+assert "0x003f3f3f" in body
+assert "video_gpu_active" in body
+assert "video_overlay_pixels" in body
+assert "gpu_menu_submit_rect(" in body
 
 print("Quick Menu layout architecture tests passed")
