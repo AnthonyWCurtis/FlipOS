@@ -25,6 +25,7 @@ required='
 build/flip-frontend
 build/flip-gb
 build/flip-gba
+build/flip-gpu-service
 build/flip-charge-service
 build/umtprd
 build/flip-optimizer-supervisor
@@ -65,7 +66,7 @@ mkdir -p "$ROOT/.tmp_update" "$FLIP/bin" "$FLIP/lib" "$FLIP/etc"     "$FLIP/lice
 cp "$ROOT_DIR/tools/device/updater-playtest" "$ROOT/.tmp_update/updater"
 cp "$ROOT_DIR/tools/device/updater-playtest" "$FLIP/updater-playtest"
 
-for name in     flip-frontend flip-gb flip-gba flip-charge-service umtprd     flip-optimizer-supervisor flip-optimizer-deadman flip-optimizer-guard     flip-optimizer-calibration flip-optimizer-candidate flip-optimizer-session     flip-optimizer-progress flip-optimizer-validation-progress flip-optimizer-runtime; do
+for name in     flip-frontend flip-gb flip-gba flip-gpu-service flip-charge-service umtprd     flip-optimizer-supervisor flip-optimizer-deadman flip-optimizer-guard     flip-optimizer-calibration flip-optimizer-candidate flip-optimizer-session     flip-optimizer-progress flip-optimizer-validation-progress flip-optimizer-runtime; do
     cp "$ROOT_DIR/build/$name" "$FLIP/bin/$name"
 done
 
