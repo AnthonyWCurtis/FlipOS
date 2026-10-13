@@ -31,10 +31,9 @@ settings_menu = source[
     source.index("static void draw_settings_menu("):
     source.index("static void draw_settings(")
 ]
-settings = source[
-    source.index("static void draw_settings("):
-    source.index("static const char *bios_status_text(")
-]
+settings_start = source.index("static void draw_settings(")
+settings_end = source.index("\nstatic ", settings_start + 20)
+settings = source[settings_start:settings_end]
 
 for block in (settings_menu, settings):
     assert "SETTINGS_MARGIN_X" in block
