@@ -18,6 +18,10 @@
 #define REGULATOR_ROOT "/sys/class/regulator"
 #define CPU_OPP_ROOT "/sys/kernel/debug/opp/cpu0"
 
+#ifndef FLIP_OPTIMIZER_EXPERIMENTAL_BUILD
+#define FLIP_OPTIMIZER_EXPERIMENTAL_BUILD 0
+#endif
+
 #define SNAPSHOT_MARKER \
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/rollback-snapshot"
 #define SNAPSHOT_CALIBRATION \
@@ -339,9 +343,9 @@ static int probe(
      * silicon calibration floor.
      */
     if (*floor_uv <
-        FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV)
+        FLIP_OPTIMIZER_CALIBRATION_RK3566_FLOOR_UV)
         *floor_uv =
-            FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV;
+            FLIP_OPTIMIZER_CALIBRATION_RK3566_FLOOR_UV;
 
     if (read_cpu_opps(
             *floor_uv,
@@ -626,6 +630,84 @@ static int make_live_calibration(
         calibration,
         FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ);
 }
+
+#if FLIP_OPTIMIZER_EXPERIMENTAL_BUILD
+static int make_first_experimental_calibration(
+    flip_optimizer_calibration_t *experimental)
+{
+    if (!experimental)
+        return -1;
+
+    flip_optimizer_calibration_t production;
+
+    if (flip_optimizer_calibration_load_file(
+            &production,
+            FLIP_OPTIMIZER_PRODUCTION_CALIBRATION_FILE) < 0 ||
+        !flip_optimizer_calibration_is_complete(
+            &production) ||
+        make_live_calibration(experimental) < 0)
+        return -1;
+
+    if (strcmp(production.device_id, experimental->device_id) != 0 ||
+        strcmp(production.model, experimental->model) != 0 ||
+        production.opp_count != experimental->opp_count)
+        return -1;
+
+    int armed_408 = 0;
+
+    for (size_t i = 0; i < experimental->opp_count; ++i) {
+        const flip_optimizer_calibration_opp_t *source =
+            &production.opps[i];
+        flip_optimizer_calibration_opp_t *target =
+            &experimental->opps[i];
+
+        if (source->frequency_khz != target->frequency_khz ||
+            source->stock_uv != target->stock_uv ||
+            !source->complete ||
+            !source->raw_final_uv)
+            return -1;
+
+        target->lowest_stable_uv = source->lowest_stable_uv;
+        target->highest_unstable_uv = source->highest_unstable_uv;
+        target->tests_run = source->tests_run;
+
+        if (target->frequency_khz == 408000U) {
+            if (source->lowest_stable_uv !=
+                    FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV ||
+                source->highest_unstable_uv != 0 ||
+                target->floor_uv > 800000U)
+                return -1;
+
+            target->highest_unstable_uv = 0;
+            target->raw_final_uv = 0;
+            target->tests_run = 0;
+            target->complete = 0;
+            armed_408 = 1;
+        } else {
+            target->raw_final_uv = source->raw_final_uv;
+            target->complete = 1;
+        }
+    }
+
+    if (!armed_408 ||
+        flip_optimizer_calibration_validate(experimental) < 0)
+        return -1;
+
+    flip_optimizer_calibration_t preview = *experimental;
+    size_t preview_index = 0;
+    unsigned preview_uv = 0;
+
+    if (flip_optimizer_calibration_prepare_next(
+            &preview,
+            &preview_index,
+            &preview_uv) != 1 ||
+        preview.opps[preview_index].frequency_khz != 408000U ||
+        preview_uv != 800000U)
+        return -1;
+
+    return 0;
+}
+#endif
 
 static int print_status(void)
 {
@@ -1114,6 +1196,23 @@ int main(int argc, char **argv)
         print_plan(&calibration);
         return EXIT_SUCCESS;
     }
+
+#if FLIP_OPTIMIZER_EXPERIMENTAL_BUILD
+    if (strcmp(argv[1], "init-experimental-first") == 0) {
+        flip_optimizer_calibration_t calibration;
+
+        if (make_first_experimental_calibration(&calibration) < 0 ||
+            flip_optimizer_calibration_save(&calibration) < 0)
+            return EXIT_FAILURE;
+
+        print_plan(&calibration);
+        printf("experimental=1\n");
+        printf("first_frequency_khz=408000\n");
+        printf("first_candidate_uv=800000\n");
+        printf("state=%s\n", FLIP_OPTIMIZER_CALIBRATION_FILE);
+        return EXIT_SUCCESS;
+    }
+#endif
 
     if (strcmp(argv[1], "init") == 0) {
         flip_optimizer_calibration_t calibration;
