@@ -62,8 +62,6 @@ typedef struct {
 typedef struct {
     int previous_menu;
     int previous_r1;
-    int previous_start;
-    int previous_select;
     int previous_vol_up;
     int previous_vol_down;
     uint64_t vol_up_repeat_at_ms;

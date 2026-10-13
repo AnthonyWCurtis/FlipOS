@@ -126,12 +126,6 @@ int flip_controls_update(
     int r1_now =
         input->down[FLIP_BTN_R1];
 
-    int start_now =
-        input->down[FLIP_BTN_START];
-
-    int select_now =
-        input->down[FLIP_BTN_SELECT];
-
     int vol_up_now =
         input->down[FLIP_BTN_VOL_UP];
 
@@ -186,20 +180,6 @@ int flip_controls_update(
         }
     }
 
-    int exit_now =
-        start_now &&
-        select_now;
-
-    int exit_before =
-        controls->previous_start &&
-        controls->previous_select;
-
-    if (exit_now &&
-        !exit_before) {
-
-        state->system.exit_requested = 1;
-    }
-
     state->system.lid_ready =
         input->lid_ready;
 
@@ -239,12 +219,6 @@ int flip_controls_update(
 
     controls->previous_r1 =
         r1_now;
-
-    controls->previous_start =
-        start_now;
-
-    controls->previous_select =
-        select_now;
 
     controls->previous_vol_up =
         vol_up_now;

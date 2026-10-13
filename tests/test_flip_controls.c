@@ -124,6 +124,10 @@ int main(void)
 
     assert(out.system.gameswitcher_requested == 0);
 
+    /*
+     * START+SELECT belongs to the game now. It is no longer a global
+     * FlipOS exit chord; Quick Menu owns deliberate game-exit UX.
+     */
     clear_input(
         &input);
 
@@ -131,12 +135,6 @@ int main(void)
         &controls);
 
     input.down[FLIP_BTN_START] = 1;
-
-    update(
-        &controls,
-        &input,
-        &out);
-
     input.down[FLIP_BTN_SELECT] = 1;
 
     update(
@@ -144,13 +142,8 @@ int main(void)
         &input,
         &out);
 
-    assert(out.system.exit_requested == 1);
-
-    update(
-        &controls,
-        &input,
-        &out);
-
+    assert(out.game.down[FLIP_GAME_START] == 1);
+    assert(out.game.down[FLIP_GAME_SELECT] == 1);
     assert(out.system.exit_requested == 0);
 
     clear_input(
