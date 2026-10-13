@@ -46,5 +46,39 @@ jobs:
       - name: Build frontend and game hosts
         run: make frontend gb gba
 
+      - name: Build release userspace
+        run: |
+          make \
+            charge-service mtp-responder \
+            optimizer-supervisor-tool \
+            optimizer-deadman-tool \
+            optimizer-guard-tool \
+            optimizer-calibration-tool \
+            optimizer-candidate-tool \
+            optimizer-session-tool \
+            optimizer-progress-tool \
+            optimizer-validation-progress-tool \
+            optimizer-runtime-tool
+
+      - name: Restore unchanged Beta 4 modules for package dry run
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/flipos-beta4 build
+          curl -fL --retry 3 \
+            "https://github.com/AnthonyWCurtis/FlipOS/releases/download/v0.1.0-beta.4/FlipOS-Update.tar.gz" \
+            -o /tmp/flipos-beta4/update.tar.gz
+          tar -xzf /tmp/flipos-beta4/update.tar.gz -C /tmp/flipos-beta4
+          cp /tmp/flipos-beta4/FlipOSUpdate/payload/lib/*.ko build/
+
+      - name: Dry-run Beta 5 packaging
+        run: |
+          set -euo pipefail
+          make test-release-package
+          rm -rf dist-ci
+          tools/update/build-release-package 0.1.0-beta.5 dist-ci
+          tools/update/build-beta-install-bundle 0.1.0-beta.5 dist-ci
+          test -s dist-ci/FlipOS-Update.tar.gz
+          test -s dist-ci/FlipOS-Fresh_Install.zip
+
       - name: Diff whitespace check
         run: git diff --check
