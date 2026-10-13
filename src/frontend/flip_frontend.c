@@ -274,6 +274,14 @@ static const char *home_items[] = {
 #define DETAILS_ROW_H              38
 #define DETAILS_FOOTER_Y          458
 
+/* Settings family: fixed full-width cards inside the shared 24 px safe frame. */
+#define SETTINGS_MARGIN_X          24
+#define SETTINGS_CONTENT_W        592
+#define SETTINGS_LIST_Y            86
+#define SETTINGS_ROW_H             68
+#define SETTINGS_ROW_GAP            8
+#define SETTINGS_FOOTER_Y         458
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -3131,88 +3139,181 @@ static void draw_settings_menu(
     int show_battery_mode,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
+
+    char header[64];
+
+    fit_text_to_width(
+        title,
+        header,
+        sizeof(header),
+        360,
+        UI_SCALE_BODY);
 
     flip_draw_text(
         drm,
-        centred_text_x(title, UI_SCALE_TITLE),
-        28,
-        title,
-        UI_SCALE_TITLE,
+        centred_text_x(
+            header,
+            UI_SCALE_BODY),
+        14,
+        header,
+        UI_SCALE_BODY,
         FG);
 
-    for (int i = 0; i < item_count; ++i) {
-        int y = 145 + i * 72;
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "SETTINGS",
+            1),
+        44,
+        "SETTINGS",
+        1,
+        DIM);
 
-        if (i == selected) {
-            /*
-             * Interface rows can carry a second status line (for example
-             * BATTERY INDICATOR + ICON/PERCENTAGE mode). Give those rows
-             * enough vertical room so the status text stays inside the
-             * selection card at the larger Beta UI scale.
-             */
-            int selection_height =
-                (show_battery_mode && i == 0) ? 72 : 54;
-            flip_draw_rect(
-                drm, 115, y - 12, 410, selection_height, PANEL);
-            flip_draw_rect_outline(
-                drm, 115, y - 12, 410, selection_height, 2, FG);
+    for (int i = 0;
+         i < item_count;
+         ++i) {
+
+        int y =
+            SETTINGS_LIST_Y +
+            i *
+                (SETTINGS_ROW_H +
+                 SETTINGS_ROW_GAP);
+
+        int active =
+            i == selected;
+
+        flip_draw_rect(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        int scale =
+            UI_SCALE_SECTION;
+
+        if (ui_text_width_px(
+                items[i],
+                scale) >
+            SETTINGS_CONTENT_W - 48) {
+
+            scale =
+                UI_SCALE_BODY;
         }
 
-        int scale = strlen(items[i]) > 16 ? UI_SCALE_BODY : UI_SCALE_SECTION;
+        char visible[96];
+
+        fit_text_to_width(
+            items[i],
+            visible,
+            sizeof(visible),
+            SETTINGS_CONTENT_W - 48,
+            scale);
+
+        int text_y =
+            show_battery_mode &&
+            i == 0
+                ? y + 12
+                : y + 23;
+
         flip_draw_text(
             drm,
-            centred_text_x(items[i], scale),
-            y,
-            items[i],
+            centred_text_x_in_rect(
+                visible,
+                scale,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            text_y,
+            visible,
             scale,
-            i == selected ? FG : DIM);
+            active
+                ? FG
+                : DIM);
 
-        if (show_battery_mode && i == 0) {
+        if (show_battery_mode &&
+            i == 0) {
+
             const char *mode =
                 flip_settings_get_battery_percent_visible()
                     ? "ICON + PERCENTAGE"
                     : "ICON ONLY";
+
             flip_draw_text(
                 drm,
-                centred_text_x(mode, UI_SCALE_META),
-                y + 30,
+                centred_text_x_in_rect(
+                    mode,
+                    1,
+                    SETTINGS_MARGIN_X,
+                    SETTINGS_CONTENT_W),
+                y + 48,
                 mode,
-                UI_SCALE_META,
-                i == selected ? FG : DIM);
+                1,
+                active
+                    ? FG
+                    : DIM);
         }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("A SELECT   B BACK", UI_SCALE_HINT),
-        UI_FOOTER_Y,
+        centred_text_x(
+            "A SELECT   B BACK",
+            1),
+        SETTINGS_FOOTER_Y,
         "A SELECT   B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_settings(
     flip_drm_t *drm,
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("SETTINGS", UI_SCALE_TITLE),
-        28,
+        centred_text_x(
+            "SETTINGS",
+            UI_SCALE_BODY),
+        14,
         "SETTINGS",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     char quick_status[96];
+
     snprintf(
         quick_status,
         sizeof(quick_status),
@@ -3220,41 +3321,116 @@ static void draw_settings(
         flip_settings_get_volume(),
         flip_power_brightness_to_percent(
             flip_settings_get_brightness()));
+
+    char status_visible[96];
+
+    fit_text_to_width(
+        quick_status,
+        status_visible,
+        sizeof(status_visible),
+        SETTINGS_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
-        centred_text_x(quick_status, UI_SCALE_META),
-        90,
-        quick_status,
-        UI_SCALE_META,
+        centred_text_x(
+            status_visible,
+            1),
+        44,
+        status_visible,
+        1,
         DIM);
 
-    for (int i = 0; i < SETTINGS_ITEM_COUNT; ++i) {
-        int y = 145 + i * 72;
-        if (i == selected) {
-            flip_draw_rect(drm, 115, y - 12, 410, 54, PANEL);
-            flip_draw_rect_outline(drm, 115, y - 12, 410, 54, 2, FG);
-        }
+    static const char *descriptions[] = {
+        "WI-FI AND NETWORK",
+        "DEVICE, UPDATE, TIME AND BIOS",
+        "DISPLAY AND INTERFACE"
+    };
+
+    for (int i = 0;
+         i < SETTINGS_ITEM_COUNT;
+         ++i) {
+
+        int y =
+            SETTINGS_LIST_Y +
+            i *
+                (SETTINGS_ROW_H +
+                 SETTINGS_ROW_GAP);
+
+        int active =
+            i == selected;
+
+        flip_draw_rect(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(settings_items[i], UI_SCALE_SECTION),
-            y,
+            SETTINGS_MARGIN_X + 18,
+            y + 12,
             settings_items[i],
             UI_SCALE_SECTION,
-            i == selected ? FG : DIM);
+            active
+                ? FG
+                : DIM);
+
+        flip_draw_text(
+            drm,
+            SETTINGS_MARGIN_X + 20,
+            y + 47,
+            descriptions[i],
+            1,
+            DIM);
+
+        if (active) {
+            flip_draw_text(
+                drm,
+                SETTINGS_MARGIN_X +
+                    SETTINGS_CONTENT_W -
+                    54,
+                y + 28,
+                "OPEN",
+                1,
+                FG);
+        }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("A OPEN   B BACK", UI_SCALE_HINT),
-        UI_FOOTER_Y,
+        centred_text_x(
+            "A OPEN   B BACK",
+            1),
+        SETTINGS_FOOTER_Y,
         "A OPEN   B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 
