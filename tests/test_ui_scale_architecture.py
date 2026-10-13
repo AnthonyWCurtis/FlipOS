@@ -148,9 +148,16 @@ assert "92 + row * 44" in games
 recent_start = source.index("static void draw_recent(")
 recent_end = source.index("\nstatic int launch_game_once(", recent_start)
 recent = source[recent_start:recent_end]
-assert "visible,\n                UI_SCALE_SECTION" in recent
-assert "status,\n                    UI_SCALE_META" in recent
-assert "92 + row * 44" in recent
+
+# GameSwitcher is now a hero + three-card console surface rather than the old
+# seven-row utility list. It still has to use the shared typography scales and
+# measured text fitting so titles cannot escape their fixed card geometry.
+assert "UI_SCALE_SECTION" in recent
+assert "UI_SCALE_BODY" in recent
+assert "fit_text_to_width(" in recent
+assert "ui_text_width_px(" in recent
+assert "SWITCHER_HERO_W" in recent
+assert "SWITCHER_CARD_W" in recent
 
 
 # Top-left status: normal state shows VERSION; a validated newer package swaps
