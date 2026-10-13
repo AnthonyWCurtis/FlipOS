@@ -13,7 +13,8 @@ assert '"VOLUME %d%%   BRIGHTNESS %d%%"' in SOURCE
 assert '? "PAUSED"' in SOURCE
 assert 'centred_text_x("LAUNCHING", 3)' in SOURCE
 
-assert '"HOLD MENU + SELECT TO POWER OFF"' in SOURCE
+assert '"HOLD MENU + SELECT TO POWER OFF"' not in SOURCE
+assert "POWEROFF_HOLD_SECONDS" not in SOURCE
 assert '"YOUR GAMES. YOUR TIME."' in SOURCE
 assert '"LAST PLAYED"' in SOURCE
 assert '"PLAY STATS"' in SOURCE
