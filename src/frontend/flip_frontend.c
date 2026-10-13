@@ -10177,14 +10177,10 @@ int main(void)
                 if (optimizer_run_tool(
                         OPTIMIZER_EXPERIMENTAL_CALIBRATION_TOOL,
                         "init-experimental-first",
-                        NULL) < 0 ||
-                    optimizer_run_tool(
-                        OPTIMIZER_EXPERIMENTAL_CALIBRATION_TOOL,
-                        "prepare",
                         NULL) < 0) {
 
                     flip_osd_show_status(
-                        "EXPERIMENTAL PREPARE FAILED");
+                        "EXPERIMENTAL INIT FAILED");
                     redraw = 1;
                 } else if (
                     optimizer_write_simple_marker(
