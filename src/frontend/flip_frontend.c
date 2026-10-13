@@ -406,6 +406,9 @@ static const char *optimizer_validation_labels[] = {
 
 static int optimizer_validation_selecting = 0;
 static int optimizer_validation_duration_index = 1;
+#if FLIPOS_DEVELOPER_BUILD
+static int optimizer_experimental_confirm = 0;
+#endif
 
 #define OPTIMIZER_ACTION_COUNT \
     ((int)(sizeof(optimizer_actions) / sizeof(optimizer_actions[0])))
@@ -428,6 +431,14 @@ static int optimizer_validation_duration_index = 1;
     FLIP_STATE_DATA_ROOT "/optimizer/validation-return"
 #define OPTIMIZER_RUNTIME_QUARANTINE_PATH \
     FLIP_STATE_DATA_ROOT "/optimizer/runtime-profile-quarantined"
+#if FLIPOS_DEVELOPER_BUILD
+#define OPTIMIZER_EXPERIMENTAL_CALIBRATION_TOOL \
+    FLIP_BIN_ROOT "/flip-optimizer-calibration-experimental"
+#define OPTIMIZER_EXPERIMENTAL_REQUEST_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/experimental-trial-request"
+#define OPTIMIZER_EXPERIMENTAL_RETURN_PATH \
+    FLIP_STATE_DATA_ROOT "/optimizer/experimental-return"
+#endif
 
 static void stop_handler(int sig)
 {
@@ -1473,6 +1484,10 @@ static const char *screen_name(screen_t screen)
     case SCREEN_UPDATE: return "UPDATE";
     case SCREEN_OPTIMIZER: return "OPTIMIZER";
     case SCREEN_OPTIMIZER_RESULTS: return "OPTIMIZER_RESULTS";
+#if FLIPOS_DEVELOPER_BUILD
+    case SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING:
+        return "OPTIMIZER_EXPERIMENTAL";
+#endif
     case SCREEN_POWER: return "POWER";
     default: return "UNKNOWN";
     }
@@ -5629,27 +5644,42 @@ static void draw_optimizer_experimental_warning(
         1,
         DIM);
 
+    const char *gate_text =
+        optimizer_experimental_confirm
+            ? "RUN 408MHZ @ 800MV?"
+            : "GATE 1: UNLOCK VERIFIED";
+
+    const char *detail_text =
+        optimizer_experimental_confirm
+            ? "WATCHDOG + PANIC + TSADC RECOVERY ARMED"
+            : "FIRST TRIAL: 408MHZ @ 800MV ONLY";
+
+    const char *footer_text =
+        optimizer_experimental_confirm
+            ? "A CONFIRM   B CANCEL"
+            : "A ARM FIRST TRIAL   B BACK";
+
     flip_draw_text(
         drm,
-        centred_text_x("GATE 1: UNLOCK VERIFIED", UI_SCALE_BODY),
+        centred_text_x(gate_text, UI_SCALE_BODY),
         278,
-        "GATE 1: UNLOCK VERIFIED",
+        gate_text,
         UI_SCALE_BODY,
         FG);
 
     flip_draw_text(
         drm,
-        centred_text_x("NO BELOW-SPEC VOLTAGE IS ARMED YET", 1),
+        centred_text_x(detail_text, 1),
         326,
-        "NO BELOW-SPEC VOLTAGE IS ARMED YET",
+        detail_text,
         1,
         DIM);
 
     flip_draw_text(
         drm,
-        centred_text_x("B BACK", UI_SCALE_HINT),
+        centred_text_x(footer_text, UI_SCALE_HINT),
         OPT_UI_FOOTER_Y,
-        "B BACK",
+        footer_text,
         UI_SCALE_HINT,
         DIM);
 
@@ -8823,6 +8853,19 @@ int main(void)
         (void)flip_setup_begin();
         screen = SCREEN_FIRST_BOOT_WELCOME;
         draw_first_boot(&drm, screen, 0.0);
+#if FLIPOS_DEVELOPER_BUILD
+    } else if (access(
+            OPTIMIZER_EXPERIMENTAL_RETURN_PATH,
+            F_OK) == 0) {
+        screen =
+            SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING;
+        (void)unlink(
+            OPTIMIZER_EXPERIMENTAL_RETURN_PATH);
+        optimizer_experimental_confirm = 0;
+        draw_optimizer_experimental_warning(
+            &drm,
+            0.0);
+#endif
     } else if (access(
             OPTIMIZER_VALIDATION_RETURN_PATH,
             F_OK) == 0) {
@@ -9958,10 +10001,14 @@ int main(void)
                 screen ==
                     SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING) {
 
-                screen = SCREEN_OPTIMIZER;
-                optimizer_message[0] = '\0';
-                optimizer_experimental_hold_started = 0.0;
-                optimizer_experimental_hold_fired = 0;
+                if (optimizer_experimental_confirm) {
+                    optimizer_experimental_confirm = 0;
+                } else {
+                    screen = SCREEN_OPTIMIZER;
+                    optimizer_message[0] = '\0';
+                    optimizer_experimental_hold_started = 0.0;
+                    optimizer_experimental_hold_fired = 0;
+                }
                 redraw = 1;
 #endif
 
@@ -10092,6 +10139,83 @@ int main(void)
                 redraw = 1;
             }
         }
+
+#if FLIPOS_DEVELOPER_BUILD
+        if (screen ==
+                SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING &&
+            a &&
+            !prev_a) {
+
+            confirm_handled = 1;
+
+            if (!optimizer_experimental_confirm) {
+                flip_optimizer_result_t production;
+                optimizer_validation_result_t validation;
+
+                if (!optimizer_result_load(&production) ||
+                    !optimizer_validation_load(
+                        &production,
+                        &validation) ||
+                    strcmp(validation.status, "passed") != 0) {
+
+                    flip_osd_show_status(
+                        "VERIFY PRODUCTION PROFILE FIRST");
+                } else if (
+                    !optimizer_external_power_online() ||
+                    optimizer_battery_percent() < 30) {
+
+                    flip_osd_show_status(
+                        "CONNECT CHARGER - BATTERY 30%+");
+                } else {
+                    optimizer_experimental_confirm = 1;
+                }
+
+                redraw = 1;
+            } else {
+                optimizer_experimental_confirm = 0;
+
+                if (optimizer_run_tool(
+                        OPTIMIZER_EXPERIMENTAL_CALIBRATION_TOOL,
+                        "init-experimental-first",
+                        NULL) < 0 ||
+                    optimizer_run_tool(
+                        OPTIMIZER_EXPERIMENTAL_CALIBRATION_TOOL,
+                        "prepare",
+                        NULL) < 0) {
+
+                    flip_osd_show_status(
+                        "EXPERIMENTAL PREPARE FAILED");
+                    redraw = 1;
+                } else if (
+                    optimizer_write_simple_marker(
+                        OPTIMIZER_EXPERIMENTAL_REQUEST_PATH,
+                        "frequency_khz=408000\ncandidate_uv=800000") < 0 ||
+                    optimizer_write_simple_marker(
+                        OPTIMIZER_EXPERIMENTAL_RETURN_PATH,
+                        "return_to_experimental=1") < 0) {
+
+                    (void)optimizer_run_tool(
+                        OPTIMIZER_EXPERIMENTAL_CALIBRATION_TOOL,
+                        "cancel-unapplied",
+                        NULL);
+                    (void)unlink(
+                        OPTIMIZER_EXPERIMENTAL_REQUEST_PATH);
+                    (void)unlink(
+                        OPTIMIZER_EXPERIMENTAL_RETURN_PATH);
+                    flip_osd_show_status(
+                        "EXPERIMENTAL REQUEST FAILED");
+                    redraw = 1;
+                } else {
+                    fprintf(
+                        stderr,
+                        "FRONTEND_OPTIMIZER experimental first trial requested 408000KHz 800000uV\n");
+                    fflush(stderr);
+                    sync();
+                    reboot(RB_AUTOBOOT);
+                }
+            }
+        }
+#endif
 
         if (screen == SCREEN_OPTIMIZER &&
             optimizer_confirm != 0 &&
