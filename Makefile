@@ -4,7 +4,8 @@ CC  := $(CROSS)gcc
 CXX := $(CROSS)g++
 HOSTCC ?= gcc
 
-CPPFLAGS := -Iinclude
+DEVELOPER_BUILD ?= 0
+CPPFLAGS := -Iinclude -DFLIPOS_DEVELOPER_BUILD=$(DEVELOPER_BUILD)
 CFLAGS   := -O2 -Wall -Wextra -MMD -MP
 CXXFLAGS := -O2 -Wall -Wextra -MMD -MP
 TELEMETRY_WARN := -Wno-format-truncation

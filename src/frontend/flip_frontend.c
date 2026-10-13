@@ -47,6 +47,12 @@
 #define MAX_ROMS 256
 #define ROWS_VISIBLE 7
 
+#ifndef FLIPOS_DEVELOPER_BUILD
+#define FLIPOS_DEVELOPER_BUILD 0
+#endif
+
+#define OPTIMIZER_EXPERIMENTAL_HOLD_SECONDS 4.0
+
 /*
  * Shared 640x480 typography scale.
  * Keep onboarding, menus and tools visually consistent at handheld distance.
@@ -93,6 +99,7 @@ typedef enum {
     SCREEN_UPDATE,
     SCREEN_OPTIMIZER,
     SCREEN_OPTIMIZER_RESULTS,
+    SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING,
     SCREEN_POWER
 } screen_t;
 
@@ -5566,6 +5573,93 @@ static void draw_optimizer(
         drm);
 }
 
+#if FLIPOS_DEVELOPER_BUILD
+static void draw_optimizer_experimental_warning(
+    flip_drm_t *drm,
+    double poweroff_progress)
+{
+    flip_draw_clear(drm, BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("EXPERIMENTAL CPU UV", UI_SCALE_BODY),
+        18,
+        "EXPERIMENTAL CPU UV",
+        UI_SCALE_BODY,
+        FG);
+
+    flip_draw_rect(
+        drm,
+        OPT_UI_MARGIN_X,
+        92,
+        OPT_UI_CONTENT_W,
+        286,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        OPT_UI_MARGIN_X,
+        92,
+        OPT_UI_CONTENT_W,
+        286,
+        2,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("BELOW ROCKCHIP SPEC", UI_SCALE_SECTION),
+        126,
+        "BELOW ROCKCHIP SPEC",
+        UI_SCALE_SECTION,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("DEVELOPMENT TEST ONLY", UI_SCALE_BODY),
+        178,
+        "DEVELOPMENT TEST ONLY",
+        UI_SCALE_BODY,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("PRODUCTION PROFILE IS KEPT SEPARATE", 1),
+        236,
+        "PRODUCTION PROFILE IS KEPT SEPARATE",
+        1,
+        DIM);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("GATE 1: UNLOCK VERIFIED", UI_SCALE_BODY),
+        278,
+        "GATE 1: UNLOCK VERIFIED",
+        UI_SCALE_BODY,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("NO BELOW-SPEC VOLTAGE IS ARMED YET", 1),
+        326,
+        "NO BELOW-SPEC VOLTAGE IS ARMED YET",
+        1,
+        DIM);
+
+    flip_draw_text(
+        drm,
+        centred_text_x("B BACK", UI_SCALE_HINT),
+        OPT_UI_FOOTER_Y,
+        "B BACK",
+        UI_SCALE_HINT,
+        DIM);
+
+    draw_battery_indicator(drm);
+    flip_osd_set_poweroff_progress(poweroff_progress);
+    flip_osd_draw(drm);
+    flip_drm_present(drm);
+}
+#endif
+
 static void refresh_play_stats(void)
 {
     memset(
@@ -8626,6 +8720,11 @@ int main(void)
     int prev_right = 0;
     int prev_start = 0;
 
+#if FLIPOS_DEVELOPER_BUILD
+    double optimizer_experimental_hold_started = 0.0;
+    int optimizer_experimental_hold_fired = 0;
+#endif
+
     flip_hotkeys_t global_hotkeys;
     flip_controls_t frontend_controls;
 
@@ -8972,6 +9071,16 @@ int main(void)
 
                     draw_optimizer_results(&drm, 0.0);
 
+#if FLIPOS_DEVELOPER_BUILD
+                } else if (
+                    screen ==
+                        SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING) {
+
+                    draw_optimizer_experimental_warning(
+                        &drm,
+                        0.0);
+#endif
+
                 } else {
 
                     draw_optimizer(
@@ -9027,6 +9136,20 @@ int main(void)
             state.down[
                 FLIP_BTN_START];
 
+#if FLIPOS_DEVELOPER_BUILD
+        int select =
+            state.down[
+                FLIP_BTN_SELECT];
+
+        int l2 =
+            state.down[
+                FLIP_BTN_L2];
+
+        int r2 =
+            state.down[
+                FLIP_BTN_R2];
+#endif
+
         /*
          * FlipOS-global hardware shortcuts.
          *
@@ -9051,6 +9174,45 @@ int main(void)
         }
 
         int redraw = 0;
+
+#if FLIPOS_DEVELOPER_BUILD
+        int experimental_chord =
+            screen == SCREEN_OPTIMIZER &&
+            optimizer_confirm == 0 &&
+            !optimizer_validation_selecting &&
+            l2 && r2 && start && select;
+
+        if (experimental_chord) {
+            double now = monotonic_seconds();
+
+            if (optimizer_experimental_hold_started <= 0.0) {
+                optimizer_experimental_hold_started = now;
+                optimizer_experimental_hold_fired = 0;
+            } else if (
+                !optimizer_experimental_hold_fired &&
+                now - optimizer_experimental_hold_started >=
+                    OPTIMIZER_EXPERIMENTAL_HOLD_SECONDS) {
+
+                optimizer_experimental_hold_fired = 1;
+                screen =
+                    SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING;
+
+                snprintf(
+                    optimizer_message,
+                    sizeof(optimizer_message),
+                    "EXPERIMENTAL UV UNLOCKED");
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_OPTIMIZER experimental unlock chord accepted\n");
+
+                redraw = 1;
+            }
+        } else {
+            optimizer_experimental_hold_started = 0.0;
+            optimizer_experimental_hold_fired = 0;
+        }
+#endif
 
         flip_controls_state_t frontend_control_state;
 
@@ -9790,6 +9952,18 @@ int main(void)
                 screen = SCREEN_OPTIMIZER;
                 optimizer_message[0] = '\0';
                 redraw = 1;
+
+#if FLIPOS_DEVELOPER_BUILD
+            } else if (
+                screen ==
+                    SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING) {
+
+                screen = SCREEN_OPTIMIZER;
+                optimizer_message[0] = '\0';
+                optimizer_experimental_hold_started = 0.0;
+                optimizer_experimental_hold_fired = 0;
+                redraw = 1;
+#endif
 
             } else if (
                 screen ==
@@ -11295,6 +11469,16 @@ int main(void)
                 screen == SCREEN_OPTIMIZER_RESULTS) {
 
                 draw_optimizer_results(&drm, 0.0);
+
+#if FLIPOS_DEVELOPER_BUILD
+            } else if (
+                screen ==
+                    SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING) {
+
+                draw_optimizer_experimental_warning(
+                    &drm,
+                    0.0);
+#endif
 
             } else {
 
