@@ -98,6 +98,8 @@ int flip_cpu_dynamic_sample(
     double measured_fps,
     double target_fps,
     uint64_t host_avg_us,
+    uint64_t late_max_us,
+    uint64_t timing_resyncs,
     uint64_t audio_dropped_frames)
 {
     if (!controller)
@@ -146,12 +148,29 @@ int flip_cpu_dynamic_sample(
         host_avg_us > 0 &&
         (double)host_avg_us >= frame_budget_us * 0.95;
 
+    /*
+     * A one-second FPS average can hide a short run of visibly late frames.
+     * Treat a worst-frame miss of 30% of the frame budget as pressure, but
+     * require the normal two-window hysteresis before raising. A timing
+     * resync means we missed by more than a full frame and is severe enough
+     * to raise immediately.
+     */
+    int late_burst_bad =
+        late_max_us > 0 &&
+        (double)late_max_us >=
+            frame_budget_us * 0.30;
+
+    int timing_resync_bad =
+        timing_resyncs > 0;
+
     int audio_bad =
         audio_dropped_frames > 0;
 
     int bad =
         fps_bad ||
         host_pressure ||
+        late_burst_bad ||
+        timing_resync_bad ||
         audio_bad;
 
     if (bad) {
@@ -166,6 +185,7 @@ int flip_cpu_dynamic_sample(
         controller->current_index < controller->allowed_index &&
         (severe_fps_bad ||
          audio_bad ||
+         timing_resync_bad ||
          (controller->cooldown_windows == 0 &&
           controller->bad_windows >= FLIP_CPU_DYNAMIC_BAD_WINDOWS_TO_RAISE));
 
