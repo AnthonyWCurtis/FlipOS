@@ -21,7 +21,7 @@ PACKAGE="$WORK/FlipOSUpdate"
 PAYLOAD="$PACKAGE/payload"
 ARCHIVE="$OUT_DIR/FlipOS-Update.tar.gz"
 
-required='build/flip-frontend build/flip-gb build/flip-gba build/flip-charge-service build/umtprd build/flip-optimizer-supervisor build/flip-optimizer-deadman build/flip-optimizer-guard build/flip-optimizer-calibration build/flip-optimizer-candidate build/flip-optimizer-session build/flip-optimizer-progress build/flip-optimizer-validation-progress build/flip-optimizer-runtime tools/device/flip-usb-mtp tools/device/umtprd.conf tools/update/flip-update-install tools/update/flip-update-fetch tools/device/updater-playtest'
+required='build/flip-frontend build/flip-gb build/flip-gba build/flip-gpu-service build/flip-charge-service build/umtprd build/flip-optimizer-supervisor build/flip-optimizer-deadman build/flip-optimizer-guard build/flip-optimizer-calibration build/flip-optimizer-candidate build/flip-optimizer-session build/flip-optimizer-progress build/flip-optimizer-validation-progress build/flip-optimizer-runtime tools/device/flip-usb-mtp tools/device/umtprd.conf tools/update/flip-update-install tools/update/flip-update-fetch tools/device/updater-playtest'
 for rel in $required; do
     [ -f "$ROOT_DIR/$rel" ] || {
         echo "missing release input: $rel" >&2
@@ -35,6 +35,7 @@ mkdir -p "$PAYLOAD/bin" "$PAYLOAD/lib" "$PAYLOAD/etc" "$PAYLOAD/licenses" "$OUT_
 cp "$ROOT_DIR/build/flip-frontend" "$PAYLOAD/bin/flip-frontend"
 cp "$ROOT_DIR/build/flip-gb" "$PAYLOAD/bin/flip-gb"
 cp "$ROOT_DIR/build/flip-gba" "$PAYLOAD/bin/flip-gba"
+cp "$ROOT_DIR/build/flip-gpu-service" "$PAYLOAD/bin/flip-gpu-service"
 cp "$ROOT_DIR/build/flip-charge-service" "$PAYLOAD/bin/flip-charge-service"
 cp "$ROOT_DIR/build/umtprd" "$PAYLOAD/bin/umtprd"
 cp "$ROOT_DIR/tools/device/flip-usb-mtp" "$PAYLOAD/bin/flip-usb-mtp"
