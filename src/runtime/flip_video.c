@@ -985,6 +985,260 @@ int flip_video_quick_menu_present(
         &video_drm);
 }
 
+#define POWER_OVERLAY_PANEL_X       128
+#define POWER_OVERLAY_PANEL_Y        70
+#define POWER_OVERLAY_PANEL_W       384
+#define POWER_OVERLAY_PANEL_H       340
+#define POWER_OVERLAY_ROW_X         154
+#define POWER_OVERLAY_ROW_W         332
+#define POWER_OVERLAY_ROW_Y         144
+#define POWER_OVERLAY_ROW_H          52
+#define POWER_OVERLAY_ROW_GAP        10
+#define POWER_OVERLAY_CONFIRM_Y     338
+
+int flip_video_power_menu_begin(void)
+{
+    return flip_video_quick_menu_begin();
+}
+
+int flip_video_power_menu_present(
+    const flip_video_power_menu_view_t *view)
+{
+    if (!view ||
+        !video_quick_base_valid ||
+        !video_open ||
+        video_gpu_active)
+        return -1;
+
+    quick_menu_restore_to_drm();
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    for (unsigned y = 0;
+         y < 480;
+         ++y) {
+
+        uint32_t *row =
+            video_drm.pixels +
+            y * stride;
+
+        for (unsigned x = 0;
+             x < 640;
+             ++x) {
+
+            row[x] =
+                (row[x] >> 2) &
+                0x003f3f3f;
+        }
+    }
+
+    const uint32_t panel =
+        0x00101010;
+
+    const uint32_t card =
+        0x00202020;
+
+    const uint32_t fg =
+        0x00ffffff;
+
+    const uint32_t dim =
+        0x00606060;
+
+    flip_draw_rect(
+        &video_drm,
+        POWER_OVERLAY_PANEL_X,
+        POWER_OVERLAY_PANEL_Y,
+        POWER_OVERLAY_PANEL_W,
+        POWER_OVERLAY_PANEL_H,
+        panel);
+
+    flip_draw_rect_outline(
+        &video_drm,
+        POWER_OVERLAY_PANEL_X,
+        POWER_OVERLAY_PANEL_Y,
+        POWER_OVERLAY_PANEL_W,
+        POWER_OVERLAY_PANEL_H,
+        2,
+        fg);
+
+    const char *title =
+        "POWER";
+
+    int title_x =
+        POWER_OVERLAY_PANEL_X +
+        (POWER_OVERLAY_PANEL_W -
+         (int)strlen(title) * 18) /
+        2;
+
+    flip_draw_text(
+        &video_drm,
+        title_x,
+        94,
+        title,
+        3,
+        fg);
+
+    static const char *labels[] = {
+        "SLEEP",
+        "RESTART",
+        "POWER OFF"
+    };
+
+    for (int i = 0;
+         i < 3;
+         ++i) {
+
+        int y =
+            POWER_OVERLAY_ROW_Y +
+            i *
+                (POWER_OVERLAY_ROW_H +
+                 POWER_OVERLAY_ROW_GAP);
+
+        int selected =
+            i == view->selected;
+
+        if (selected) {
+            flip_draw_rect(
+                &video_drm,
+                POWER_OVERLAY_ROW_X,
+                y,
+                POWER_OVERLAY_ROW_W,
+                POWER_OVERLAY_ROW_H,
+                card);
+        }
+
+        flip_draw_rect_outline(
+            &video_drm,
+            POWER_OVERLAY_ROW_X,
+            y,
+            POWER_OVERLAY_ROW_W,
+            POWER_OVERLAY_ROW_H,
+            selected ? 2 : 1,
+            selected
+                ? fg
+                : dim);
+
+        int label_x =
+            POWER_OVERLAY_ROW_X +
+            (POWER_OVERLAY_ROW_W -
+             (int)strlen(labels[i]) * 12) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            label_x,
+            y + 18,
+            labels[i],
+            2,
+            selected
+                ? fg
+                : dim);
+    }
+
+    if (view->confirm_action != 0) {
+
+        const char *confirm =
+            view->confirm_action == 1
+                ? "RESTART FLIPOS?"
+                : "POWER OFF FLIPOS?";
+
+        flip_draw_rect(
+            &video_drm,
+            POWER_OVERLAY_ROW_X,
+            POWER_OVERLAY_CONFIRM_Y,
+            POWER_OVERLAY_ROW_W,
+            54,
+            card);
+
+        flip_draw_rect_outline(
+            &video_drm,
+            POWER_OVERLAY_ROW_X,
+            POWER_OVERLAY_CONFIRM_Y,
+            POWER_OVERLAY_ROW_W,
+            54,
+            2,
+            fg);
+
+        int confirm_x =
+            POWER_OVERLAY_ROW_X +
+            (POWER_OVERLAY_ROW_W -
+             (int)strlen(confirm) * 12) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            confirm_x,
+            POWER_OVERLAY_CONFIRM_Y + 8,
+            confirm,
+            2,
+            fg);
+
+        const char *confirm_hint =
+            "A CONFIRM   B CANCEL";
+
+        int hint_x =
+            POWER_OVERLAY_ROW_X +
+            (POWER_OVERLAY_ROW_W -
+             (int)strlen(confirm_hint) * 6) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            hint_x,
+            POWER_OVERLAY_CONFIRM_Y + 36,
+            confirm_hint,
+            1,
+            dim);
+
+    } else if (
+        view->status &&
+        view->status[0]) {
+
+        int status_x =
+            POWER_OVERLAY_PANEL_X +
+            (POWER_OVERLAY_PANEL_W -
+             (int)strlen(view->status) * 6) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            status_x,
+            356,
+            view->status,
+            1,
+            fg);
+
+    } else {
+
+        const char *hint =
+            "A SELECT   B BACK";
+
+        int hint_x =
+            POWER_OVERLAY_PANEL_X +
+            (POWER_OVERLAY_PANEL_W -
+             (int)strlen(hint) * 6) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            hint_x,
+            372,
+            hint,
+            1,
+            dim);
+    }
+
+    return flip_drm_present(
+        &video_drm);
+}
+
+void flip_video_power_menu_end(void)
+{
+    flip_video_quick_menu_end();
+}
+
 void flip_video_quick_menu_end(void)
 {
     if (!video_quick_base_valid)
