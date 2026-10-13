@@ -285,7 +285,9 @@ static int __init flip_opp_voltage_init(void)
     memset(&flip_adjustment, 0, sizeof(flip_adjustment));
 
     pr_info(
-        "flip_opp_voltage: loaded read/write table backend; no voltage adjusted\n");
+        "flip_opp_voltage: loaded read/write table backend "
+        "safe_min_uv=%lu; no voltage adjusted\n",
+        FLIP_OPP_SAFE_MIN_UV);
     return 0;
 }
 
