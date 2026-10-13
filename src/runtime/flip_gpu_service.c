@@ -63,15 +63,26 @@ static int signal_parent_ready(void)
 int main(int argc, char **argv)
 {
     int rc = 1;
+    int warmup_only =
+        argc > 1 && strcmp(argv[1], "--warmup") == 0;
     int scanout_enabled =
         argc > 1 && strcmp(argv[1], "--scanout") == 0;
     int socket_fd = -1;
+    int socket_bound = 0;
     int kms_fd = -1;
     unsigned char *payload = NULL;
     flip_gpu_context_t *gpu = NULL;
+    uint64_t startup_start_us = monotonic_us();
 
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
+
+    /*
+     * Warm-up is a boot-time best-effort optimization. Never allow a stuck
+     * driver call to hold the FlipOS launcher forever.
+     */
+    if (warmup_only)
+        alarm(20);
 
     kms_fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
     if (kms_fd < 0) {
@@ -96,10 +107,26 @@ int main(int argc, char **argv)
         goto out;
 
     const flip_gpu_context_info_t *info = flip_gpu_context_info(gpu);
+    uint64_t startup_us =
+        monotonic_us() - startup_start_us;
+
     fprintf(stderr,
-        "FLIP_GPU_SERVICE: GPU_READY renderer=%s mode=%s\n",
+        "FLIP_GPU_SERVICE: GPU_READY renderer=%s mode=%s startup_ms=%llu\n",
         info && info->gl_renderer ? info->gl_renderer : "?",
-        scanout_enabled ? "scanout" : "offscreen");
+        warmup_only
+            ? "warmup"
+            : (scanout_enabled ? "scanout" : "offscreen"),
+        (unsigned long long)(startup_us / 1000ULL));
+
+    if (warmup_only) {
+        alarm(0);
+        fprintf(
+            stderr,
+            "FLIP_GPU_SERVICE: WARMUP_COMPLETE startup_ms=%llu\n",
+            (unsigned long long)(startup_us / 1000ULL));
+        rc = 0;
+        goto out;
+    }
 
     socket_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
     if (socket_fd < 0) {
@@ -128,6 +155,7 @@ int main(int argc, char **argv)
         perror("FLIP_GPU_SERVICE: bind");
         goto out;
     }
+    socket_bound = 1;
 
     payload = malloc(FLIP_GPU_MAX_PAYLOAD);
     if (!payload)
@@ -404,7 +432,8 @@ out:
         close(socket_fd);
     if (kms_fd >= 0)
         close(kms_fd);
-    unlink(FLIP_GPU_SOCKET_PATH);
+    if (socket_bound)
+        unlink(FLIP_GPU_SOCKET_PATH);
     free(payload);
     flip_gpu_context_destroy(gpu);
     fprintf(stderr, "FLIP_GPU_SERVICE: STOP rc=%d\n", rc);
