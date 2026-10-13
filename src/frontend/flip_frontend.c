@@ -2713,9 +2713,7 @@ static void draw_wifi(
 
     flip_draw_text(
         drm,
-        centred_text_x(
-            wifi_footer,
-            UI_SCALE_HINT),
+        centred_text_x(wifi_footer, UI_SCALE_HINT),
         WIFI_FOOTER_Y,
         wifi_footer,
         UI_SCALE_HINT,
