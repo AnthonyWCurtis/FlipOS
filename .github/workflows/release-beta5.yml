@@ -1,4 +1,4 @@
-name: Publish FlipOS Beta 5
+name: Publish FlipOS Beta 5.x
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
     paths:
       - release/BETA5_VERSION
       - release/BETA5_NOTES.md
+      - release/BETA5_1_NOTES.md
       - .github/workflows/release-beta5.yml
 
 permissions:
@@ -29,11 +30,20 @@ jobs:
           VERSION="$(tr -d '\r\n' < release/BETA5_VERSION)"
           test -n "$VERSION"
           case "$VERSION" in
-            0.1.0-beta.5) ;;
-            *) echo "Unexpected Beta 5 version: $VERSION" >&2; exit 1 ;;
+            0.1.0-beta.5)
+              RELEASE_TITLE="FlipOS Beta 5 — Console UX, Quick Menu & Power Menu"
+              RELEASE_NOTES="release/BETA5_NOTES.md"
+              ;;
+            0.1.0-beta.5.1)
+              RELEASE_TITLE="FlipOS Beta 5.1 — Wi-Fi Hotfix"
+              RELEASE_NOTES="release/BETA5_1_NOTES.md"
+              ;;
+            *) echo "Unexpected Beta 5.x version: $VERSION" >&2; exit 1 ;;
           esac
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TITLE=$RELEASE_TITLE" >> "$GITHUB_ENV"
+          echo "RELEASE_NOTES=$RELEASE_NOTES" >> "$GITHUB_ENV"
 
       - name: Install AArch64 build tools
         run: |
@@ -48,7 +58,7 @@ jobs:
       - name: Run release gates
         run: |
           set -euo pipefail
-          make test-game-stats test-controls test-power test-cpu-dynamic
+          make test-game-stats test-controls test-power test-cpu-dynamic test-wifi
           make test-architecture
           git diff --check
 
@@ -133,6 +143,6 @@ jobs:
             dist/FlipOSUpdate.tar.gz \
             dist/FlipOSUpdate.tar.gz.sha256 \
             --target "$GITHUB_SHA" \
-            --title "FlipOS Beta 5 — Console UX, Quick Menu & Power Menu" \
-            --notes-file release/BETA5_NOTES.md \
+            --title "$RELEASE_TITLE" \
+            --notes-file "$RELEASE_NOTES" \
             --prerelease
