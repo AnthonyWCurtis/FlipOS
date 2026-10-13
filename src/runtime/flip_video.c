@@ -41,11 +41,10 @@ static int video_gpu_perf_active = 0;
 #define FLIP_GPU_SERVICE_PATH "/mnt/SDCARD/flipos-dev/bin/flip-gpu-service"
 
 /*
- * The shared GPU scanout helper currently reaches LISTENING on RK3566 but
- * the emulator-side client can still miss the Function/DRM handoff and wait
- * for its five-second startup timeout. Keep the implementation available for
- * development, but use the proven direct DRM path for Beta so game launches
- * never pay that timeout.
+ * The shared GPU scanout helper is the normal video path. Its launcher uses
+ * an explicit readiness pipe so the emulator only connects after GPU/KMS
+ * initialization and the Unix socket bind have completed. Direct DRM remains
+ * the runtime fallback if that handoff cannot be established.
  */
 #define FLIP_VIDEO_GPU_HOST_ENABLED 1
 

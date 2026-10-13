@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 #define FLIP_GPU_SOCKET_PATH "/tmp/flipos-gpu.sock"
+#define FLIP_GPU_READY_FD_ENV "FLIP_GPU_READY_FD"
+#define FLIP_GPU_READY_BYTE 0x52u
 
 #define FLIP_GPU_PROTOCOL_VERSION 1u
 #define FLIP_GPU_FRAME_MAGIC 0x46504756u
