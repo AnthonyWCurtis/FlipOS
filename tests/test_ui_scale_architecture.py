@@ -127,13 +127,14 @@ for args in function_calls(source, "flip_draw_text"):
     )
 
 
-# Interface Settings has a two-line selected row. Its highlight must be taller
-# than the standard single-line Settings row so the mode text cannot clip.
+# Settings now uses fixed-height full-width cards. Interface mode text stays
+# inside the same measured row rather than growing an ad-hoc selection box.
 settings_menu_start = source.index("static void draw_settings_menu(")
 settings_menu_end = source.index("\nstatic void draw_settings(", settings_menu_start)
 settings_menu = source[settings_menu_start:settings_menu_end]
-assert "(show_battery_mode && i == 0) ? 72 : 54" in settings_menu
-assert "selection_height" in settings_menu
+assert "SETTINGS_ROW_H" in settings_menu
+assert "show_battery_mode" in settings_menu
+assert "fit_text_to_width(" in settings_menu
 
 
 # Library browsing is a first-class surface. The current console theme uses
