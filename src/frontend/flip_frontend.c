@@ -58,7 +58,6 @@
 #define UI_SCALE_HINT      2
 #define UI_FOOTER_Y      448
 
-#define POWEROFF_HOLD_SECONDS 1.5
 #define FLIP_DEV_SUPPRESS_LOW_BATTERY_POWEROFF "/tmp/flipos-dev-suppress-low-battery-poweroff"
 #define FLIP_DEV_SCREEN_STATE "/tmp/flipos-dev-screen"
 #define FLIP_DEV_FORCE_FIRST_BOOT "/tmp/flipos-dev-force-first-boot"
@@ -6966,8 +6965,6 @@ int main(void)
     int prev_lid_ready = 0;
     int prev_lid_closed = 0;
 
-    int poweroff_active = 0;
-    double poweroff_started = 0.0;
     double next_battery_refresh =
         monotonic_seconds() + 30.0;
 
@@ -7151,8 +7148,6 @@ int main(void)
                 prev_left = 0;
                 prev_right = 0;
                 prev_start = 0;
-
-                poweroff_active = 0;
 
                 /*
                  * Re-prime authoritative lid state after wake.
@@ -8617,8 +8612,6 @@ int main(void)
                         prev_right = 0;
                         prev_start = 0;
 
-                        poweroff_active = 0;
-
                         load_recent_history();
                         refresh_play_stats();
 
@@ -9085,8 +9078,6 @@ int main(void)
                 prev_right = 0;
                 prev_start = 0;
 
-                poweroff_active = 0;
-
                 load_recent_history();
                 refresh_play_stats();
 
@@ -9206,8 +9197,6 @@ int main(void)
                 prev_right = 0;
                 prev_start = 0;
 
-                poweroff_active = 0;
-
                 /*
                  * Rescan in case SD library changed.
                  */
@@ -9291,179 +9280,10 @@ int main(void)
         prev_start = start;
 
         /*
-         * Existing FlipOS clean shutdown gesture.
+         * MENU+SELECT is intentionally game-owned and has no frontend action.
+         * Device power controls are moving to the physical POWER button menu.
          */
-        if (state.down[
-                FLIP_BTN_MENU] &&
-            state.down[
-                FLIP_BTN_SELECT]) {
-
-            double now =
-                monotonic_seconds();
-
-            if (!poweroff_active) {
-
-                poweroff_active = 1;
-
-                poweroff_started =
-                    now;
-
-                fprintf(
-                    stderr,
-                    "FRONTEND: poweroff hold started\n");
-            }
-
-            double held =
-                now -
-                poweroff_started;
-
-            double progress =
-                held /
-                POWEROFF_HOLD_SECONDS;
-
-            if (screen ==
-                SCREEN_HOME) {
-
-                draw_home(
-                    &drm,
-                    home_selected,
-                    message,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_SYSTEMS) {
-
-                draw_systems(
-                    &drm,
-                    system_selected,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_GAMES) {
-
-                draw_games(
-                    &drm,
-                    game_system,
-                    game_selected,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_RECENT) {
-
-                draw_recent(
-                    &drm,
-                    game_system,
-                    recent_selected,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_STATS) {
-
-                draw_stats(
-                    &drm,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_GAME_DETAILS) {
-
-                draw_game_details(
-                    &drm,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_SETTINGS) {
-
-                draw_settings(
-                    &drm,
-                    settings_selected,
-                    progress);
-
-            } else if (screen == SCREEN_SETTINGS_CONNECTIVITY) {
-
-                draw_settings_menu(
-                    &drm, "CONNECTIVITY", connectivity_items,
-                    CONNECTIVITY_ITEM_COUNT, connectivity_selected, 0, progress);
-
-            } else if (screen == SCREEN_SETTINGS_SYSTEM) {
-
-                draw_settings_menu(
-                    &drm, "SYSTEM", system_settings_items,
-                    SYSTEM_SETTINGS_ITEM_COUNT, system_settings_selected, 0, progress);
-
-            } else if (screen == SCREEN_SETTINGS_TIME) {
-
-                draw_time_settings(&drm, progress);
-
-            } else if (screen == SCREEN_SETTINGS_BIOS) {
-
-                draw_bios_verifier(&drm, progress);
-
-            } else if (screen == SCREEN_SETTINGS_INTERFACE) {
-
-                draw_settings_menu(
-                    &drm, "INTERFACE", interface_items,
-                    INTERFACE_ITEM_COUNT, interface_selected, 1, progress);
-
-            } else if (screen == SCREEN_WIFI_PASSWORD) {
-
-                draw_wifi_password(&drm, progress);
-
-            } else if (screen == SCREEN_WIFI) {
-
-                draw_wifi(&drm, wifi_selected, progress);
-
-            } else if (first_boot_screen(screen)) {
-
-                draw_first_boot(&drm, screen, progress);
-
-            } else if (screen == SCREEN_UPDATE) {
-
-                draw_update(&drm, progress);
-
-            } else if (
-                screen == SCREEN_OPTIMIZER_RESULTS) {
-
-                draw_optimizer_results(&drm, progress);
-
-            } else {
-
-                draw_optimizer(
-                    &drm,
-                    optimizer_selected,
-                    optimizer_confirm,
-                    optimizer_message,
-                    progress);
-            }
-
-            if (held >=
-                POWEROFF_HOLD_SECONDS) {
-
-                power_off_now();
-                break;
-            }
-
-        } else {
-
-            if (poweroff_active) {
-
-                fprintf(
-                    stderr,
-                    "FRONTEND: poweroff hold cancelled\n");
-
-                redraw = 1;
-            }
-
-            poweroff_active = 0;
-        }
-
-        if (redraw &&
-            !poweroff_active) {
+        if (redraw) {
 
             if (screen ==
                 SCREEN_HOME) {
