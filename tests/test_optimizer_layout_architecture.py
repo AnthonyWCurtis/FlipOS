@@ -42,13 +42,21 @@ for block in (results, optimizer):
     assert "OPT_UI_CONTENT_W" in block
     assert "UI_SCALE_" in block
 
+actions_start = source.index("static const char *optimizer_actions[]")
+actions_end = source.index("};", actions_start) + 2
+actions = source[actions_start:actions_end]
+
+for token in (
+    '"RUN STABILITY TEST"',
+    '"RESTORE DEFAULT SETTINGS"',
+):
+    assert token in actions, token
+
 for token in (
     "OPT_UI_SUMMARY_Y",
     "OPT_UI_ACTION_Y",
     "fit_text_to_width(",
     '"OPTIMIZE AGAIN"',
-    '"RUN STABILITY TEST"',
-    '"RESTORE DEFAULT SETTINGS"',
     '"START STABILITY TEST?"',
 ):
     assert token in optimizer, token
