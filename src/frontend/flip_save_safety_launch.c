@@ -13,6 +13,23 @@
 #define DIM   0x00505050
 #define PANEL 0x00202020
 
+#define PLAY_OPTIONS_MARGIN_X       24
+#define PLAY_OPTIONS_CONTENT_W     592
+#define PLAY_OPTIONS_ROW_Y         112
+#define PLAY_OPTIONS_ROW_H          68
+#define PLAY_OPTIONS_ROW_GAP         8
+#define PLAY_OPTIONS_FOOTER_Y      458
+
+#define SAVE_SAFETY_MARGIN_X        24
+#define SAVE_SAFETY_CONTENT_W      592
+#define SAVE_SAFETY_STATUS_Y        86
+#define SAVE_SAFETY_STATUS_H       132
+#define SAVE_SAFETY_ACTION_Y       242
+#define SAVE_SAFETY_ACTION_H        52
+#define SAVE_SAFETY_ACTION_GAP       8
+#define SAVE_SAFETY_MESSAGE_Y      410
+#define SAVE_SAFETY_FOOTER_Y       458
+
 int flip_session_launch_legacy(
     flip_drm_t *drm,
     const char *program,
@@ -26,22 +43,122 @@ static int centred_text_x(const char *text, int scale)
     return (640 - width) / 2;
 }
 
+static int text_width_px(
+    const char *text,
+    int scale)
+{
+    if (!text || scale <= 0)
+        return 0;
+
+    return (int)strlen(text) * 6 * scale;
+}
+
+static int centred_text_x_in_rect(
+    const char *text,
+    int scale,
+    int x,
+    int width)
+{
+    return x +
+        (width - text_width_px(text, scale)) / 2;
+}
+
+static void fit_text_to_width(
+    const char *source,
+    char *destination,
+    size_t destination_size,
+    int max_width,
+    int scale)
+{
+    if (!destination ||
+        destination_size == 0)
+        return;
+
+    destination[0] = '\0';
+
+    if (!source ||
+        max_width <= 0 ||
+        scale <= 0)
+        return;
+
+    int max_chars =
+        max_width / (6 * scale);
+
+    if (max_chars <= 0)
+        return;
+
+    size_t length =
+        strlen(source);
+
+    if ((int)length <= max_chars) {
+        snprintf(
+            destination,
+            destination_size,
+            "%s",
+            source);
+        return;
+    }
+
+    if (max_chars <= 3) {
+        snprintf(
+            destination,
+            destination_size,
+            "%.*s",
+            max_chars,
+            source);
+        return;
+    }
+
+    snprintf(
+        destination,
+        destination_size,
+        "%.*s...",
+        max_chars - 3,
+        source);
+}
+
 static void draw_row(
     flip_drm_t *drm,
     const char *text,
     int y,
+    int height,
     int selected)
 {
-    if (selected) {
-        flip_draw_rect(drm, 95, y - 8, 450, 38, PANEL);
-        flip_draw_rect_outline(drm, 95, y - 8, 450, 38, 1, FG);
-    }
+    flip_draw_rect(
+        drm,
+        PLAY_OPTIONS_MARGIN_X,
+        y,
+        PLAY_OPTIONS_CONTENT_W,
+        height,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        PLAY_OPTIONS_MARGIN_X,
+        y,
+        PLAY_OPTIONS_CONTENT_W,
+        height,
+        selected ? 2 : 1,
+        selected ? FG : DIM);
+
+    char visible[96];
+
+    fit_text_to_width(
+        text,
+        visible,
+        sizeof(visible),
+        PLAY_OPTIONS_CONTENT_W - 48,
+        2);
 
     flip_draw_text(
         drm,
-        centred_text_x(text, 2),
-        y,
-        text,
+        centred_text_x_in_rect(
+            visible,
+            2,
+            PLAY_OPTIONS_MARGIN_X,
+            PLAY_OPTIONS_CONTENT_W),
+        y + (height - 14) / 2,
+        visible,
         2,
         selected ? FG : DIM);
 }
@@ -51,35 +168,97 @@ static void draw_action_menu(
     int selected,
     int can_resume)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
+
     flip_draw_text(
         drm,
-        centred_text_x("PLAY OPTIONS", 4),
-        38,
+        centred_text_x(
+            "PLAY OPTIONS",
+            2),
+        14,
         "PLAY OPTIONS",
-        4,
+        2,
         FG);
 
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "CHOOSE HOW TO START",
+            1),
+        44,
+        "CHOOSE HOW TO START",
+        1,
+        DIM);
+
     int row = 0;
+
     if (can_resume) {
-        draw_row(drm, "RESUME GAME", 145 + row * 58, selected == row);
+        draw_row(
+            drm,
+            "RESUME GAME",
+            PLAY_OPTIONS_ROW_Y +
+                row *
+                    (PLAY_OPTIONS_ROW_H +
+                     PLAY_OPTIONS_ROW_GAP),
+            PLAY_OPTIONS_ROW_H,
+            selected == row);
+
         row++;
     }
 
-    draw_row(drm, "START WITHOUT RESUME", 145 + row * 58, selected == row);
+    draw_row(
+        drm,
+        "START WITHOUT RESUME",
+        PLAY_OPTIONS_ROW_Y +
+            row *
+                (PLAY_OPTIONS_ROW_H +
+                 PLAY_OPTIONS_ROW_GAP),
+        PLAY_OPTIONS_ROW_H,
+        selected == row);
+
     row++;
 
-    if (flip_save_safety_user_enabled())
-        draw_row(drm, "SAVE SAFETY", 145 + row * 58, selected == row);
+    if (flip_save_safety_user_enabled()) {
+        draw_row(
+            drm,
+            "SAVE SAFETY",
+            PLAY_OPTIONS_ROW_Y +
+                row *
+                    (PLAY_OPTIONS_ROW_H +
+                     PLAY_OPTIONS_ROW_GAP),
+            PLAY_OPTIONS_ROW_H,
+            selected == row);
+    }
+
+    const char *hint =
+        can_resume
+            ? "RESUME CONTINUES YOUR LAST SESSION"
+            : "START A NEW SESSION";
 
     flip_draw_text(
         drm,
-        centred_text_x("A SELECT   B BACK", 1),
-        442,
+        centred_text_x(
+            hint,
+            1),
+        386,
+        hint,
+        1,
+        DIM);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "A SELECT   B BACK",
+            1),
+        PLAY_OPTIONS_FOOTER_Y,
         "A SELECT   B BACK",
         1,
         DIM);
-    flip_drm_present(drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static const char *undo_state_name(
@@ -133,15 +312,37 @@ static void draw_save_safety(
             FG);
     }
 
-    draw_row(drm, "RESTORE PREVIOUS SAVE", 230, selected == 0);
-    draw_row(drm, "UNDO LAST RESTORE", 282, selected == 1);
-    draw_row(drm, "BACK", 334, selected == 2);
+    draw_row(
+        drm,
+        "RESTORE PREVIOUS SAVE",
+        SAVE_SAFETY_ACTION_Y,
+        SAVE_SAFETY_ACTION_H,
+        selected == 0);
+
+    draw_row(
+        drm,
+        "UNDO LAST RESTORE",
+        SAVE_SAFETY_ACTION_Y +
+            SAVE_SAFETY_ACTION_H +
+            SAVE_SAFETY_ACTION_GAP,
+        SAVE_SAFETY_ACTION_H,
+        selected == 1);
+
+    draw_row(
+        drm,
+        "BACK",
+        SAVE_SAFETY_ACTION_Y +
+            2 *
+                (SAVE_SAFETY_ACTION_H +
+                 SAVE_SAFETY_ACTION_GAP),
+        SAVE_SAFETY_ACTION_H,
+        selected == 2);
 
     if (message && message[0]) {
         flip_draw_text(
             drm,
             centred_text_x(message, 1),
-            392,
+            SAVE_SAFETY_MESSAGE_Y,
             message,
             1,
             FG);
@@ -150,7 +351,7 @@ static void draw_save_safety(
     flip_draw_text(
         drm,
         centred_text_x("A SELECT   B BACK", 1),
-        442,
+        SAVE_SAFETY_FOOTER_Y,
         "A SELECT   B BACK",
         1,
         DIM);
