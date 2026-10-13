@@ -85,11 +85,213 @@ static const glyph_t font[] = {
     {'y', {0x0c,0x50,0x50,0x50,0x3c}},
     {'z', {0x44,0x64,0x54,0x4c,0x44}},
 
-    {'-', {0x08,0x08,0x08,0x08,0x08}},
+    /* Full printable ASCII punctuation set used by the Wi-Fi keyboard. */
+    {'!', {0x00,0x00,0x5f,0x00,0x00}},
+    {'\"', {0x00,0x07,0x00,0x07,0x00}},
+    {'#', {0x14,0x7f,0x14,0x7f,0x14}},
+    {'};
+
+static const unsigned char *find_glyph(char c)
+{
+    for (size_t i = 0;
+         i < sizeof(font) / sizeof(font[0]);
+         ++i) {
+
+        if (font[i].c == c)
+            return font[i].col;
+    }
+
+    return font[0].col;
+}
+
+static void put_pixel(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    uint32_t colour)
+{
+    if (!drm ||
+        !drm->pixels ||
+        x < 0 ||
+        y < 0 ||
+        x >= (int)drm->width ||
+        y >= (int)drm->height)
+        return;
+
+    uint32_t stride =
+        drm->pitch / sizeof(uint32_t);
+
+    drm->pixels[
+        (size_t)y * stride + (size_t)x
+    ] = colour;
+}
+
+void flip_draw_clear(
+    flip_drm_t *drm,
+    uint32_t colour)
+{
+    if (!drm || !drm->pixels)
+        return;
+
+    uint32_t stride =
+        drm->pitch / sizeof(uint32_t);
+
+    for (uint32_t y = 0;
+         y < drm->height;
+         ++y) {
+
+        for (uint32_t x = 0;
+             x < drm->width;
+             ++x) {
+
+            drm->pixels[
+                (size_t)y * stride + x
+            ] = colour;
+        }
+    }
+}
+
+void flip_draw_rect(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    int w,
+    int h,
+    uint32_t colour)
+{
+    for (int yy = 0; yy < h; ++yy) {
+        for (int xx = 0; xx < w; ++xx) {
+            put_pixel(
+                drm,
+                x + xx,
+                y + yy,
+                colour);
+        }
+    }
+}
+
+void flip_draw_rect_outline(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    int w,
+    int h,
+    int thickness,
+    uint32_t colour)
+{
+    flip_draw_rect(
+        drm,
+        x,
+        y,
+        w,
+        thickness,
+        colour);
+
+    flip_draw_rect(
+        drm,
+        x,
+        y + h - thickness,
+        w,
+        thickness,
+        colour);
+
+    flip_draw_rect(
+        drm,
+        x,
+        y,
+        thickness,
+        h,
+        colour);
+
+    flip_draw_rect(
+        drm,
+        x + w - thickness,
+        y,
+        thickness,
+        h,
+        colour);
+}
+
+void flip_draw_text(
+    flip_drm_t *drm,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t colour)
+{
+    if (!text || scale <= 0)
+        return;
+
+    int cursor_x = x;
+
+    while (*text) {
+
+        if (*text == '\n') {
+            cursor_x = x;
+            y += 8 * scale;
+            ++text;
+            continue;
+        }
+
+        const unsigned char *glyph =
+            find_glyph(*text);
+
+        for (int col = 0; col < 5; ++col) {
+
+            unsigned char bits =
+                glyph[col];
+
+            for (int row = 0;
+                 row < 7;
+                 ++row) {
+
+                if (!(bits & (1u << row)))
+                    continue;
+
+                flip_draw_rect(
+                    drm,
+                    cursor_x + col * scale,
+                    y + row * scale,
+                    scale,
+                    scale,
+                    colour);
+            }
+        }
+
+        cursor_x += 6 * scale;
+        ++text;
+    }
+}
+, {0x24,0x2a,0x7f,0x2a,0x12}},
+    {'%', {0x23,0x13,0x08,0x64,0x62}},
+    {'&', {0x36,0x49,0x55,0x22,0x50}},
+    {'\\'', {0x00,0x05,0x03,0x00,0x00}},
+    {'(', {0x00,0x1c,0x22,0x41,0x00}},
+    {')', {0x00,0x41,0x22,0x1c,0x00}},
+    {'*', {0x14,0x08,0x3e,0x08,0x14}},
     {'+', {0x08,0x08,0x3e,0x08,0x08}},
-    {':', {0x00,0x36,0x36,0x00,0x00}},
-    {'/', {0x20,0x10,0x08,0x04,0x02}},
+    {',', {0x00,0x50,0x30,0x00,0x00}},
+    {'-', {0x08,0x08,0x08,0x08,0x08}},
     {'.', {0x00,0x60,0x60,0x00,0x00}},
+    {'/', {0x20,0x10,0x08,0x04,0x02}},
+    {':', {0x00,0x36,0x36,0x00,0x00}},
+    {';', {0x00,0x56,0x36,0x00,0x00}},
+    {'<', {0x08,0x14,0x22,0x41,0x00}},
+    {'=', {0x14,0x14,0x14,0x14,0x14}},
+    {'>', {0x00,0x41,0x22,0x14,0x08}},
+    {'?', {0x02,0x01,0x51,0x09,0x06}},
+    {'@', {0x32,0x49,0x79,0x41,0x3e}},
+    {'[', {0x00,0x7f,0x41,0x41,0x00}},
+    {'\\\\', {0x02,0x04,0x08,0x10,0x20}},
+    {']', {0x00,0x41,0x41,0x7f,0x00}},
+    {'^', {0x04,0x02,0x01,0x02,0x04}},
+    {'_', {0x40,0x40,0x40,0x40,0x40}},
+    {'`', {0x00,0x01,0x02,0x04,0x00}},
+    {'{', {0x00,0x08,0x36,0x41,0x00}},
+    {'|', {0x00,0x00,0x7f,0x00,0x00}},
+    {'}', {0x00,0x41,0x36,0x08,0x00}},
+    {'~', {0x08,0x04,0x08,0x10,0x08}},
 };
 
 static const unsigned char *find_glyph(char c)
