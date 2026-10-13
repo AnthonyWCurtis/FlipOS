@@ -14,6 +14,11 @@
 
 #define DIGITAL_DEVICE "/dev/input/event0"
 #define HALL_DEVICE    "/dev/input/event1"
+/*
+ * RK817/RK805 PMIC power key. On Miyoo Flip this is a separate evdev node
+ * from both the normal keypad and the hall wake key.
+ */
+#define POWER_DEVICE   "/dev/input/event2"
 #define HALL_VALUE     "/sys/devices/platform/hall-mh248/hallvalue"
 #define DEV_LID_OVERRIDE "/tmp/flipos-dev-lid-override"
 #define DEV_BUTTON_INJECT "/tmp/flipos-dev-button"
@@ -26,6 +31,7 @@
 
 static int digital_fd = -1;
 static int hall_fd = -1;
+static int power_fd = -1;
 static int uart_fd = -1;
 
 static uint8_t uart_buffer[6];
@@ -60,12 +66,7 @@ static int code_to_button(unsigned code)
         case 97:  return FLIP_BTN_SELECT;
         case 1:   return FLIP_BTN_MENU;
 
-        /*
-         * Linux KEY_POWER on the digital keypad device. The hall sensor also
-         * reports code 116, but it is read from HALL_DEVICE separately and
-         * never passes through this digital mapping.
-         */
-        case 116: return FLIP_BTN_POWER;
+        case KEY_POWER: return FLIP_BTN_POWER;
 
         case 100: return FLIP_BTN_L3;
         case 54:  return FLIP_BTN_R3;
@@ -239,6 +240,21 @@ int flip_input_open(void)
         return -1;
     }
 
+    power_fd =
+        open(POWER_DEVICE, O_RDONLY | O_NONBLOCK);
+
+    if (power_fd < 0) {
+        /*
+         * Keep the rest of input usable if a future hardware revision moves
+         * the PMIC key. The missing power menu is diagnosable in the log, while
+         * the hardware long-hold shutdown path remains independent.
+         */
+        fprintf(stderr,
+                "flip_input: cannot open %s: %s\n",
+                POWER_DEVICE,
+                strerror(errno));
+    }
+
     uart_fd =
         open(UART_DEVICE,
              O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -284,6 +300,11 @@ void flip_input_close(void)
     if (hall_fd >= 0) {
         close(hall_fd);
         hall_fd = -1;
+    }
+
+    if (power_fd >= 0) {
+        close(power_fd);
+        power_fd = -1;
     }
 
     if (uart_fd >= 0) {
@@ -459,7 +480,7 @@ int flip_input_poll(
     flip_input_state_t *state,
     int timeout_ms)
 {
-    struct pollfd fds[3];
+    struct pollfd fds[4];
 
     fds[0].fd = digital_fd;
     fds[0].events = POLLIN;
@@ -469,11 +490,15 @@ int flip_input_poll(
     fds[1].events = POLLIN;
     fds[1].revents = 0;
 
-    fds[2].fd = uart_fd;
+    fds[2].fd = power_fd;
     fds[2].events = POLLIN;
     fds[2].revents = 0;
 
-    int result = poll(fds, 3, timeout_ms);
+    fds[3].fd = uart_fd;
+    fds[3].events = POLLIN;
+    fds[3].revents = 0;
+
+    int result = poll(fds, 4, timeout_ms);
 
     if (result < 0) {
         if (errno == EINTR)
@@ -562,6 +587,33 @@ int flip_input_poll(
     }
 
     if (fds[2].revents & POLLIN) {
+        struct input_event ev;
+
+        while (read(
+                   power_fd,
+                   &ev,
+                   sizeof(ev))
+               == sizeof(ev)) {
+
+            if (ev.type != EV_KEY ||
+                ev.code != KEY_POWER)
+                continue;
+
+            uint8_t new_state =
+                ev.value ? 1 : 0;
+
+            if (state->down[FLIP_BTN_POWER] !=
+                new_state) {
+
+                state->down[FLIP_BTN_POWER] =
+                    new_state;
+
+                changed = 1;
+            }
+        }
+    }
+
+    if (fds[3].revents & POLLIN) {
         uint8_t data[128];
         ssize_t count;
 
