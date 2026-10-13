@@ -53,6 +53,13 @@ The new visual language now carries through:
 - Save State, Load State, volume, brightness, Performance HUD, GameSwitcher and Quit Game remain available.
 - **Quit Game returns to Home.**
 
+### Smarter dynamic CPU rescue
+- The dynamic CPU controller now watches **frame-pacing bursts and timing resyncs**, not only one-second average FPS and audio pressure.
+- Repeated visibly late-frame windows can raise the CPU ceiling one RK3566 OPP even when the average FPS still appears close to full speed.
+- A full timing resync is treated as severe pressure and can request the next OPP immediately.
+- Single isolated late-frame bursts are still ignored so FlipOS does not spend extra power for one-off scheduler noise.
+- The existing ceiling limits, cooldown and learned-floor behaviour remain in place.
+
 ### Controls cleanup
 - **START** and **SELECT** belong to games.
 - **START + SELECT** has no FlipOS system action.
