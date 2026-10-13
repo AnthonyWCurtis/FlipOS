@@ -48,4 +48,10 @@ for token in [
 assert "#ifndef FLIP_OPTIMIZER_UI_RETURN_FILE" in cand
 assert "#ifndef FLIP_OPTIMIZER_AUTO_SESSION_FILE" in cand
 
+
+assert '"init-experimental-first"' in front
+assert 'OPTIMIZER_EXPERIMENTAL_CALIBRATION_TOOL' in front
+experimental_frontend = front[front.index("SCREEN_OPTIMIZER_EXPERIMENTAL_WARNING"):]
+assert '"prepare"' not in experimental_frontend[experimental_frontend.index("experimental first trial requested") - 5000:experimental_frontend.index("experimental first trial requested") + 500]
+
 print("optimizer experimental backend architecture passed")
