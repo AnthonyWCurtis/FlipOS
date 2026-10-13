@@ -17,17 +17,23 @@ static void test_scan_parser(void)
         "00:11:22:33:44:55\t2412\t-62\t[WPA2-PSK-CCMP][ESS]\tHome WiFi\n"
         "00:11:22:33:44:66\t5180\t-47\t[WPA2-PSK-CCMP][ESS]\tHome WiFi\n"
         "aa:bb:cc:dd:ee:ff\t2437\t-51\t[ESS]\tGuest\n"
-        "aa:bb:cc:dd:ee:00\t2462\t-80\t[WPA2-PSK-CCMP][ESS]\tOther\n";
+        "aa:bb:cc:dd:ee:00\t2462\t-80\t[WPA2-PSK-CCMP][ESS]\tOther\n"
+        "de:ad:be:ef:00:01\t2412\t-45\t[WPA2-PSK-CCMP][ESS]\tAnthony\\xe2\\x80\\x99s iPhone\n";
 
     flip_wifi_network_t networks[8];
     int count = flip_wifi_parse_scan_results(scan, networks, 8);
-    assert(count == 3);
-    assert(strcmp(networks[0].ssid, "Home WiFi") == 0);
-    assert(networks[0].signal_dbm == -47);
+    assert(count == 4);
+    assert(strcmp(
+        networks[0].ssid,
+        "Anthony" "\xE2\x80\x99" "s iPhone") == 0);
+    assert(networks[0].signal_dbm == -45);
     assert(networks[0].secure);
-    assert(strcmp(networks[1].ssid, "Guest") == 0);
-    assert(!networks[1].secure);
-    assert(strcmp(networks[2].ssid, "Other") == 0);
+    assert(strcmp(networks[1].ssid, "Home WiFi") == 0);
+    assert(networks[1].signal_dbm == -47);
+    assert(networks[1].secure);
+    assert(strcmp(networks[2].ssid, "Guest") == 0);
+    assert(!networks[2].secure);
+    assert(strcmp(networks[3].ssid, "Other") == 0);
 }
 
 static void test_config_writer(void)

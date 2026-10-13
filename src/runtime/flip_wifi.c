@@ -389,6 +389,66 @@ static int ensure_supplicant(void)
     return 0;
 }
 
+static int hex_value(unsigned char c)
+{
+    if (c >= '0' && c <= '9')
+        return (int)(c - '0');
+    if (c >= 'a' && c <= 'f')
+        return (int)(c - 'a') + 10;
+    if (c >= 'A' && c <= 'F')
+        return (int)(c - 'A') + 10;
+    return -1;
+}
+
+/*
+ * wpa_cli scan_results escapes non-ASCII / non-printable SSID bytes as
+ * literal \xNN sequences. Keep the actual SSID bytes in FlipOS rather than
+ * the printable control-interface representation, otherwise WPA PSK
+ * derivation and the generated network block use the wrong SSID.
+ */
+static int decode_scan_ssid(
+    const char *escaped,
+    char *decoded,
+    size_t decoded_size)
+{
+    if (!escaped || !decoded || decoded_size == 0)
+        return -1;
+
+    size_t out = 0;
+
+    for (size_t i = 0; escaped[i] != '\0'; ++i) {
+        unsigned char value = (unsigned char)escaped[i];
+
+        if (value == '\\' &&
+            escaped[i + 1] == 'x' &&
+            escaped[i + 2] != '\0' &&
+            escaped[i + 3] != '\0') {
+
+            int hi = hex_value((unsigned char)escaped[i + 2]);
+            int lo = hex_value((unsigned char)escaped[i + 3]);
+
+            if (hi >= 0 && lo >= 0) {
+                value = (unsigned char)((hi << 4) | lo);
+                i += 3;
+            }
+        } else if (
+            value == '\\' &&
+            escaped[i + 1] == '\\') {
+
+            value = '\\';
+            i += 1;
+        }
+
+        if (value == '\0' || out + 1 >= decoded_size)
+            return -1;
+
+        decoded[out++] = (char)value;
+    }
+
+    decoded[out] = '\0';
+    return 0;
+}
+
 static int parse_tab_line(
     char *line,
     flip_wifi_network_t *network)
@@ -410,7 +470,13 @@ static int parse_tab_line(
         return 0;
 
     memset(network, 0, sizeof(*network));
-    snprintf(network->ssid, sizeof(network->ssid), "%s", fields[4]);
+
+    if (decode_scan_ssid(
+            fields[4],
+            network->ssid,
+            sizeof(network->ssid)) < 0)
+        return 0;
+
     network->signal_dbm = atoi(fields[2]);
     snprintf(network->flags, sizeof(network->flags), "%s", fields[3]);
     network->secure =
