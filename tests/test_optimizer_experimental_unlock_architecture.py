@@ -16,7 +16,8 @@ assert "l2 && r2 && start && select" in frontend
 assert "BELOW ROCKCHIP SPEC" in frontend
 assert "DEVELOPMENT TEST ONLY" in frontend
 assert "PRODUCTION PROFILE IS KEPT SEPARATE" in frontend
-assert "NO BELOW-SPEC VOLTAGE IS ARMED YET" in frontend
+assert "FIRST TRIAL: 408MHZ @ 800MV ONLY" in frontend
+assert "A ARM FIRST TRIAL   B BACK" in frontend
 assert "FRONTEND_OPTIMIZER experimental unlock chord accepted" in frontend
 
 print("optimizer experimental unlock architecture passed")
