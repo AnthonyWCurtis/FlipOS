@@ -50,6 +50,13 @@ flip_power_lid_state_t flip_power_refresh_lid_state(
 int flip_power_sleep_until_lid_open(
     flip_input_state_t *state);
 
+/*
+ * Enter one deep-suspend cycle and return after any configured wake source.
+ * Used by the explicit Power Menu; unlike lid sleep it does not require the
+ * lid to change state before returning.
+ */
+int flip_power_sleep_once(void);
+
 int flip_power_set_brightness(
     int brightness);
 
