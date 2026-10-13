@@ -748,6 +748,20 @@ int flip_video_quick_menu_begin(void)
     return 0;
 }
 
+#define QUICK_MENU_SCREEN_W       640
+#define QUICK_MENU_SCREEN_H       480
+#define QUICK_MENU_PANEL_X         72
+#define QUICK_MENU_PANEL_Y         28
+#define QUICK_MENU_PANEL_W        496
+#define QUICK_MENU_PANEL_H        424
+#define QUICK_MENU_INNER_X         96
+#define QUICK_MENU_INNER_W        448
+#define QUICK_MENU_ITEM_Y          82
+#define QUICK_MENU_ITEM_H          32
+#define QUICK_MENU_ITEM_GAP         6
+#define QUICK_MENU_STATUS_Y       398
+#define QUICK_MENU_FOOTER_Y       425
+
 int flip_video_quick_menu_present(
     const flip_video_quick_menu_view_t *view)
 {
@@ -764,11 +778,12 @@ int flip_video_quick_menu_present(
         sizeof(uint32_t);
 
     /*
-     * Dim the frozen game frame rather than replacing it. The player keeps
-     * visual context while the core itself remains paused.
+     * Keep the frozen game visible as context, but push it far enough into
+     * the background that the same dark/white FlipOS console language reads
+     * clearly over any game palette.
      */
     for (unsigned y = 0;
-         y < 480;
+         y < QUICK_MENU_SCREEN_H;
          ++y) {
 
         uint32_t *row =
@@ -776,7 +791,7 @@ int flip_video_quick_menu_present(
             y * stride;
 
         for (unsigned x = 0;
-             x < 640;
+             x < QUICK_MENU_SCREEN_W;
              ++x) {
 
             row[x] =
@@ -785,37 +800,49 @@ int flip_video_quick_menu_present(
         }
     }
 
-    const uint32_t panel = 0x00181818;
-    const uint32_t fg = 0x00ffffff;
-    const uint32_t dim = 0x00909090;
+    const uint32_t panel =
+        0x00101010;
 
-    const int panel_x = 92;
-    const int panel_y = 34;
-    const int panel_w = 456;
-    const int panel_h = 412;
+    const uint32_t card =
+        0x00202020;
+
+    const uint32_t fg =
+        0x00ffffff;
+
+    const uint32_t dim =
+        0x00606060;
 
     flip_draw_rect(
         &video_drm,
-        panel_x,
-        panel_y,
-        panel_w,
-        panel_h,
+        QUICK_MENU_PANEL_X,
+        QUICK_MENU_PANEL_Y,
+        QUICK_MENU_PANEL_W,
+        QUICK_MENU_PANEL_H,
         panel);
 
     flip_draw_rect_outline(
         &video_drm,
-        panel_x,
-        panel_y,
-        panel_w,
-        panel_h,
+        QUICK_MENU_PANEL_X,
+        QUICK_MENU_PANEL_Y,
+        QUICK_MENU_PANEL_W,
+        QUICK_MENU_PANEL_H,
         2,
         fg);
 
+    const char *title =
+        "QUICK MENU";
+
+    int title_x =
+        QUICK_MENU_PANEL_X +
+        (QUICK_MENU_PANEL_W -
+         (int)strlen(title) * 18) /
+        2;
+
     flip_draw_text(
         &video_drm,
-        214,
-        54,
-        "QUICK MENU",
+        title_x,
+        48,
+        title,
         3,
         fg);
 
@@ -839,8 +866,10 @@ int flip_video_quick_menu_present(
          ++i) {
 
         int y =
-            104 +
-            i * 36;
+            QUICK_MENU_ITEM_Y +
+            i *
+                (QUICK_MENU_ITEM_H +
+                 QUICK_MENU_ITEM_GAP);
 
         int selected =
             i == view->selected;
@@ -848,22 +877,33 @@ int flip_video_quick_menu_present(
         if (selected) {
             flip_draw_rect(
                 &video_drm,
-                118,
-                y - 9,
-                404,
-                29,
-                fg);
+                QUICK_MENU_INNER_X,
+                y,
+                QUICK_MENU_INNER_W,
+                QUICK_MENU_ITEM_H,
+                card);
         }
+
+        flip_draw_rect_outline(
+            &video_drm,
+            QUICK_MENU_INNER_X,
+            y,
+            QUICK_MENU_INNER_W,
+            QUICK_MENU_ITEM_H,
+            selected ? 2 : 1,
+            selected
+                ? fg
+                : dim);
 
         flip_draw_text(
             &video_drm,
-            136,
-            y,
+            QUICK_MENU_INNER_X + 18,
+            y + 8,
             labels[i],
             2,
             selected
-                ? 0x00000000
-                : fg);
+                ? fg
+                : dim);
 
         char value[32];
 
@@ -873,13 +913,13 @@ int flip_video_quick_menu_present(
             snprintf(
                 value,
                 sizeof(value),
-                "%d",
+                "%d%%",
                 view->volume_percent);
         } else if (i == 4) {
             snprintf(
                 value,
                 sizeof(value),
-                "%d",
+                "%d%%",
                 view->brightness_percent);
         } else if (i == 5) {
             snprintf(
@@ -892,18 +932,22 @@ int flip_video_quick_menu_present(
         }
 
         if (value[0]) {
-            int text_x =
-                470 -
-                (int)strlen(value) * 12;
+
+            int value_width =
+                (int)strlen(value) *
+                12;
 
             flip_draw_text(
                 &video_drm,
-                text_x,
-                y,
+                QUICK_MENU_INNER_X +
+                    QUICK_MENU_INNER_W -
+                    18 -
+                    value_width,
+                y + 8,
                 value,
                 2,
                 selected
-                    ? 0x00000000
+                    ? fg
                     : dim);
         }
     }
@@ -913,18 +957,27 @@ int flip_video_quick_menu_present(
 
         flip_draw_text(
             &video_drm,
-            124,
-            402,
+            QUICK_MENU_INNER_X,
+            QUICK_MENU_STATUS_Y,
             view->status,
             1,
             fg);
     }
 
+    const char *footer =
+        "A SELECT   B OR MENU RESUME   LEFT RIGHT ADJUST";
+
+    int footer_x =
+        QUICK_MENU_PANEL_X +
+        (QUICK_MENU_PANEL_W -
+         (int)strlen(footer) * 6) /
+        2;
+
     flip_draw_text(
         &video_drm,
-        124,
-        424,
-        "A SELECT   B OR MENU RESUME   LEFT RIGHT ADJUST",
+        footer_x,
+        QUICK_MENU_FOOTER_Y,
+        footer,
         1,
         dim);
 
