@@ -11,7 +11,15 @@
 #define FLIP_OPTIMIZER_CALIBRATION_DEFAULT_STEP_UV 12500U
 #define FLIP_OPTIMIZER_CALIBRATION_DEFAULT_GUARDBAND_UV 25000U
 #define FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV 812500U
+#ifndef FLIP_OPTIMIZER_CALIBRATION_RK3566_FLOOR_UV
+#define FLIP_OPTIMIZER_CALIBRATION_RK3566_FLOOR_UV \
+    FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV
+#endif
 #define FLIP_OPTIMIZER_CALIBRATION_RK3566_MIN_TUNABLE_KHZ 408000U
+
+#ifndef FLIP_OPTIMIZER_CALIBRATION_TRIAL_PREFIX
+#define FLIP_OPTIMIZER_CALIBRATION_TRIAL_PREFIX "cpu"
+#endif
 
 #ifndef FLIP_OPTIMIZER_CALIBRATION_ROOT
 #define FLIP_OPTIMIZER_CALIBRATION_ROOT "/mnt/SDCARD/flipos-dev/state/optimizer"
@@ -21,6 +29,9 @@
 #define FLIP_OPTIMIZER_CALIBRATION_FILE \
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-calibration"
 #endif
+
+#define FLIP_OPTIMIZER_PRODUCTION_CALIBRATION_FILE \
+    FLIP_OPTIMIZER_CALIBRATION_ROOT "/cpu-calibration"
 
 typedef struct {
     unsigned frequency_khz;
@@ -70,6 +81,10 @@ int flip_optimizer_calibration_validate(
 
 int flip_optimizer_calibration_save(
     const flip_optimizer_calibration_t *calibration);
+
+int flip_optimizer_calibration_load_file(
+    flip_optimizer_calibration_t *calibration,
+    const char *path);
 
 int flip_optimizer_calibration_load(
     flip_optimizer_calibration_t *calibration);
