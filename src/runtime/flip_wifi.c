@@ -626,23 +626,83 @@ static void copy_status_value(
     char *out,
     size_t out_size);
 
-static int restart_supplicant(void)
+static void copy_status_ssid(
+    const char *text,
+    char *out,
+    size_t out_size)
 {
-    char *terminate_argv[] = {
+    char escaped[FLIP_WIFI_SSID_MAX * 4] = "";
+    copy_status_value(text, "ssid", escaped, sizeof(escaped));
+    if (decode_scan_ssid(escaped, out, out_size) < 0 && out_size > 0)
+        out[0] = '\0';
+}
+
+static int reconfigure_supplicant(void)
+{
+    char reply[64];
+    char *argv[] = {
         (char *)FLIP_WIFI_WPA_CLI,
         "-i", (char *)FLIP_WIFI_INTERFACE,
-        "terminate", NULL
+        "reconfigure", NULL
     };
-    (void)run_capture(terminate_argv, NULL, 0);
+    return run_capture(argv, reply, sizeof(reply)) == 0 &&
+        strstr(reply, "OK") != NULL ? 0 : -1;
+}
 
-    char *supplicant_argv[] = {
-        (char *)FLIP_WIFI_WPA_SUPPLICANT,
-        "-B",
+static void enable_all_networks(void)
+{
+    char *argv[] = {
+        (char *)FLIP_WIFI_WPA_CLI,
         "-i", (char *)FLIP_WIFI_INTERFACE,
-        "-c", (char *)FLIP_WIFI_CONFIG_FILE,
-        NULL
+        "enable_network", "all", NULL
     };
-    return run_capture(supplicant_argv, NULL, 0);
+    (void)run_capture(argv, NULL, 0);
+}
+
+static int select_configured_network(const char *ssid)
+{
+    char output[8192];
+    char *list_argv[] = {
+        (char *)FLIP_WIFI_WPA_CLI,
+        "-i", (char *)FLIP_WIFI_INTERFACE,
+        "list_networks", NULL
+    };
+    if (run_capture(list_argv, output, sizeof(output)) != 0)
+        return -1;
+
+    char *save = NULL;
+    char *line = strtok_r(output, "\r\n", &save);
+    while (line) {
+        char *id = line;
+        char *listed_ssid = strchr(id, '\t');
+        if (listed_ssid) {
+            *listed_ssid++ = '\0';
+            char *end = strchr(listed_ssid, '\t');
+            if (end)
+                *end = '\0';
+
+            int numeric = id[0] != '\0';
+            for (const char *digit = id; *digit; ++digit)
+                if (!isdigit((unsigned char)*digit))
+                    numeric = 0;
+
+            char decoded[FLIP_WIFI_SSID_MAX] = "";
+            if (numeric && strlen(id) < 8 &&
+                decode_scan_ssid(listed_ssid, decoded, sizeof(decoded)) == 0 &&
+                strcmp(decoded, ssid) == 0) {
+                char reply[64];
+                char *select_argv[] = {
+                    (char *)FLIP_WIFI_WPA_CLI,
+                    "-i", (char *)FLIP_WIFI_INTERFACE,
+                    "select_network", id, NULL
+                };
+                return run_capture(select_argv, reply, sizeof(reply)) == 0 &&
+                    strstr(reply, "OK") != NULL ? 0 : -1;
+            }
+        }
+        line = strtok_r(NULL, "\r\n", &save);
+    }
+    return -1;
 }
 
 static int connect_profile(
@@ -661,7 +721,19 @@ static int connect_profile(
         flip_wifi_profiles_upsert(ssid, hex_psk, open_network) < 0)
         return FLIP_WIFI_CONNECT_ERROR;
 
-    if (restart_supplicant() != 0)
+    if (ensure_supplicant() != 0 || reconfigure_supplicant() != 0)
+        goto rollback;
+
+    int selected = 0;
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        struct timespec wait = { .tv_sec = 0, .tv_nsec = 100000000L };
+        nanosleep(&wait, NULL);
+        if (select_configured_network(ssid) == 0) {
+            selected = 1;
+            break;
+        }
+    }
+    if (!selected)
         goto rollback;
 
     int associated = 0;
@@ -673,7 +745,7 @@ static int connect_profile(
         char active_ssid[FLIP_WIFI_SSID_MAX] = "";
         if (wpa_status_text(status, sizeof(status)) != 0)
             continue;
-        copy_status_value(status, "ssid", active_ssid, sizeof(active_ssid));
+        copy_status_ssid(status, active_ssid, sizeof(active_ssid));
         if (strstr(status, "wpa_state=COMPLETED") != NULL &&
             strcmp(active_ssid, ssid) == 0) {
             associated = 1;
@@ -684,6 +756,13 @@ static int connect_profile(
     if (!associated)
         goto rollback;
 
+    /*
+     * select_network intentionally disables the other profiles. Re-enable
+     * them once the requested network is active so automatic failover still
+     * works. The requested profile is already highest priority on disk.
+     */
+    enable_all_networks();
+
     /* WPA association succeeded. Keep the profile even if DHCP times out. */
     stop_udhcpc();
     request_dhcpcd();
@@ -692,7 +771,7 @@ static int connect_profile(
         char status[2048];
         char active_ssid[FLIP_WIFI_SSID_MAX] = "";
         if (wpa_status_text(status, sizeof(status)) == 0) {
-            copy_status_value(status, "ssid", active_ssid, sizeof(active_ssid));
+            copy_status_ssid(status, active_ssid, sizeof(active_ssid));
             if (strcmp(active_ssid, ssid) != 0 ||
                 strstr(status, "wpa_state=COMPLETED") == NULL)
                 return FLIP_WIFI_CONNECT_ERROR;
@@ -706,8 +785,11 @@ static int connect_profile(
 
 rollback:
     /* Wrong credentials must never overwrite previously working networks. */
-    if (flip_wifi_profiles_store(previous, previous_count) == 0)
-        (void)restart_supplicant();
+    if (flip_wifi_profiles_store(previous, previous_count) == 0 &&
+        ensure_supplicant() == 0) {
+        (void)reconfigure_supplicant();
+        enable_all_networks();
+    }
     return FLIP_WIFI_CONNECT_ERROR;
 }
 
@@ -903,7 +985,7 @@ int flip_wifi_get_status(
     status->enabled = 1;
     char state[64] = "";
     copy_status_value(output, "wpa_state", state, sizeof(state));
-    copy_status_value(output, "ssid", status->ssid, sizeof(status->ssid));
+    copy_status_ssid(output, status->ssid, sizeof(status->ssid));
     copy_status_value(output, "ip_address", status->ip_address, sizeof(status->ip_address));
     status->connected = strcmp(state, "COMPLETED") == 0;
     status->usable_ip = usable_ipv4_address(status->ip_address);
