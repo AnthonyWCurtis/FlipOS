@@ -53,7 +53,8 @@ for token in [
 ]:
     assert token in updater, f"boot GPU warm-up missing: {token}"
 
-assert updater.index('"$GPU_SERVICE" --warmup') < updater.index('"$ROOT/bin/flip-frontend"')
+frontend_launch = '"$ROOT/bin/flip-frontend" >> "$LOG_TARGET" 2>&1'
+assert updater.index('"$GPU_SERVICE" --warmup') < updater.rindex(frontend_launch)
 assert service.index("if (warmup_only)") < service.index("socket_fd = socket(")
 
 print("shared GPU startup architecture passed")
