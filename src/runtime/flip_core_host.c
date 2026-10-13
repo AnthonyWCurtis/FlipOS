@@ -1437,17 +1437,21 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
                         measured_fps,
                         fps,
                         host_avg_us,
+                        perf_diag.late.max_us,
+                        perf_diag.resyncs,
                         audio_diag.queue_dropped_frames);
 
                 if (dynamic_result == 1) {
                     fprintf(
                         stderr,
-                        "FLIP_CPU_DYNAMIC: raised max_khz=%u->%u fps=%.3f target=%.3f host_avg_us=%llu audio_drops=%llu raise_count=%u learned_floor_khz=%u\n",
+                        "FLIP_CPU_DYNAMIC: raised max_khz=%u->%u fps=%.3f target=%.3f host_avg_us=%llu late_max_us=%llu resyncs=%llu audio_drops=%llu raise_count=%u learned_floor_khz=%u\n",
                         previous_max_khz,
                         dynamic_cpu.current_max_khz,
                         measured_fps,
                         fps,
                         (unsigned long long)host_avg_us,
+                        (unsigned long long)perf_diag.late.max_us,
+                        (unsigned long long)perf_diag.resyncs,
                         (unsigned long long)audio_diag.queue_dropped_frames,
                         dynamic_cpu.raise_count,
                         dynamic_cpu.frequencies_khz[dynamic_cpu.base_index]);
