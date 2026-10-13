@@ -15,6 +15,8 @@ for ch in "abcdefghijklmnopqrstuvwxyz":
 for ch in string.punctuation:
     if ch == "'":
         needle = "{'\\'',"
+    elif ch == '"':
+        needle = "{'\\\"',"
     elif ch == "\\":
         needle = "{'\\\\',"
     else:
