@@ -340,6 +340,7 @@ test-optimizer-supervisor: $(BUILD)/test-flip-optimizer-supervisor
 
 test-optimizer-calibration: $(BUILD)/test-flip-optimizer-calibration
 	$(BUILD)/test-flip-optimizer-calibration
+	python3 tests/test_optimizer_full_range_architecture.py
 
 test-optimizer-calibration-session: $(BUILD)/test-flip-optimizer-calibration-session
 	$(BUILD)/test-flip-optimizer-calibration-session
