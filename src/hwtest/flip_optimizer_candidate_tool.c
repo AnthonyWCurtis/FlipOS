@@ -52,12 +52,18 @@
 #define FLIP_OPTIMIZER_HW_WATCHDOG_REQUEST_SECONDS 8U
 #define FLIP_OPTIMIZER_MODULE_CONTROL \
     "/sys/module/flip_opp_voltage/parameters/control"
+#ifndef FLIP_OPTIMIZER_UI_RETURN_FILE
 #define FLIP_OPTIMIZER_UI_RETURN_FILE \
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/ui-return"
+#endif
+#ifndef FLIP_OPTIMIZER_AUTO_SESSION_FILE
 #define FLIP_OPTIMIZER_AUTO_SESSION_FILE \
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/auto-session"
+#endif
+#ifndef FLIP_OPTIMIZER_AUTO_SESSION_TMP
 #define FLIP_OPTIMIZER_AUTO_SESSION_TMP \
     FLIP_OPTIMIZER_CALIBRATION_ROOT "/auto-session.tmp"
+#endif
 #define FLIP_OPTIMIZER_USB_ONLINE \
     "/sys/class/power_supply/usb/online"
 #define FLIP_OPTIMIZER_AC_ONLINE \
