@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -19,7 +20,17 @@ static uint32_t video_overlay_pixels[640u * 480u];
 static uint32_t video_osd_pixels[420u * 36u];
 static uint32_t video_perf_pixels[190u * 100u];
 static uint32_t video_quick_base_pixels[640u * 480u];
+static uint32_t video_menu_tile_pixels[496u * 64u];
 static int video_quick_base_valid = 0;
+
+static unsigned char *video_gpu_last_frame = NULL;
+static size_t video_gpu_last_frame_capacity = 0;
+static size_t video_gpu_last_frame_bytes = 0;
+static unsigned video_gpu_last_width = 0;
+static unsigned video_gpu_last_height = 0;
+static size_t video_gpu_last_pitch = 0;
+static flip_gpu_format_t video_gpu_last_format = FLIP_GPU_FORMAT_RGB565;
+
 static flip_gpu_client_t video_gpu;
 
 static int video_open = 0;
@@ -36,7 +47,7 @@ static int video_gpu_perf_active = 0;
  * development, but use the proven direct DRM path for Beta so game launches
  * never pay that timeout.
  */
-#define FLIP_VIDEO_GPU_HOST_ENABLED 0
+#define FLIP_VIDEO_GPU_HOST_ENABLED 1
 
 static int perf_overlay_enabled = 0;
 static flip_telemetry_snapshot_t perf_overlay_snapshot;
@@ -688,6 +699,170 @@ static void update_gpu_overlays(void)
 }
 
 
+#define FLIP_GPU_MENU_TILE_HEIGHT 64u
+#define FLIP_GPU_MENU_TILE_COUNT 7u
+
+static int gpu_cache_frame(
+    const void *data,
+    unsigned width,
+    unsigned height,
+    size_t pitch,
+    flip_gpu_format_t format)
+{
+    if (!data || width == 0 || height == 0 || pitch == 0)
+        return -1;
+
+    if (height > SIZE_MAX / pitch)
+        return -1;
+
+    size_t bytes = pitch * height;
+    if (bytes == 0 || bytes > FLIP_GPU_MAX_PAYLOAD)
+        return -1;
+
+    if (video_gpu_last_frame_capacity < bytes) {
+        unsigned char *next =
+            realloc(video_gpu_last_frame, bytes);
+        if (!next)
+            return -1;
+
+        video_gpu_last_frame = next;
+        video_gpu_last_frame_capacity = bytes;
+    }
+
+    memcpy(video_gpu_last_frame, data, bytes);
+    video_gpu_last_frame_bytes = bytes;
+    video_gpu_last_width = width;
+    video_gpu_last_height = height;
+    video_gpu_last_pitch = pitch;
+    video_gpu_last_format = format;
+    return 0;
+}
+
+static int gpu_replay_cached_frame(void)
+{
+    if (!video_gpu_active ||
+        !video_gpu_last_frame ||
+        video_gpu_last_frame_bytes == 0)
+        return -1;
+
+    for (unsigned attempt = 0; attempt < 20; ++attempt) {
+        int result =
+            flip_gpu_client_submit(
+                &video_gpu,
+                video_gpu_last_frame,
+                video_gpu_last_width,
+                video_gpu_last_height,
+                video_gpu_last_pitch,
+                video_gpu_last_format);
+
+        if (result == 0)
+            return 0;
+        if (result < 0)
+            return -1;
+
+        struct timespec delay = {
+            .tv_sec = 0,
+            .tv_nsec = 1000000L
+        };
+        (void)nanosleep(&delay, NULL);
+    }
+
+    return -1;
+}
+
+static void gpu_menu_clear(void)
+{
+    if (!video_gpu_active)
+        return;
+
+    for (unsigned index = 0;
+         index < FLIP_GPU_MENU_TILE_COUNT;
+         ++index) {
+        (void)flip_gpu_client_clear_overlay(
+            &video_gpu,
+            (flip_gpu_overlay_slot_t)
+                (FLIP_GPU_OVERLAY_MENU_0 + index));
+    }
+}
+
+static int gpu_menu_submit_rect(
+    int x,
+    int y,
+    unsigned width,
+    unsigned height)
+{
+    if (!video_gpu_active ||
+        width == 0 ||
+        height == 0 ||
+        width > 496u)
+        return -1;
+
+    unsigned tile_index = 0;
+
+    for (unsigned row = 0;
+         row < height;
+         row += FLIP_GPU_MENU_TILE_HEIGHT) {
+        if (tile_index >= FLIP_GPU_MENU_TILE_COUNT)
+            return -1;
+
+        unsigned tile_height = height - row;
+        if (tile_height > FLIP_GPU_MENU_TILE_HEIGHT)
+            tile_height = FLIP_GPU_MENU_TILE_HEIGHT;
+
+        copy_overlay_rect(
+            video_menu_tile_pixels,
+            width,
+            &video_overlay_drm,
+            x,
+            y + (int)row,
+            width,
+            tile_height);
+
+        int sent = -1;
+
+        for (unsigned attempt = 0;
+             attempt < 20;
+             ++attempt) {
+            sent =
+                flip_gpu_client_submit_overlay(
+                    &video_gpu,
+                    (flip_gpu_overlay_slot_t)
+                        (FLIP_GPU_OVERLAY_MENU_0 + tile_index),
+                    x,
+                    y + (int)row,
+                    video_menu_tile_pixels,
+                    width,
+                    tile_height,
+                    width * sizeof(uint32_t));
+
+            if (sent == 0)
+                break;
+            if (sent < 0)
+                return -1;
+
+            struct timespec delay = {
+                .tv_sec = 0,
+                .tv_nsec = 1000000L
+            };
+            (void)nanosleep(&delay, NULL);
+        }
+
+        if (sent != 0)
+            return -1;
+
+        ++tile_index;
+    }
+
+    for (; tile_index < FLIP_GPU_MENU_TILE_COUNT; ++tile_index) {
+        (void)flip_gpu_client_clear_overlay(
+            &video_gpu,
+            (flip_gpu_overlay_slot_t)
+                (FLIP_GPU_OVERLAY_MENU_0 + tile_index));
+    }
+
+    return gpu_replay_cached_frame();
+}
+
 static int quick_menu_copy_from_drm(void)
 {
     if (!video_open ||
@@ -741,6 +916,16 @@ static void quick_menu_restore_to_drm(void)
 
 int flip_video_quick_menu_begin(void)
 {
+    if (video_gpu_active) {
+        if (!video_gpu_last_frame ||
+            video_gpu_last_frame_bytes == 0)
+            return -1;
+
+        gpu_menu_clear();
+        video_quick_base_valid = 1;
+        return 0;
+    }
+
     if (quick_menu_copy_from_drm() < 0)
         return -1;
 
@@ -767,36 +952,47 @@ int flip_video_quick_menu_present(
 {
     if (!view ||
         !video_quick_base_valid ||
-        !video_open ||
-        video_gpu_active)
+        !video_open)
         return -1;
 
-    quick_menu_restore_to_drm();
+    flip_drm_t *target =
+        video_gpu_active
+            ? &video_overlay_drm
+            : &video_drm;
 
-    uint32_t stride =
-        video_drm.pitch /
-        sizeof(uint32_t);
+    if (video_gpu_active) {
+        memset(
+            video_overlay_pixels,
+            0,
+            sizeof(video_overlay_pixels));
+    } else {
+        quick_menu_restore_to_drm();
 
-    /*
-     * Keep the frozen game visible as context, but push it far enough into
-     * the background that the same dark/white FlipOS console language reads
-     * clearly over any game palette.
-     */
-    for (unsigned y = 0;
-         y < QUICK_MENU_SCREEN_H;
-         ++y) {
+        uint32_t stride =
+            video_drm.pitch /
+            sizeof(uint32_t);
 
-        uint32_t *row =
-            video_drm.pixels +
-            y * stride;
+        /*
+         * Keep the frozen game visible as context, but push it far enough into
+         * the background that the same dark/white FlipOS console language
+         * reads clearly over any game palette.
+         */
+        for (unsigned y = 0;
+             y < QUICK_MENU_SCREEN_H;
+             ++y) {
 
-        for (unsigned x = 0;
-             x < QUICK_MENU_SCREEN_W;
-             ++x) {
+            uint32_t *row =
+                video_drm.pixels +
+                y * stride;
 
-            row[x] =
-                (row[x] >> 2) &
-                0x003f3f3f;
+            for (unsigned x = 0;
+                 x < QUICK_MENU_SCREEN_W;
+                 ++x) {
+
+                row[x] =
+                    (row[x] >> 2) &
+                    0x003f3f3f;
+            }
         }
     }
 
@@ -813,7 +1009,7 @@ int flip_video_quick_menu_present(
         0x00606060;
 
     flip_draw_rect(
-        &video_drm,
+        target,
         QUICK_MENU_PANEL_X,
         QUICK_MENU_PANEL_Y,
         QUICK_MENU_PANEL_W,
@@ -821,7 +1017,7 @@ int flip_video_quick_menu_present(
         panel);
 
     flip_draw_rect_outline(
-        &video_drm,
+        target,
         QUICK_MENU_PANEL_X,
         QUICK_MENU_PANEL_Y,
         QUICK_MENU_PANEL_W,
@@ -839,7 +1035,7 @@ int flip_video_quick_menu_present(
         2;
 
     flip_draw_text(
-        &video_drm,
+        target,
         title_x,
         48,
         title,
@@ -876,7 +1072,7 @@ int flip_video_quick_menu_present(
 
         if (selected) {
             flip_draw_rect(
-                &video_drm,
+                target,
                 QUICK_MENU_INNER_X,
                 y,
                 QUICK_MENU_INNER_W,
@@ -885,7 +1081,7 @@ int flip_video_quick_menu_present(
         }
 
         flip_draw_rect_outline(
-            &video_drm,
+            target,
             QUICK_MENU_INNER_X,
             y,
             QUICK_MENU_INNER_W,
@@ -896,7 +1092,7 @@ int flip_video_quick_menu_present(
                 : dim);
 
         flip_draw_text(
-            &video_drm,
+            target,
             QUICK_MENU_INNER_X + 18,
             y + 8,
             labels[i],
@@ -938,7 +1134,7 @@ int flip_video_quick_menu_present(
                 12;
 
             flip_draw_text(
-                &video_drm,
+                target,
                 QUICK_MENU_INNER_X +
                     QUICK_MENU_INNER_W -
                     18 -
@@ -956,7 +1152,7 @@ int flip_video_quick_menu_present(
         view->status[0]) {
 
         flip_draw_text(
-            &video_drm,
+            target,
             QUICK_MENU_INNER_X,
             QUICK_MENU_STATUS_Y,
             view->status,
@@ -974,12 +1170,20 @@ int flip_video_quick_menu_present(
         2;
 
     flip_draw_text(
-        &video_drm,
+        target,
         footer_x,
         QUICK_MENU_FOOTER_Y,
         footer,
         1,
         dim);
+
+    if (video_gpu_active) {
+        return gpu_menu_submit_rect(
+            QUICK_MENU_PANEL_X,
+            QUICK_MENU_PANEL_Y,
+            QUICK_MENU_PANEL_W,
+            QUICK_MENU_PANEL_H);
+    }
 
     return flip_drm_present(
         &video_drm);
@@ -1006,31 +1210,42 @@ int flip_video_power_menu_present(
 {
     if (!view ||
         !video_quick_base_valid ||
-        !video_open ||
-        video_gpu_active)
+        !video_open)
         return -1;
 
-    quick_menu_restore_to_drm();
+    flip_drm_t *target =
+        video_gpu_active
+            ? &video_overlay_drm
+            : &video_drm;
 
-    uint32_t stride =
-        video_drm.pitch /
-        sizeof(uint32_t);
+    if (video_gpu_active) {
+        memset(
+            video_overlay_pixels,
+            0,
+            sizeof(video_overlay_pixels));
+    } else {
+        quick_menu_restore_to_drm();
 
-    for (unsigned y = 0;
-         y < 480;
-         ++y) {
+        uint32_t stride =
+            video_drm.pitch /
+            sizeof(uint32_t);
 
-        uint32_t *row =
-            video_drm.pixels +
-            y * stride;
+        for (unsigned y = 0;
+             y < 480;
+             ++y) {
 
-        for (unsigned x = 0;
-             x < 640;
-             ++x) {
+            uint32_t *row =
+                video_drm.pixels +
+                y * stride;
 
-            row[x] =
-                (row[x] >> 2) &
-                0x003f3f3f;
+            for (unsigned x = 0;
+                 x < 640;
+                 ++x) {
+
+                row[x] =
+                    (row[x] >> 2) &
+                    0x003f3f3f;
+            }
         }
     }
 
@@ -1047,7 +1262,7 @@ int flip_video_power_menu_present(
         0x00606060;
 
     flip_draw_rect(
-        &video_drm,
+        target,
         POWER_OVERLAY_PANEL_X,
         POWER_OVERLAY_PANEL_Y,
         POWER_OVERLAY_PANEL_W,
@@ -1055,7 +1270,7 @@ int flip_video_power_menu_present(
         panel);
 
     flip_draw_rect_outline(
-        &video_drm,
+        target,
         POWER_OVERLAY_PANEL_X,
         POWER_OVERLAY_PANEL_Y,
         POWER_OVERLAY_PANEL_W,
@@ -1073,7 +1288,7 @@ int flip_video_power_menu_present(
         2;
 
     flip_draw_text(
-        &video_drm,
+        target,
         title_x,
         94,
         title,
@@ -1101,7 +1316,7 @@ int flip_video_power_menu_present(
 
         if (selected) {
             flip_draw_rect(
-                &video_drm,
+                target,
                 POWER_OVERLAY_ROW_X,
                 y,
                 POWER_OVERLAY_ROW_W,
@@ -1110,7 +1325,7 @@ int flip_video_power_menu_present(
         }
 
         flip_draw_rect_outline(
-            &video_drm,
+            target,
             POWER_OVERLAY_ROW_X,
             y,
             POWER_OVERLAY_ROW_W,
@@ -1127,7 +1342,7 @@ int flip_video_power_menu_present(
             2;
 
         flip_draw_text(
-            &video_drm,
+            target,
             label_x,
             y + 18,
             labels[i],
@@ -1145,7 +1360,7 @@ int flip_video_power_menu_present(
                 : "POWER OFF FLIPOS?";
 
         flip_draw_rect(
-            &video_drm,
+            target,
             POWER_OVERLAY_ROW_X,
             POWER_OVERLAY_CONFIRM_Y,
             POWER_OVERLAY_ROW_W,
@@ -1153,7 +1368,7 @@ int flip_video_power_menu_present(
             card);
 
         flip_draw_rect_outline(
-            &video_drm,
+            target,
             POWER_OVERLAY_ROW_X,
             POWER_OVERLAY_CONFIRM_Y,
             POWER_OVERLAY_ROW_W,
@@ -1168,7 +1383,7 @@ int flip_video_power_menu_present(
             2;
 
         flip_draw_text(
-            &video_drm,
+            target,
             confirm_x,
             POWER_OVERLAY_CONFIRM_Y + 8,
             confirm,
@@ -1185,7 +1400,7 @@ int flip_video_power_menu_present(
             2;
 
         flip_draw_text(
-            &video_drm,
+            target,
             hint_x,
             POWER_OVERLAY_CONFIRM_Y + 36,
             confirm_hint,
@@ -1203,7 +1418,7 @@ int flip_video_power_menu_present(
             2;
 
         flip_draw_text(
-            &video_drm,
+            target,
             status_x,
             356,
             view->status,
@@ -1222,12 +1437,20 @@ int flip_video_power_menu_present(
             2;
 
         flip_draw_text(
-            &video_drm,
+            target,
             hint_x,
             372,
             hint,
             1,
             dim);
+    }
+
+    if (video_gpu_active) {
+        return gpu_menu_submit_rect(
+            POWER_OVERLAY_PANEL_X,
+            POWER_OVERLAY_PANEL_Y,
+            POWER_OVERLAY_PANEL_W,
+            POWER_OVERLAY_PANEL_H);
     }
 
     return flip_drm_present(
@@ -1245,7 +1468,12 @@ void flip_video_quick_menu_end(void)
         return;
 
     if (video_open &&
-        !video_gpu_active) {
+        video_gpu_active) {
+
+        gpu_menu_clear();
+        (void)gpu_replay_cached_frame();
+
+    } else if (video_open) {
 
         quick_menu_restore_to_drm();
 
@@ -1288,6 +1516,13 @@ int flip_video_submit(
             default:
                 return -1;
         }
+
+        (void)gpu_cache_frame(
+            data,
+            width,
+            height,
+            pitch,
+            gpu_format);
 
         uint64_t video_start_us =
             monotonic_us();
