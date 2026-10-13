@@ -4717,16 +4717,36 @@ static void draw_optimizer_results(
                 OPTIMIZER_RUNTIME_QUARANTINE_PATH,
                 F_OK) == 0;
 
-        const char *status =
-            quarantined
-                ? "FAILED"
-                : passed
-                    ? "PASSED"
-                    : cancelled
-                        ? "CANCELLED"
-                        : have_validation
-                            ? "FAILED"
-                            : "TEST NEEDED";
+        char status[48];
+
+        if (quarantined) {
+            snprintf(
+                status,
+                sizeof(status),
+                "FAILED");
+        } else if (passed) {
+            snprintf(
+                status,
+                sizeof(status),
+                "VERIFIED %u/%zu",
+                validation.tested_opps,
+                result.opp_count);
+        } else if (cancelled) {
+            snprintf(
+                status,
+                sizeof(status),
+                "CANCELLED");
+        } else if (have_validation) {
+            snprintf(
+                status,
+                sizeof(status),
+                "FAILED");
+        } else {
+            snprintf(
+                status,
+                sizeof(status),
+                "TEST NEEDED");
+        }
 
         flip_draw_text(
             drm,
@@ -4877,18 +4897,12 @@ static void draw_optimizer_results(
         for (size_t reverse =
                  result.opp_count;
              reverse > 0 &&
-             shown < 5;
+             shown < 8;
              --reverse) {
 
             const flip_optimizer_opp_t *opp =
                 &result.opps[
                     reverse - 1];
-
-            if (opp->optimized_uv >=
-                opp->stock_uv) {
-
-                continue;
-            }
 
             char frequency[32];
             char stock[32];
@@ -4916,8 +4930,8 @@ static void draw_optimizer_results(
                     1000U);
 
             int y =
-                194 +
-                shown * 39;
+                184 +
+                shown * 27;
 
             flip_draw_text(
                 drm,
