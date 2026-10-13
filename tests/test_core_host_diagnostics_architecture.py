@@ -18,8 +18,9 @@ assert "FLIP_SAVE: battery_memory size=%zu" in SOURCE, (
     "core host must log battery-backed save memory size for hardware validation"
 )
 
-while_pos = SOURCE.index("while (1)")
-prefix = SOURCE[:while_pos]
+run_start = SOURCE.index("int flip_core_host_run(")
+while_pos = SOURCE.index("while (1)", run_start)
+prefix = SOURCE[run_start:while_pos]
 
 assert "flip_telemetry_sample(" not in prefix, (
     "hardware telemetry must not be sampled before the HUD is enabled"
