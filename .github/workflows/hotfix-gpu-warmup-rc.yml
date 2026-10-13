@@ -84,8 +84,10 @@ jobs:
           tools/update/build-release-package "0.1.0-beta.6.1-rc.1" dist
           test -s dist/FlipOS-Update.tar.gz
           test -s dist/FlipOS-Update.tar.gz.sha256
-          tar -tzf dist/FlipOS-Update.tar.gz | grep -q 'FlipOSUpdate/payload/bin/flip-gpu-service'
-          tar -xOf dist/FlipOS-Update.tar.gz FlipOSUpdate/payload/updater-playtest | grep -q 'FLIP_GPU_WARMUP: starting before frontend'
+          tar -tzf dist/FlipOS-Update.tar.gz > /tmp/hotfix-archive.list
+          grep -q 'FlipOSUpdate/payload/bin/flip-gpu-service' /tmp/hotfix-archive.list
+          tar -xOf dist/FlipOS-Update.tar.gz FlipOSUpdate/payload/updater-playtest > /tmp/hotfix-updater
+          grep -q 'FLIP_GPU_WARMUP: starting before frontend' /tmp/hotfix-updater
           sha256sum dist/FlipOS-Update.tar.gz
 
       - name: Upload hardware-test package
