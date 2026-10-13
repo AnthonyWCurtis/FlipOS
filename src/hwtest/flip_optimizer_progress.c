@@ -20,7 +20,7 @@
     "/mnt/SDCARD/flipos-dev/state/optimizer/auto-session"
 #define RAM_PROGRESS_FILE \
     "/tmp/flipos-optimizer-progress-state"
-#define MIN_TUNABLE_KHZ 1104000U
+#define MIN_TUNABLE_KHZ 408000U
 #define MAX_OPPS 16U
 
 typedef struct {
