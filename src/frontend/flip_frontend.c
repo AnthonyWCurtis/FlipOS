@@ -281,6 +281,23 @@ static const char *home_items[] = {
 #define SETTINGS_ROW_GAP            8
 #define SETTINGS_FOOTER_Y         458
 
+/* Connectivity screens use the same safe frame as the rest of the console UI. */
+#define WIFI_MARGIN_X              24
+#define WIFI_CONTENT_W            592
+#define WIFI_LIST_Y               112
+#define WIFI_ROW_H                 36
+#define WIFI_ROW_GAP                4
+#define WIFI_VISIBLE_ROWS           7
+#define WIFI_MESSAGE_Y            414
+#define WIFI_FOOTER_Y             458
+
+#define WIFI_PASSWORD_CARD_Y       72
+#define WIFI_PASSWORD_CARD_H       48
+#define WIFI_KEYBOARD_Y           142
+#define WIFI_KEYBOARD_ROW_GAP      39
+#define WIFI_PASSWORD_MODE_Y      426
+#define WIFI_PASSWORD_FOOTER_Y    458
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -2394,258 +2411,592 @@ static void draw_wifi(
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("WI-FI", UI_SCALE_TITLE),
-        28,
+        centred_text_x(
+            "WI-FI",
+            UI_SCALE_BODY),
+        14,
         "WI-FI",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     char status_text[128];
+
     if (!wifi_status.interface_present) {
-        snprintf(status_text, sizeof(status_text),
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "WI-FI HARDWARE NOT AVAILABLE");
-    } else if (wifi_status.connected && wifi_status.usable_ip) {
-        snprintf(status_text, sizeof(status_text),
+    } else if (
+        wifi_status.connected &&
+        wifi_status.usable_ip) {
+
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "CONNECTED: %s",
-            wifi_status.ssid[0] ? wifi_status.ssid : "NETWORK");
-    } else if (wifi_status.connected) {
-        snprintf(status_text, sizeof(status_text),
+            wifi_status.ssid[0]
+                ? wifi_status.ssid
+                : "NETWORK");
+
+    } else if (
+        wifi_status.connected) {
+
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "CONNECTED - WAITING FOR NETWORK ADDRESS");
+
     } else {
-        snprintf(status_text, sizeof(status_text),
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "NOT CONNECTED");
     }
 
+    char status_visible[96];
+
+    fit_text_to_width(
+        status_text,
+        status_visible,
+        sizeof(status_visible),
+        WIFI_CONTENT_W,
+        UI_SCALE_META);
+
     flip_draw_text(
         drm,
-        centred_text_x(status_text, UI_SCALE_META),
-        84,
-        status_text,
+        centred_text_x(
+            status_visible,
+            UI_SCALE_META),
+        44,
+        status_visible,
         UI_SCALE_META,
-        wifi_status.connected ? FG : DIM);
+        wifi_status.connected
+            ? FG
+            : DIM);
 
-    if (wifi_status.usable_ip && wifi_status.ip_address[0]) {
+    if (wifi_status.usable_ip &&
+        wifi_status.ip_address[0]) {
+
         char ip_text[96];
-        snprintf(ip_text, sizeof(ip_text), "IP %s", wifi_status.ip_address);
+
+        snprintf(
+            ip_text,
+            sizeof(ip_text),
+            "IP %s",
+            wifi_status.ip_address);
+
+        char ip_visible[96];
+
+        fit_text_to_width(
+            ip_text,
+            ip_visible,
+            sizeof(ip_visible),
+            WIFI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(ip_text, UI_SCALE_META),
-            104,
-            ip_text,
-            UI_SCALE_META,
+            centred_text_x(
+                ip_visible,
+                1),
+            70,
+            ip_visible,
+            1,
             DIM);
     }
 
-    int visible = wifi_network_count < 7 ? wifi_network_count : 7;
-    int first = 0;
-    if (selected >= 7)
-        first = selected - 6;
-    if (first + visible > wifi_network_count)
-        first = wifi_network_count - visible;
+    int visible =
+        wifi_network_count <
+            WIFI_VISIBLE_ROWS
+            ? wifi_network_count
+            : WIFI_VISIBLE_ROWS;
+
+    int first =
+        selected -
+        visible / 2;
+
     if (first < 0)
         first = 0;
 
-    for (int row = 0; row < visible; ++row) {
-        int index = first + row;
-        int y = 132 + row * 39;
-        const flip_wifi_network_t *network = &wifi_networks[index];
+    if (first + visible >
+        wifi_network_count) {
 
-        if (index == selected) {
-            flip_draw_rect(drm, 60, y - 8, 520, 31, PANEL);
-            flip_draw_rect_outline(drm, 60, y - 8, 520, 31, 1, FG);
+        first =
+            wifi_network_count -
+            visible;
+    }
+
+    if (first < 0)
+        first = 0;
+
+    for (int row = 0;
+         row < visible;
+         ++row) {
+
+        int index =
+            first + row;
+
+        int y =
+            WIFI_LIST_Y +
+            row *
+                (WIFI_ROW_H +
+                 WIFI_ROW_GAP);
+
+        const flip_wifi_network_t *network =
+            &wifi_networks[index];
+
+        int active =
+            index == selected;
+
+        if (active) {
+            flip_draw_rect(
+                drm,
+                WIFI_MARGIN_X,
+                y,
+                WIFI_CONTENT_W,
+                WIFI_ROW_H,
+                PANEL);
         }
 
-        uint32_t row_color = index == selected ? FG : DIM;
+        flip_draw_rect_outline(
+            drm,
+            WIFI_MARGIN_X,
+            y,
+            WIFI_CONTENT_W,
+            WIFI_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        uint32_t row_color =
+            active
+                ? FG
+                : DIM;
+
+        char ssid_visible[64];
+
+        fit_text_to_width(
+            network->ssid,
+            ssid_visible,
+            sizeof(ssid_visible),
+            WIFI_CONTENT_W - 142,
+            UI_SCALE_BODY);
 
         flip_draw_text(
             drm,
-            76,
-            y,
-            network->ssid,
+            WIFI_MARGIN_X + 18,
+            y + 10,
+            ssid_visible,
             UI_SCALE_BODY,
             row_color);
 
-        if (network->secure)
-            draw_wifi_lock_icon(drm, 540, y - 5, row_color);
+        if (network->secure) {
+            draw_wifi_lock_icon(
+                drm,
+                WIFI_MARGIN_X +
+                    WIFI_CONTENT_W -
+                    38,
+                y + 9,
+                row_color);
+        }
 
         if (wifi_status.connected &&
-            strcmp(network->ssid, wifi_status.ssid) == 0) {
+            strcmp(
+                network->ssid,
+                wifi_status.ssid) == 0) {
+
             flip_draw_text(
                 drm,
-                476,
-                y,
-                wifi_status.usable_ip ? "ON" : "!",
+                WIFI_MARGIN_X +
+                    WIFI_CONTENT_W -
+                    83,
+                y + 15,
+                wifi_status.usable_ip
+                    ? "ON"
+                    : "!",
                 1,
                 FG);
         }
     }
 
     if (wifi_network_count == 0) {
-        flip_draw_text(
-            drm,
-            centred_text_x("NO NETWORKS", 2),
-            210,
-            "NO NETWORKS",
-            2,
-            DIM);
-    }
 
-    if (wifi_message[0]) {
+        flip_draw_rect(
+            drm,
+            WIFI_MARGIN_X,
+            132,
+            WIFI_CONTENT_W,
+            180,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            WIFI_MARGIN_X,
+            132,
+            WIFI_CONTENT_W,
+            180,
+            1,
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(wifi_message, UI_SCALE_BODY),
-            412,
-            wifi_message,
+            centred_text_x_in_rect(
+                "NO NETWORKS FOUND",
+                UI_SCALE_SECTION,
+                WIFI_MARGIN_X,
+                WIFI_CONTENT_W),
+            190,
+            "NO NETWORKS FOUND",
+            UI_SCALE_SECTION,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "X RESCAN",
+                UI_SCALE_BODY,
+                WIFI_MARGIN_X,
+                WIFI_CONTENT_W),
+            246,
+            "X RESCAN",
             UI_SCALE_BODY,
             FG);
     }
 
+    if (wifi_message[0]) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            wifi_message,
+            message_visible,
+            sizeof(message_visible),
+            WIFI_CONTENT_W,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                message_visible,
+                1),
+            WIFI_MESSAGE_Y,
+            message_visible,
+            1,
+            FG);
+    }
+
     const char *wifi_footer =
-        wifi_return_screen == SCREEN_FIRST_BOOT_WIFI
+        wifi_return_screen ==
+            SCREEN_FIRST_BOOT_WIFI
             ? "A CONNECT   X RESCAN   START SKIP"
             : "A CONNECT   X RESCAN   Y FORGET   B BACK";
 
     flip_draw_text(
         drm,
-        centred_text_x(wifi_footer, UI_SCALE_HINT),
-        UI_FOOTER_Y,
+        centred_text_x(
+            wifi_footer,
+            UI_SCALE_HINT),
+        WIFI_FOOTER_Y,
         wifi_footer,
         UI_SCALE_HINT,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void draw_wifi_password(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("WI-FI PASSWORD", UI_SCALE_TITLE),
-        24,
+        centred_text_x(
+            "WI-FI PASSWORD",
+            UI_SCALE_BODY),
+        14,
         "WI-FI PASSWORD",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     const char *ssid =
         (wifi_network_count > 0 &&
          wifi_selected >= 0 &&
-         wifi_selected < wifi_network_count)
-            ? wifi_networks[wifi_selected].ssid
+         wifi_selected <
+            wifi_network_count)
+            ? wifi_networks[
+                  wifi_selected].ssid
             : "NETWORK";
 
     char network_text[96];
-    snprintf(network_text, sizeof(network_text), "NETWORK: %s", ssid);
+
+    snprintf(
+        network_text,
+        sizeof(network_text),
+        "NETWORK: %s",
+        ssid);
+
+    char network_visible[96];
+
+    fit_text_to_width(
+        network_text,
+        network_visible,
+        sizeof(network_visible),
+        WIFI_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
-        centred_text_x(network_text, UI_SCALE_META),
-        70,
-        network_text,
-        UI_SCALE_META,
+        centred_text_x(
+            network_visible,
+            1),
+        44,
+        network_visible,
+        1,
+        DIM);
+
+    flip_draw_rect(
+        drm,
+        WIFI_MARGIN_X,
+        WIFI_PASSWORD_CARD_Y,
+        WIFI_CONTENT_W,
+        WIFI_PASSWORD_CARD_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        WIFI_MARGIN_X,
+        WIFI_PASSWORD_CARD_Y,
+        WIFI_CONTENT_W,
+        WIFI_PASSWORD_CARD_H,
+        1,
         DIM);
 
     char shown_password[72];
-    size_t password_length = strlen(wifi_password);
-    size_t visible_length = password_length;
-    if (visible_length > sizeof(shown_password) - 1)
-        visible_length = sizeof(shown_password) - 1;
+
+    size_t password_length =
+        strlen(wifi_password);
+
+    size_t visible_length =
+        password_length;
+
+    if (visible_length >
+        sizeof(shown_password) - 1) {
+
+        visible_length =
+            sizeof(shown_password) - 1;
+    }
 
     if (wifi_keyboard.reveal_text) {
-        memcpy(shown_password, wifi_password, visible_length);
+        memcpy(
+            shown_password,
+            wifi_password,
+            visible_length);
     } else {
-        for (size_t i = 0; i < visible_length; ++i)
+        for (size_t i = 0;
+             i < visible_length;
+             ++i) {
+
             shown_password[i] = '*';
+        }
     }
-    shown_password[visible_length] = '\0';
+
+    shown_password[
+        visible_length] = '\0';
 
     char password_text[96];
-    snprintf(password_text, sizeof(password_text),
-        "PASSWORD: %s", shown_password);
+
+    snprintf(
+        password_text,
+        sizeof(password_text),
+        "PASSWORD: %s",
+        shown_password);
+
+    char password_visible[96];
+
+    fit_text_to_width(
+        password_text,
+        password_visible,
+        sizeof(password_visible),
+        WIFI_CONTENT_W - 32,
+        UI_SCALE_BODY);
+
     flip_draw_text(
         drm,
-        centred_text_x(password_text, UI_SCALE_BODY),
-        96,
-        password_text,
+        WIFI_MARGIN_X + 16,
+        WIFI_PASSWORD_CARD_Y + 14,
+        password_visible,
         UI_SCALE_BODY,
         FG);
 
-    for (int i = 0; i < flip_keyboard_key_count(); ++i) {
-        int row = i / FLIP_KEYBOARD_COLUMNS;
-        int col = i % FLIP_KEYBOARD_COLUMNS;
-        int x = 66 + col * 52;
-        int y = 132 + row * 39;
+    for (int i = 0;
+         i < flip_keyboard_key_count();
+         ++i) {
 
-        if (i == wifi_keyboard.key_index) {
-            flip_draw_rect(drm, x - 11, y - 8, 42, 32, PANEL);
-            flip_draw_rect_outline(drm, x - 11, y - 8, 42, 32, 2, FG);
+        int row =
+            i /
+            FLIP_KEYBOARD_COLUMNS;
+
+        int col =
+            i %
+            FLIP_KEYBOARD_COLUMNS;
+
+        int x =
+            66 +
+            col * 52;
+
+        int y =
+            WIFI_KEYBOARD_Y +
+            row *
+                WIFI_KEYBOARD_ROW_GAP;
+
+        if (i ==
+            wifi_keyboard.key_index) {
+
+            flip_draw_rect(
+                drm,
+                x - 11,
+                y - 8,
+                42,
+                32,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                x - 11,
+                y - 8,
+                42,
+                32,
+                2,
+                FG);
         }
 
         char label[3] = {0};
-        char key = FLIP_KEYBOARD_CHARS[i];
+
+        char key =
+            FLIP_KEYBOARD_CHARS[i];
+
         if (key == ' ') {
             label[0] = '_';
-        } else if (wifi_keyboard.uppercase &&
-                   key >= 'a' && key <= 'z') {
-            label[0] = (char)(key - 'a' + 'A');
+        } else if (
+            wifi_keyboard.uppercase &&
+            key >= 'a' &&
+            key <= 'z') {
+
+            label[0] =
+                (char)(key - 'a' + 'A');
+
         } else {
             label[0] = key;
         }
+
         flip_draw_text(
             drm,
             x,
             y,
             label,
-            2,
-            i == wifi_keyboard.key_index ? FG : DIM);
+            UI_SCALE_BODY,
+            i ==
+                wifi_keyboard.key_index
+                ? FG
+                : DIM);
     }
 
     if (wifi_password_message[0]) {
+
+        char password_message[96];
+
+        fit_text_to_width(
+            wifi_password_message,
+            password_message,
+            sizeof(password_message),
+            WIFI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(wifi_password_message, UI_SCALE_BODY),
-            410,
-            wifi_password_message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                password_message,
+                1),
+            404,
+            password_message,
+            1,
             FG);
     }
 
     char keyboard_mode[96];
+
     snprintf(
         keyboard_mode,
         sizeof(keyboard_mode),
         "Y %s   X %s PASSWORD",
-        wifi_keyboard.uppercase ? "LOWERCASE" : "UPPERCASE",
-        wifi_keyboard.reveal_text ? "HIDE" : "SHOW");
-    flip_draw_text(
-        drm,
-        centred_text_x(keyboard_mode, UI_SCALE_HINT),
-        430,
+        wifi_keyboard.uppercase
+            ? "LOWERCASE"
+            : "UPPERCASE",
+        wifi_keyboard.reveal_text
+            ? "HIDE"
+            : "SHOW");
+
+    char mode_visible[96];
+
+    fit_text_to_width(
         keyboard_mode,
-        UI_SCALE_HINT,
+        mode_visible,
+        sizeof(mode_visible),
+        WIFI_CONTENT_W,
+        1);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            mode_visible,
+            1),
+        WIFI_PASSWORD_MODE_Y,
+        mode_visible,
+        1,
         DIM);
 
     flip_draw_text(
         drm,
-        centred_text_x("A TYPE   B DELETE/BACK   START CONNECT", UI_SCALE_HINT),
-        452,
+        centred_text_x(
+            "A TYPE   B DELETE/BACK   START CONNECT",
+            1),
+        WIFI_PASSWORD_FOOTER_Y,
         "A TYPE   B DELETE/BACK   START CONNECT",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static int read_update_version(char *out, size_t out_size)
