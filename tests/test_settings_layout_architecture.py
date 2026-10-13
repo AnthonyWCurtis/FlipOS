@@ -40,8 +40,12 @@ for block in (settings_menu, settings):
     assert "SETTINGS_CONTENT_W" in block
     assert "fit_text_to_width(" in block
 
+settings_items_start = source.index("static const char *settings_items[]")
+settings_items_end = source.index("};", settings_items_start) + 2
+settings_items = source[settings_items_start:settings_items_end]
+
 for label in ("CONNECTIVITY", "SYSTEM", "INTERFACE"):
-    assert label in settings
+    assert label in settings_items
 
 assert "ICON + PERCENTAGE" in settings_menu
 assert "ICON ONLY" in settings_menu
