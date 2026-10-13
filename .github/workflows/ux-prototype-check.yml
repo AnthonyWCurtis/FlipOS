@@ -17,8 +17,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
 
-      - name: Play stats unit test
-        run: make test-game-stats
+      - name: Focused unit tests
+        run: make test-game-stats test-controls test-power
 
       - name: UX architecture checks
         run: |
@@ -37,6 +37,7 @@ jobs:
           python3 tests/test_quick_menu_layout_architecture.py
           python3 tests/test_play_options_layout_architecture.py
           python3 tests/test_power_menu_architecture.py
+          python3 tests/test_power_architecture.py
           python3 tests/test_ui_scale_architecture.py
           python3 tests/test_settings_navigation_architecture.py
           python3 tests/test_session_adapter_architecture.py
