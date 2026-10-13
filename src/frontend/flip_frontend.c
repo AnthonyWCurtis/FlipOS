@@ -298,6 +298,19 @@ static const char *home_items[] = {
 #define WIFI_PASSWORD_MODE_Y      426
 #define WIFI_PASSWORD_FOOTER_Y    458
 
+/* Utility screens keep the same 24 px safe frame and compact console chrome. */
+#define UTILITY_MARGIN_X           24
+#define UTILITY_CONTENT_W         592
+#define UTILITY_PANEL_Y            86
+#define UTILITY_PANEL_H           286
+#define UTILITY_MESSAGE_Y         396
+#define UTILITY_FOOTER_Y          458
+
+#define BIOS_ROW_Y                 90
+#define BIOS_ROW_H                 82
+#define BIOS_ROW_GAP                8
+#define BIOS_HINT_Y               382
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -3120,139 +3133,297 @@ static void draw_update(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("SYSTEM UPDATE", UI_SCALE_TITLE),
-        34,
+        centred_text_x(
+            "SYSTEM UPDATE",
+            UI_SCALE_BODY),
+        14,
         "SYSTEM UPDATE",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     char version[96];
-    int package_ready = read_update_version(version, sizeof(version)) == 0;
+
+    int package_ready =
+        read_update_version(
+            version,
+            sizeof(version)) == 0;
+
+    const char *state_label =
+        update_complete
+            ? "READY TO RESTART"
+            : update_confirm &&
+              package_ready
+                ? "CONFIRM INSTALL"
+                : package_ready
+                    ? "UPDATE AVAILABLE"
+                    : "CHECK FOR UPDATES";
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            state_label,
+            1),
+        44,
+        state_label,
+        1,
+        DIM);
+
+    flip_draw_rect(
+        drm,
+        UTILITY_MARGIN_X,
+        UTILITY_PANEL_Y,
+        UTILITY_CONTENT_W,
+        UTILITY_PANEL_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        UTILITY_MARGIN_X,
+        UTILITY_PANEL_Y,
+        UTILITY_CONTENT_W,
+        UTILITY_PANEL_H,
+        1,
+        DIM);
 
     if (update_complete) {
+
         flip_draw_text(
             drm,
-            centred_text_x("UPDATE COMPLETE", UI_SCALE_BODY),
-            150,
+            centred_text_x_in_rect(
+                "UPDATE COMPLETE",
+                UI_SCALE_SECTION,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
             "UPDATE COMPLETE",
-            UI_SCALE_BODY,
+            UI_SCALE_SECTION,
             FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("RESTART TO FINISH", UI_SCALE_BODY),
-            198,
+            centred_text_x_in_rect(
+                "RESTART TO FINISH",
+                UI_SCALE_BODY,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            194,
             "RESTART TO FINISH",
             UI_SCALE_BODY,
-            FG);
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("A RESTART NOW   B LATER", UI_SCALE_HINT),
-            278,
+            centred_text_x_in_rect(
+                "A RESTART NOW   B LATER",
+                UI_SCALE_HINT,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A RESTART NOW   B LATER",
             UI_SCALE_HINT,
             FG);
-    } else if (update_confirm && package_ready) {
+
+    } else if (
+        update_confirm &&
+        package_ready) {
+
         char package_text[128];
-        snprintf(package_text, sizeof(package_text),
-            "INSTALL %.80s?", version);
+
+        snprintf(
+            package_text,
+            sizeof(package_text),
+            "INSTALL %.80s?",
+            version);
+
+        char package_visible[96];
+
+        fit_text_to_width(
+            package_text,
+            package_visible,
+            sizeof(package_visible),
+            UTILITY_CONTENT_W - 48,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x(package_text, UI_SCALE_BODY),
-            152,
-            package_text,
+            centred_text_x_in_rect(
+                package_visible,
+                UI_SCALE_BODY,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
+            package_visible,
             UI_SCALE_BODY,
             FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("CURRENT VERSION IS KEPT IF INSTALL FAILS", UI_SCALE_BODY),
-            205,
+            centred_text_x_in_rect(
+                "CURRENT VERSION IS KEPT IF INSTALL FAILS",
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            206,
             "CURRENT VERSION IS KEPT IF INSTALL FAILS",
-            UI_SCALE_BODY,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("A CONFIRM   B CANCEL", UI_SCALE_HINT),
-            276,
+            centred_text_x_in_rect(
+                "A CONFIRM   B CANCEL",
+                UI_SCALE_HINT,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A CONFIRM   B CANCEL",
             UI_SCALE_HINT,
             FG);
-    } else if (package_ready) {
+
+    } else if (
+        package_ready) {
+
         char package_text[128];
-        snprintf(package_text, sizeof(package_text),
-            "UPDATE FOUND: %.80s", version);
-        flip_draw_text(
-            drm,
-            centred_text_x(package_text, UI_SCALE_BODY),
-            152,
+
+        snprintf(
             package_text,
-            UI_SCALE_BODY,
-            FG);
+            sizeof(package_text),
+            "UPDATE FOUND: %.80s",
+            version);
+
+        char package_visible[96];
+
+        fit_text_to_width(
+            package_text,
+            package_visible,
+            sizeof(package_visible),
+            UTILITY_CONTENT_W - 48,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x("PACKAGE WILL BE VERIFIED BEFORE INSTALL", UI_SCALE_BODY),
-            205,
+            centred_text_x_in_rect(
+                package_visible,
+                UI_SCALE_BODY,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
+            package_visible,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "PACKAGE WILL BE VERIFIED BEFORE INSTALL",
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            206,
             "PACKAGE WILL BE VERIFIED BEFORE INSTALL",
-            UI_SCALE_BODY,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "A INSTALL   X CHECK GITHUB   Y DELETE",
-                UI_SCALE_HINT),
-            276,
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A INSTALL   X CHECK GITHUB   Y DELETE",
-            UI_SCALE_HINT,
+            1,
             FG);
+
     } else {
+
         flip_draw_text(
             drm,
-            centred_text_x("NO UPDATE PACKAGE FOUND", UI_SCALE_BODY),
-            152,
+            centred_text_x_in_rect(
+                "NO UPDATE PACKAGE FOUND",
+                UI_SCALE_SECTION,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
             "NO UPDATE PACKAGE FOUND",
-            UI_SCALE_BODY,
+            UI_SCALE_SECTION,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("DOWNLOAD FROM THE FLIPOS GITHUB RELEASE", UI_SCALE_BODY),
-            214,
-            "DOWNLOAD FROM THE FLIPOS GITHUB RELEASE",
-            UI_SCALE_BODY,
+            centred_text_x_in_rect(
+                "CHECK GITHUB FOR THE LATEST FLIPOS RELEASE",
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            206,
+            "CHECK GITHUB FOR THE LATEST FLIPOS RELEASE",
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("A CHECK GITHUB", UI_SCALE_HINT),
-            276,
+            centred_text_x_in_rect(
+                "A CHECK GITHUB",
+                UI_SCALE_HINT,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A CHECK GITHUB",
             UI_SCALE_HINT,
             FG);
     }
 
     if (update_message[0]) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            update_message,
+            message_visible,
+            sizeof(message_visible),
+            UTILITY_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(update_message, UI_SCALE_BODY),
-            360,
-            update_message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                message_visible,
+                1),
+            UTILITY_MESSAGE_Y,
+            message_visible,
+            1,
             FG);
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("B BACK", UI_SCALE_HINT),
-        445,
+        centred_text_x(
+            "B BACK",
+            1),
+        UTILITY_FOOTER_Y,
         "B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void refresh_time_status(void)
@@ -3808,35 +3979,55 @@ static void draw_bios_verifier(
         flip_bios_kind_t kind;
         const char *label;
     } rows[] = {
-        { FLIP_BIOS_GB_DMG, "GAME BOY" },
-        { FLIP_BIOS_GB_CGB, "GAME BOY COLOR" },
-        { FLIP_BIOS_GBA, "GAME BOY ADVANCE" },
+        {
+            FLIP_BIOS_GB_DMG,
+            "GAME BOY"
+        },
+        {
+            FLIP_BIOS_GB_CGB,
+            "GAME BOY COLOR"
+        },
+        {
+            FLIP_BIOS_GBA,
+            "GAME BOY ADVANCE"
+        },
     };
 
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("BIOS VERIFIER", UI_SCALE_TITLE),
-        24,
+        centred_text_x(
+            "BIOS VERIFIER",
+            UI_SCALE_BODY),
+        14,
         "BIOS VERIFIER",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     flip_draw_text(
         drm,
-        centred_text_x("USER-SUPPLIED BIOS FILES", UI_SCALE_META),
-        76,
+        centred_text_x(
+            "USER-SUPPLIED BIOS FILES",
+            1),
+        44,
         "USER-SUPPLIED BIOS FILES",
-        UI_SCALE_META,
+        1,
         DIM);
 
     for (size_t i = 0;
-         i < sizeof(rows) / sizeof(rows[0]);
+         i < sizeof(rows) /
+             sizeof(rows[0]);
          ++i) {
 
         flip_bios_info_t info;
-        memset(&info, 0, sizeof(info));
+
+        memset(
+            &info,
+            0,
+            sizeof(info));
 
         int query_result =
             flip_bios_query(
@@ -3845,70 +4036,123 @@ static void draw_bios_verifier(
 
         const char *status =
             query_result == 0
-                ? bios_status_text(info.status)
+                ? bios_status_text(
+                      info.status)
                 : "ERROR";
 
-        int y = 125 + (int)i * 82;
+        int y =
+            BIOS_ROW_Y +
+            (int)i *
+                (BIOS_ROW_H +
+                 BIOS_ROW_GAP);
 
         flip_draw_rect(
             drm,
-            55,
-            y - 10,
-            530,
-            62,
+            UTILITY_MARGIN_X,
+            y,
+            UTILITY_CONTENT_W,
+            BIOS_ROW_H,
             PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            UTILITY_MARGIN_X,
+            y,
+            UTILITY_CONTENT_W,
+            BIOS_ROW_H,
+            1,
+            DIM);
+
+        char label_visible[64];
+
+        fit_text_to_width(
+            rows[i].label,
+            label_visible,
+            sizeof(label_visible),
+            350,
+            UI_SCALE_SECTION);
 
         flip_draw_text(
             drm,
-            75,
-            y,
-            rows[i].label,
+            UTILITY_MARGIN_X + 18,
+            y + 13,
+            label_visible,
             UI_SCALE_SECTION,
             FG);
 
+        int status_width =
+            ui_text_width_px(
+                status,
+                UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            430,
-            y,
+            UTILITY_MARGIN_X +
+                UTILITY_CONTENT_W -
+                18 -
+                status_width,
+            y + 17,
             status,
-            UI_SCALE_SECTION,
-            info.status == FLIP_BIOS_VALID
+            UI_SCALE_BODY,
+            query_result == 0 &&
+            info.status ==
+                FLIP_BIOS_VALID
                 ? FG
                 : DIM);
 
         if (query_result == 0 &&
             info.filename) {
 
+            char filename_visible[64];
+
+            fit_text_to_width(
+                info.filename,
+                filename_visible,
+                sizeof(filename_visible),
+                UTILITY_CONTENT_W - 36,
+                1);
+
             flip_draw_text(
                 drm,
-                75,
-                y + 30,
-                info.filename,
-                UI_SCALE_META,
+                UTILITY_MARGIN_X + 18,
+                y + 57,
+                filename_visible,
+                1,
                 DIM);
         }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("VALID = SIZE + SHA-256 MATCH", UI_SCALE_BODY),
-        386,
+        centred_text_x(
+            "VALID = SIZE + SHA-256 MATCH",
+            1),
+        BIOS_HINT_Y,
         "VALID = SIZE + SHA-256 MATCH",
-        UI_SCALE_BODY,
+        1,
         DIM);
 
     flip_draw_text(
         drm,
-        centred_text_x("A RECHECK   B BACK", UI_SCALE_HINT),
-        430,
+        centred_text_x(
+            "A RECHECK   B BACK",
+            1),
+        UTILITY_FOOTER_Y,
         "A RECHECK   B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 
