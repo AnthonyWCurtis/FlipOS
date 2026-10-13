@@ -8583,6 +8583,10 @@ int main(void)
     int interface_selected = 0;
     int optimizer_selected = 0;
     int optimizer_confirm = 0;
+    int power_selected = 0;
+    int power_confirm = 0;
+    screen_t power_return_screen =
+        SCREEN_HOME;
 
     int prev_up = 0;
     int prev_down = 0;
@@ -8595,9 +8599,13 @@ int main(void)
     int prev_start = 0;
 
     flip_hotkeys_t global_hotkeys;
+    flip_controls_t frontend_controls;
 
     flip_hotkeys_init(
         &global_hotkeys);
+
+    flip_controls_init(
+        &frontend_controls);
 
     /*
      * Tracks the previous OSD visibility state so the
@@ -8784,6 +8792,9 @@ int main(void)
                 flip_hotkeys_init(
                     &global_hotkeys);
 
+                flip_controls_init(
+                    &frontend_controls);
+
                 prev_up = 0;
                 prev_down = 0;
                 prev_a = 0;
@@ -8813,6 +8824,15 @@ int main(void)
                  * selection that was active before sleep.
                  */
                 if (screen ==
+                    SCREEN_POWER) {
+
+                    draw_power_menu(
+                        &drm,
+                        power_selected,
+                        power_confirm,
+                        0.0);
+
+                } else if (screen ==
                     SCREEN_HOME) {
 
                     draw_home(
@@ -9004,6 +9024,40 @@ int main(void)
 
         int redraw = 0;
 
+        flip_controls_state_t frontend_control_state;
+
+        if (flip_controls_update(
+                &frontend_controls,
+                &state,
+                &frontend_control_state) < 0) {
+
+            fprintf(
+                stderr,
+                "FRONTEND: control recognition failed\n");
+
+        } else if (
+            frontend_control_state.system.power_menu_requested) {
+
+            if (screen == SCREEN_POWER &&
+                power_confirm == 0) {
+
+                screen =
+                    power_return_screen;
+
+            } else if (
+                screen != SCREEN_POWER) {
+
+                power_return_screen =
+                    screen;
+
+                power_selected = 0;
+                power_confirm = 0;
+                screen = SCREEN_POWER;
+            }
+
+            redraw = 1;
+        }
+
         double power_now = monotonic_seconds();
         if (power_now >= next_low_battery_check) {
             flip_battery_snapshot_t battery;
@@ -9073,7 +9127,16 @@ int main(void)
         if (up &&
             !prev_up) {
 
-            if (screen == SCREEN_HOME) {
+            if (screen == SCREEN_POWER) {
+
+                if (power_confirm == 0) {
+                    power_selected--;
+
+                    if (power_selected < 0)
+                        power_selected = 2;
+                }
+
+            } else if (screen == SCREEN_HOME) {
 
                 if (home_selected != 0)
                     home_selected = 0;
@@ -9185,7 +9248,16 @@ int main(void)
         if (down &&
             !prev_down) {
 
-            if (screen == SCREEN_HOME) {
+            if (screen == SCREEN_POWER) {
+
+                if (power_confirm == 0) {
+                    power_selected++;
+
+                    if (power_selected > 2)
+                        power_selected = 0;
+                }
+
+            } else if (screen == SCREEN_HOME) {
 
                 if (home_selected == 0)
                     home_selected = 1;
@@ -9523,6 +9595,23 @@ int main(void)
             }
         }
 
+        int power_b_handled = 0;
+
+        if (b &&
+            !prev_b &&
+            screen == SCREEN_POWER) {
+
+            if (power_confirm != 0) {
+                power_confirm = 0;
+            } else {
+                screen =
+                    power_return_screen;
+            }
+
+            power_b_handled = 1;
+            redraw = 1;
+        }
+
         if (b &&
             !prev_b &&
             screen == SCREEN_OPTIMIZER &&
@@ -9551,7 +9640,8 @@ int main(void)
             optimizer_confirm == 0 &&
             !optimizer_validation_selecting &&
             !optimizer_validation_b_handled &&
-            !wifi_password_b_handled) {
+            !wifi_password_b_handled &&
+            !power_b_handled) {
 
             if (screen ==
                 SCREEN_GAMES) {
@@ -9686,6 +9776,118 @@ int main(void)
         }
 
         int confirm_handled = 0;
+
+        if (screen == SCREEN_POWER &&
+            a &&
+            !prev_a) {
+
+            confirm_handled = 1;
+
+            if (power_confirm == 1) {
+
+                draw_power_menu(
+                    &drm,
+                    power_selected,
+                    power_confirm,
+                    0.0);
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_POWER restart confirmed\n");
+
+                fflush(stderr);
+                sync();
+                reboot(RB_AUTOBOOT);
+
+                flip_osd_show_status(
+                    "RESTART FAILED");
+
+                power_confirm = 0;
+                redraw = 1;
+
+            } else if (
+                power_confirm == 2) {
+
+                draw_power_menu(
+                    &drm,
+                    power_selected,
+                    power_confirm,
+                    0.0);
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_POWER poweroff confirmed\n");
+
+                power_off_now();
+
+                flip_osd_show_status(
+                    "POWER OFF FAILED");
+
+                power_confirm = 0;
+                redraw = 1;
+
+            } else if (
+                power_selected == 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_POWER sleep requested\n");
+
+                if (flip_power_sleep_once() < 0) {
+
+                    flip_osd_show_status(
+                        "SLEEP FAILED");
+
+                } else {
+
+                    screen =
+                        power_return_screen;
+                }
+
+                memset(
+                    &state,
+                    0,
+                    sizeof(state));
+
+                flip_hotkeys_init(
+                    &global_hotkeys);
+
+                flip_controls_init(
+                    &frontend_controls);
+
+                prev_up = 0;
+                prev_down = 0;
+                prev_a = 0;
+                prev_b = 0;
+                prev_x = 0;
+                prev_y = 0;
+                prev_left = 0;
+                prev_right = 0;
+                prev_start = 0;
+
+                /*
+                 * Prime the newly woken input state without treating the
+                 * release that woke the device as another Power Menu tap.
+                 */
+                (void)flip_input_poll(
+                    &state,
+                    0);
+
+                flip_controls_init(
+                    &frontend_controls);
+
+                redraw = 1;
+
+            } else {
+
+                power_confirm =
+                    power_selected == 1
+                        ? 1
+                        : 2;
+
+                redraw = 1;
+            }
+        }
 
         if (screen == SCREEN_OPTIMIZER &&
             optimizer_confirm != 0 &&
@@ -10930,6 +11132,15 @@ int main(void)
         if (redraw) {
 
             if (screen ==
+                SCREEN_POWER) {
+
+                draw_power_menu(
+                    &drm,
+                    power_selected,
+                    power_confirm,
+                    0.0);
+
+            } else if (screen ==
                 SCREEN_HOME) {
 
                 draw_home(
