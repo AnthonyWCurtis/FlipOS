@@ -29,6 +29,9 @@ assert 'DEV_LID_OVERRIDE "/tmp/flipos-dev-lid-override"' in input_source
 assert 'DEV_BUTTON_INJECT "/tmp/flipos-dev-button"' in input_source
 assert 'apply_dev_button_injection(state)' in input_source
 assert 'MENU VOL-' in input_source
+assert 'case 116: return FLIP_BTN_POWER;' in input_source
+assert '{"POWER", FLIP_BTN_POWER}' in input_source
+assert '"POWER",' in input_source
 assert 'strtok_r(value, " \\t\\r\\n"' in input_source
 assert 'dev_button_release_mask' in input_source
 assert 'strcmp(value, "open") == 0' in input_source
