@@ -50,6 +50,19 @@ int flip_video_quick_menu_present(
 
 void flip_video_quick_menu_end(void);
 
+typedef struct {
+    int selected;
+    int confirm_action;
+    const char *status;
+} flip_video_power_menu_view_t;
+
+int flip_video_power_menu_begin(void);
+
+int flip_video_power_menu_present(
+    const flip_video_power_menu_view_t *view);
+
+void flip_video_power_menu_end(void);
+
 int flip_video_submit(
     const void *data,
     unsigned width,
