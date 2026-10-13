@@ -318,6 +318,19 @@ static const char *home_items[] = {
 #define FIRST_BOOT_PANEL_H         218
 #define FIRST_BOOT_FOOTER_Y        444
 
+/* CPU optimizer screens: fixed summary region plus measured action cards. */
+#define OPT_UI_MARGIN_X             24
+#define OPT_UI_CONTENT_W           592
+#define OPT_UI_SUMMARY_Y            92
+#define OPT_UI_SUMMARY_H           118
+#define OPT_UI_ACTION_Y            230
+#define OPT_UI_ACTION_H             34
+#define OPT_UI_ACTION_GAP            4
+#define OPT_UI_MESSAGE_Y           430
+#define OPT_UI_FOOTER_Y            458
+#define OPT_RESULTS_PANEL_Y        136
+#define OPT_RESULTS_PANEL_H        276
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -4575,39 +4588,94 @@ static void draw_optimizer_results(
     double poweroff_progress)
 {
     flip_optimizer_result_t result;
-    int have_result = optimizer_result_load(&result);
 
-    flip_draw_clear(drm, BG);
+    int have_result =
+        optimizer_result_load(
+            &result);
+
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("CPU OPTIMIZER RESULTS", UI_SCALE_TITLE),
-        22,
+        centred_text_x(
+            "CPU OPTIMIZER RESULTS",
+            UI_SCALE_BODY),
+        14,
         "CPU OPTIMIZER RESULTS",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     if (!have_result) {
-        flip_draw_text(
+
+        flip_draw_rect(
             drm,
-            centred_text_x("NO RESULTS", 4),
-            180,
-            "NO RESULTS",
-            4,
-            FG);
-        flip_draw_text(
+            OPT_UI_MARGIN_X,
+            104,
+            OPT_UI_CONTENT_W,
+            238,
+            PANEL);
+
+        flip_draw_rect_outline(
             drm,
-            centred_text_x("RUN CPU OPTIMIZATION FIRST", 2),
-            245,
-            "RUN CPU OPTIMIZATION FIRST",
-            2,
+            OPT_UI_MARGIN_X,
+            104,
+            OPT_UI_CONTENT_W,
+            238,
+            1,
             DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "NO RESULTS",
+                UI_SCALE_SECTION,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            166,
+            "NO RESULTS",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "RUN CPU OPTIMIZATION FIRST",
+                UI_SCALE_BODY,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            236,
+            "RUN CPU OPTIMIZATION FIRST",
+            UI_SCALE_BODY,
+            DIM);
+
     } else {
+
         optimizer_validation_result_t validation;
-        int have_validation = optimizer_validation_load(&result, &validation);
-        int passed = have_validation && strcmp(validation.status, "passed") == 0;
-        int cancelled = have_validation && strncmp(validation.status, "cancelled", 9) == 0;
-        int quarantined = access(OPTIMIZER_RUNTIME_QUARANTINE_PATH, F_OK) == 0;
+
+        int have_validation =
+            optimizer_validation_load(
+                &result,
+                &validation);
+
+        int passed =
+            have_validation &&
+            strcmp(
+                validation.status,
+                "passed") == 0;
+
+        int cancelled =
+            have_validation &&
+            strncmp(
+                validation.status,
+                "cancelled",
+                9) == 0;
+
+        int quarantined =
+            access(
+                OPTIMIZER_RUNTIME_QUARANTINE_PATH,
+                F_OK) == 0;
 
         const char *status =
             quarantined
@@ -4619,124 +4687,264 @@ static void draw_optimizer_results(
                         : have_validation
                             ? "FAILED"
                             : "TEST NEEDED";
-        int status_scale = strlen(status) <= 9 ? 4 : 3;
 
         flip_draw_text(
             drm,
-            centred_text_x(status, status_scale),
-            68,
+            centred_text_x(
+                status,
+                UI_SCALE_SECTION),
+            46,
             status,
-            status_scale,
+            UI_SCALE_SECTION,
             FG);
 
         char detail[128];
+
         if (passed) {
+
             unsigned minutes =
-                (validation.seconds_per_opp * validation.tested_opps) / 60U;
+                (validation.seconds_per_opp *
+                 validation.tested_opps) /
+                60U;
+
             unsigned temp_c =
-                (validation.max_temp_mc + 500U) / 1000U;
+                (validation.max_temp_mc +
+                 500U) /
+                1000U;
+
             snprintf(
                 detail,
                 sizeof(detail),
                 "%u MIN STABILITY TEST   MAX %u C",
                 minutes,
                 temp_c);
-        } else if (quarantined) {
-            snprintf(detail, sizeof(detail),
+
+        } else if (
+            quarantined) {
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "OPTIMIZATION DISABLED - RUN AGAIN");
-        } else if (cancelled) {
-            snprintf(detail, sizeof(detail),
+
+        } else if (
+            cancelled) {
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "STABILITY TEST CANCELLED");
-        } else if (have_validation) {
-            snprintf(detail, sizeof(detail),
+
+        } else if (
+            have_validation) {
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "TEST FAILED - SAFE SETTINGS RESTORED");
+
         } else {
-            snprintf(detail, sizeof(detail),
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "RUN A STABILITY TEST BEFORE USE");
         }
 
+        char detail_visible[96];
+
+        fit_text_to_width(
+            detail,
+            detail_visible,
+            sizeof(detail_visible),
+            OPT_UI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(detail, UI_SCALE_BODY),
-            120,
-            detail,
-            UI_SCALE_BODY,
-            passed ? FG : DIM);
+            centred_text_x(
+                detail_visible,
+                1),
+            84,
+            detail_visible,
+            1,
+            passed
+                ? FG
+                : DIM);
 
         char guardband[64];
+
         snprintf(
             guardband,
             sizeof(guardband),
             "SAFETY MARGIN: %u mV",
-            result.guardband_uv / 1000U);
+            result.guardband_uv /
+                1000U);
+
         flip_draw_text(
             drm,
-            centred_text_x(guardband, UI_SCALE_META),
-            142,
+            centred_text_x(
+                guardband,
+                1),
+            106,
             guardband,
-            UI_SCALE_META,
+            1,
+            DIM);
+
+        flip_draw_rect(
+            drm,
+            OPT_UI_MARGIN_X,
+            OPT_RESULTS_PANEL_Y,
+            OPT_UI_CONTENT_W,
+            OPT_RESULTS_PANEL_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            OPT_UI_MARGIN_X,
+            OPT_RESULTS_PANEL_Y,
+            OPT_UI_CONTENT_W,
+            OPT_RESULTS_PANEL_H,
+            1,
             DIM);
 
         flip_draw_text(
             drm,
-            128,
-            176,
-            "CPU SPEED      DEFAULT       TUNED",
-            UI_SCALE_BODY,
+            88,
+            157,
+            "CPU SPEED",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            300,
+            157,
+            "DEFAULT",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            460,
+            157,
+            "TUNED",
+            1,
             DIM);
 
         int shown = 0;
-        for (size_t reverse = result.opp_count;
-             reverse > 0 && shown < 5;
-             --reverse) {
-            const flip_optimizer_opp_t *opp = &result.opps[reverse - 1];
-            if (opp->optimized_uv >= opp->stock_uv)
-                continue;
 
-            char row[96];
+        for (size_t reverse =
+                 result.opp_count;
+             reverse > 0 &&
+             shown < 5;
+             --reverse) {
+
+            const flip_optimizer_opp_t *opp =
+                &result.opps[
+                    reverse - 1];
+
+            if (opp->optimized_uv >=
+                opp->stock_uv) {
+
+                continue;
+            }
+
+            char frequency[32];
+            char stock[32];
+            char tuned[32];
+
             snprintf(
-                row,
-                sizeof(row),
-                "%4u MHz       %4u       %4u mV",
-                opp->frequency_khz / 1000U,
-                opp->stock_uv / 1000U,
-                opp->optimized_uv / 1000U);
+                frequency,
+                sizeof(frequency),
+                "%u MHz",
+                opp->frequency_khz /
+                    1000U);
+
+            snprintf(
+                stock,
+                sizeof(stock),
+                "%u mV",
+                opp->stock_uv /
+                    1000U);
+
+            snprintf(
+                tuned,
+                sizeof(tuned),
+                "%u mV",
+                opp->optimized_uv /
+                    1000U);
+
+            int y =
+                194 +
+                shown * 39;
+
             flip_draw_text(
                 drm,
-                128,
-                205 + shown * 38,
-                row,
-                2,
+                88,
+                y,
+                frequency,
+                UI_SCALE_BODY,
                 FG);
+
+            flip_draw_text(
+                drm,
+                290,
+                y,
+                stock,
+                UI_SCALE_BODY,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                452,
+                y,
+                tuned,
+                UI_SCALE_BODY,
+                FG);
+
             shown++;
         }
 
         if (shown == 0) {
+
             flip_draw_text(
                 drm,
-                centred_text_x("NO VOLTAGE REDUCTIONS RECORDED", 2),
-                240,
+                centred_text_x_in_rect(
+                    "NO VOLTAGE REDUCTIONS RECORDED",
+                    UI_SCALE_BODY,
+                    OPT_UI_MARGIN_X,
+                    OPT_UI_CONTENT_W),
+                248,
                 "NO VOLTAGE REDUCTIONS RECORDED",
-                2,
+                UI_SCALE_BODY,
                 DIM);
         }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("B BACK", UI_SCALE_HINT),
-        442,
+        centred_text_x(
+            "B BACK",
+            1),
+        OPT_UI_FOOTER_Y,
         "B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
     draw_battery_indicator(
         drm);
 
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_optimizer(
     flip_drm_t *drm,
@@ -4746,8 +4954,10 @@ static void draw_optimizer(
     double poweroff_progress)
 {
     flip_optimizer_result_t result;
+
     int have_result =
-        optimizer_result_load(&result);
+        optimizer_result_load(
+            &result);
 
     int plugged =
         optimizer_external_power_online();
@@ -4755,50 +4965,71 @@ static void draw_optimizer(
     int battery =
         optimizer_battery_percent();
 
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
         centred_text_x(
             "CPU OPTIMIZATION",
-            3),
-        20,
+            UI_SCALE_BODY),
+        14,
         "CPU OPTIMIZATION",
-        3,
+        UI_SCALE_BODY,
         FG);
 
-    const char *state_text = "NOT OPTIMIZED";
+    const char *state_text =
+        "NOT OPTIMIZED";
+
     if (have_result) {
+
         optimizer_validation_result_t validation_state;
+
         int have_validation_state =
             optimizer_validation_load(
                 &result,
                 &validation_state);
+
         if (have_validation_state &&
-            strcmp(validation_state.status, "passed") == 0)
-            state_text = "VERIFIED";
-        else if (access(
-                     OPTIMIZER_RUNTIME_QUARANTINE_PATH,
-                     F_OK) == 0)
-            state_text = "DISABLED";
-        else
-            state_text = "CALIBRATED";
+            strcmp(
+                validation_state.status,
+                "passed") == 0) {
+
+            state_text =
+                "VERIFIED";
+
+        } else if (
+            access(
+                OPTIMIZER_RUNTIME_QUARANTINE_PATH,
+                F_OK) == 0) {
+
+            state_text =
+                "DISABLED";
+
+        } else {
+
+            state_text =
+                "CALIBRATED";
+        }
     }
 
     flip_draw_text(
         drm,
         centred_text_x(
             state_text,
-            2),
-        61,
+            UI_SCALE_BODY),
+        44,
         state_text,
-        2,
+        UI_SCALE_BODY,
         have_result
             ? FG
             : DIM);
 
     char power_text[96];
+
     if (battery >= 0) {
+
         snprintf(
             power_text,
             sizeof(power_text),
@@ -4807,7 +5038,9 @@ static void draw_optimizer(
                 ? "CHARGER CONNECTED"
                 : "CONNECT CHARGER",
             battery);
+
     } else {
+
         snprintf(
             power_text,
             sizeof(power_text),
@@ -4817,80 +5050,168 @@ static void draw_optimizer(
                 : "CONNECT CHARGER");
     }
 
+    char power_visible[96];
+
+    fit_text_to_width(
+        power_text,
+        power_visible,
+        sizeof(power_visible),
+        OPT_UI_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
         centred_text_x(
-            power_text,
+            power_visible,
             1),
-        91,
-        power_text,
+        72,
+        power_visible,
         1,
         plugged
             ? FG
             : DIM);
 
+    flip_draw_rect(
+        drm,
+        OPT_UI_MARGIN_X,
+        OPT_UI_SUMMARY_Y,
+        OPT_UI_CONTENT_W,
+        OPT_UI_SUMMARY_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        OPT_UI_MARGIN_X,
+        OPT_UI_SUMMARY_Y,
+        OPT_UI_CONTENT_W,
+        OPT_UI_SUMMARY_H,
+        1,
+        DIM);
+
     if (have_result) {
+
         optimizer_validation_result_t validation;
-        const char *profile_text = "READY FOR TEST";
-        const char *profile_hint = "RUN A STABILITY TEST BEFORE USING TUNED SETTINGS";
-        if (optimizer_validation_load(&result, &validation)) {
-            if (strcmp(validation.status, "passed") == 0) {
-                profile_text = "OPTIMIZATION VERIFIED";
-                profile_hint = "STABILITY TEST PASSED - READY TO USE";
-            } else if (strncmp(validation.status, "cancelled", 9) == 0) {
-                profile_text = "TEST CANCELLED";
-                profile_hint = "RUN THE STABILITY TEST BEFORE USE";
+
+        const char *profile_text =
+            "READY FOR TEST";
+
+        const char *profile_hint =
+            "RUN A STABILITY TEST BEFORE USING TUNED SETTINGS";
+
+        if (optimizer_validation_load(
+                &result,
+                &validation)) {
+
+            if (strcmp(
+                    validation.status,
+                    "passed") == 0) {
+
+                profile_text =
+                    "OPTIMIZATION VERIFIED";
+
+                profile_hint =
+                    "STABILITY TEST PASSED - READY TO USE";
+
+            } else if (
+                strncmp(
+                    validation.status,
+                    "cancelled",
+                    9) == 0) {
+
+                profile_text =
+                    "TEST CANCELLED";
+
+                profile_hint =
+                    "RUN THE STABILITY TEST BEFORE USE";
+
             } else {
-                profile_text = "SAFE SETTINGS RESTORED";
-                profile_hint = "RUN OPTIMIZATION AGAIN TO RETRY";
+
+                profile_text =
+                    "SAFE SETTINGS RESTORED";
+
+                profile_hint =
+                    "RUN OPTIMIZATION AGAIN TO RETRY";
             }
-        } else if (access(OPTIMIZER_RUNTIME_QUARANTINE_PATH, F_OK) == 0) {
-            profile_text = "OPTIMIZATION DISABLED";
-            profile_hint = "RUN OPTIMIZATION AGAIN BEFORE USE";
+
+        } else if (
+            access(
+                OPTIMIZER_RUNTIME_QUARANTINE_PATH,
+                F_OK) == 0) {
+
+            profile_text =
+                "OPTIMIZATION DISABLED";
+
+            profile_hint =
+                "RUN OPTIMIZATION AGAIN BEFORE USE";
         }
 
         flip_draw_text(
             drm,
-            centred_text_x(profile_text, 2),
-            154,
+            centred_text_x_in_rect(
+                profile_text,
+                UI_SCALE_BODY,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            120,
             profile_text,
-            2,
+            UI_SCALE_BODY,
             FG);
+
+        char hint_visible[96];
+
+        fit_text_to_width(
+            profile_hint,
+            hint_visible,
+            sizeof(hint_visible),
+            OPT_UI_CONTENT_W - 48,
+            1);
 
         flip_draw_text(
             drm,
-            centred_text_x(profile_hint, UI_SCALE_BODY),
-            190,
-            profile_hint,
-            UI_SCALE_BODY,
+            centred_text_x_in_rect(
+                hint_visible,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            165,
+            hint_visible,
+            1,
             DIM);
+
     } else {
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "FINDS SAFE CPU SETTINGS FOR THIS DEVICE",
-                1),
-            132,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            113,
             "FINDS SAFE CPU SETTINGS FOR THIS DEVICE",
             1,
             DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "SEVERAL AUTOMATIC RESTARTS ARE NORMAL",
-                1),
-            154,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            145,
             "SEVERAL AUTOMATIC RESTARTS ARE NORMAL",
             1,
             DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "KEEP CHARGER CONNECTED UNTIL COMPLETE",
-                1),
-            176,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            177,
             "KEEP CHARGER CONNECTED UNTIL COMPLETE",
             1,
             FG);
@@ -4903,103 +5224,196 @@ static void draw_optimizer(
         const char *label =
             optimizer_actions[i];
 
-        if (i == 0 && have_result)
-            label = "OPTIMIZE AGAIN";
+        if (i == 0 &&
+            have_result) {
 
-        if (i == 1 && !have_result)
-            label = "VIEW RESULTS (NONE)";
-        if (i == 2 && !have_result)
-            label = "STABILITY TEST (NONE)";
+            label =
+                "OPTIMIZE AGAIN";
+        }
 
-        int y = 278 + i * 29;
+        if (i == 1 &&
+            !have_result) {
 
-        if (i == selected) {
+            label =
+                "VIEW RESULTS (NONE)";
+        }
+
+        if (i == 2 &&
+            !have_result) {
+
+            label =
+                "STABILITY TEST (NONE)";
+        }
+
+        int y =
+            OPT_UI_ACTION_Y +
+            i *
+                (OPT_UI_ACTION_H +
+                 OPT_UI_ACTION_GAP);
+
+        int active =
+            i == selected;
+
+        if (active) {
+
             flip_draw_rect(
                 drm,
-                105,
-                y - 6,
-                430,
-                29,
+                OPT_UI_MARGIN_X,
+                y,
+                OPT_UI_CONTENT_W,
+                OPT_UI_ACTION_H,
                 PANEL);
-            flip_draw_rect_outline(
-                drm,
-                105,
-                y - 6,
-                430,
-                29,
-                1,
-                FG);
         }
+
+        flip_draw_rect_outline(
+            drm,
+            OPT_UI_MARGIN_X,
+            y,
+            OPT_UI_CONTENT_W,
+            OPT_UI_ACTION_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        char label_visible[96];
+
+        fit_text_to_width(
+            label,
+            label_visible,
+            sizeof(label_visible),
+            OPT_UI_CONTENT_W - 48,
+            UI_SCALE_BODY);
 
         flip_draw_text(
             drm,
-            centred_text_x(label, 2),
-            y,
-            label,
-            2,
-            i == selected
+            centred_text_x_in_rect(
+                label_visible,
+                UI_SCALE_BODY,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            y + 9,
+            label_visible,
+            UI_SCALE_BODY,
+            active
                 ? FG
                 : DIM);
     }
 
-    if (message && message[0]) {
+    if (message &&
+        message[0] &&
+        !optimizer_validation_selecting &&
+        confirm_action == 0) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            message,
+            message_visible,
+            sizeof(message_visible),
+            OPT_UI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(message, UI_SCALE_BODY),
-            430,
-            message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                message_visible,
+                1),
+            OPT_UI_MESSAGE_Y,
+            message_visible,
+            1,
             FG);
-    } else {
+
+    } else if (
+        !optimizer_validation_selecting &&
+        confirm_action == 0) {
+
         flip_draw_text(
             drm,
             centred_text_x(
                 "A SELECT   B BACK",
                 1),
-            452,
+            OPT_UI_FOOTER_Y,
             "A SELECT   B BACK",
             1,
             DIM);
     }
 
     if (optimizer_validation_selecting) {
-        flip_draw_rect(drm, 92, 318, 456, 132, PANEL);
-        flip_draw_rect_outline(drm, 92, 318, 456, 132, 2, FG);
-        flip_draw_text(
+
+        flip_draw_rect(
             drm,
-            centred_text_x("CHOOSE STABILITY TEST", 2),
-            333,
-            "CHOOSE STABILITY TEST",
+            62,
+            252,
+            516,
+            188,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            62,
+            252,
+            516,
+            188,
             2,
             FG);
+
         flip_draw_text(
             drm,
             centred_text_x(
-                optimizer_validation_labels[
-                    optimizer_validation_duration_index],
-                2),
-            372,
-            optimizer_validation_labels[
-                optimizer_validation_duration_index],
-            2,
+                "CHOOSE STABILITY TEST",
+                UI_SCALE_BODY),
+            275,
+            "CHOOSE STABILITY TEST",
+            UI_SCALE_BODY,
             FG);
+
+        const char *validation_label =
+            optimizer_validation_labels[
+                optimizer_validation_duration_index];
+
+        char validation_visible[64];
+
+        fit_text_to_width(
+            validation_label,
+            validation_visible,
+            sizeof(validation_visible),
+            468,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x("UP/DOWN CHANGE   A SELECT", UI_SCALE_HINT),
-            413,
+            centred_text_x(
+                validation_visible,
+                UI_SCALE_BODY),
+            326,
+            validation_visible,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "UP/DOWN CHANGE   A SELECT",
+                1),
+            382,
             "UP/DOWN CHANGE   A SELECT",
-            UI_SCALE_HINT,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("B CANCEL", UI_SCALE_HINT),
-            432,
+            centred_text_x(
+                "B CANCEL",
+                1),
+            410,
             "B CANCEL",
-            UI_SCALE_HINT,
+            1,
             DIM);
     }
 
     if (confirm_action != 0) {
+
         const char *confirm =
             confirm_action == 1
                 ? "START CPU OPTIMIZER?"
@@ -5008,6 +5422,7 @@ static void draw_optimizer(
                     : "RESTORE DEFAULT CPU SETTINGS?";
 
         char validation_detail[96];
+
         snprintf(
             validation_detail,
             sizeof(validation_detail),
@@ -5024,49 +5439,75 @@ static void draw_optimizer(
 
         flip_draw_rect(
             drm,
-            90,
-            350,
-            460,
-            92,
+            62,
+            266,
+            516,
+            168,
             PANEL);
+
         flip_draw_rect_outline(
             drm,
-            90,
-            350,
-            460,
-            92,
+            62,
+            266,
+            516,
+            168,
             2,
             FG);
 
-        flip_draw_text(
-            drm,
-            centred_text_x(confirm, 2),
-            365,
+        char confirm_visible[64];
+
+        fit_text_to_width(
             confirm,
-            2,
-            FG);
+            confirm_visible,
+            sizeof(confirm_visible),
+            468,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x(detail, UI_SCALE_BODY),
-            394,
-            detail,
+            centred_text_x(
+                confirm_visible,
+                UI_SCALE_BODY),
+            286,
+            confirm_visible,
             UI_SCALE_BODY,
+            FG);
+
+        char detail_visible[96];
+
+        fit_text_to_width(
+            detail,
+            detail_visible,
+            sizeof(detail_visible),
+            468,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                detail_visible,
+                1),
+            330,
+            detail_visible,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
             centred_text_x(
                 "UNPLUG CHARGER LATER TO CANCEL SAFELY",
                 1),
-            414,
+            360,
             "UNPLUG CHARGER LATER TO CANCEL SAFELY",
             1,
             DIM);
+
         flip_draw_text(
             drm,
             centred_text_x(
                 "A CONFIRM   B CANCEL",
                 1),
-            431,
+            401,
             "A CONFIRM   B CANCEL",
             1,
             FG);
@@ -5077,8 +5518,12 @@ static void draw_optimizer(
 
     flip_osd_set_poweroff_progress(
         poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void refresh_play_stats(void)
