@@ -119,7 +119,6 @@ int main(int argc, char **argv)
         (unsigned long long)(startup_us / 1000ULL));
 
     if (warmup_only) {
-        alarm(0);
         fprintf(
             stderr,
             "FLIP_GPU_SERVICE: WARMUP_COMPLETE startup_ms=%llu\n",
@@ -436,6 +435,8 @@ out:
         unlink(FLIP_GPU_SOCKET_PATH);
     free(payload);
     flip_gpu_context_destroy(gpu);
+    if (warmup_only)
+        alarm(0);
     fprintf(stderr, "FLIP_GPU_SERVICE: STOP rc=%d\n", rc);
     return rc;
 }
