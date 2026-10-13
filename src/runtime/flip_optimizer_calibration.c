@@ -490,17 +490,16 @@ static int set_key(
     return 0;
 }
 
-int flip_optimizer_calibration_load(
-    flip_optimizer_calibration_t *calibration)
+int flip_optimizer_calibration_load_file(
+    flip_optimizer_calibration_t *calibration,
+    const char *path)
 {
-    if (!calibration)
+    if (!calibration || !path || !path[0])
         return -1;
 
     memset(calibration, 0, sizeof(*calibration));
 
-    FILE *f = fopen(
-        FLIP_OPTIMIZER_CALIBRATION_FILE,
-        "r");
+    FILE *f = fopen(path, "r");
     if (!f)
         return -1;
 
@@ -529,6 +528,14 @@ int flip_optimizer_calibration_load(
         return -1;
 
     return flip_optimizer_calibration_validate(calibration);
+}
+
+int flip_optimizer_calibration_load(
+    flip_optimizer_calibration_t *calibration)
+{
+    return flip_optimizer_calibration_load_file(
+        calibration,
+        FLIP_OPTIMIZER_CALIBRATION_FILE);
 }
 
 int flip_optimizer_calibration_prepare_next(
@@ -615,7 +622,8 @@ int flip_optimizer_calibration_prepare_next(
         int n = snprintf(
             calibration->pending_trial_id,
             sizeof(calibration->pending_trial_id),
-            "cpu-%u-%u-%u",
+            "%s-%u-%u-%u",
+            FLIP_OPTIMIZER_CALIBRATION_TRIAL_PREFIX,
             opp->frequency_khz,
             candidate,
             opp->tests_run + 1);
