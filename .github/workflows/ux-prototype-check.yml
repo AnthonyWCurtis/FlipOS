@@ -32,6 +32,7 @@ jobs:
           python3 tests/test_wifi_layout_architecture.py
           python3 tests/test_utility_layout_architecture.py
           python3 tests/test_time_layout_architecture.py
+          python3 tests/test_first_boot_layout_architecture.py
           python3 tests/test_ui_scale_architecture.py
           python3 tests/test_settings_navigation_architecture.py
           python3 tests/test_session_adapter_architecture.py
