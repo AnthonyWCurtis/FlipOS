@@ -239,6 +239,19 @@ static const char *home_items[] = {
 #define SWITCHER_MESSAGE_Y         405
 #define SWITCHER_FOOTER_Y          458
 
+/* Library/System browser geometry, shared across system and game lists. */
+#define LIBRARY_SCREEN_W          640
+#define LIBRARY_SCREEN_H          480
+#define LIBRARY_MARGIN_X           24
+#define LIBRARY_CONTENT_W         592
+#define LIBRARY_LIST_Y             76
+#define LIBRARY_LIST_BOTTOM       426
+#define LIBRARY_SYSTEM_ROW_H       72
+#define LIBRARY_SYSTEM_GAP         10
+#define LIBRARY_GAME_ROW_H         48
+#define LIBRARY_GAME_GAP            4
+#define LIBRARY_FOOTER_Y          458
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -5189,14 +5202,18 @@ static void draw_systems(
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("SYSTEMS", UI_SCALE_TITLE),
-        28,
-        "SYSTEMS",
-        UI_SCALE_TITLE,
+        centred_text_x(
+            "LIBRARY",
+            UI_SCALE_BODY),
+        14,
+        "LIBRARY",
+        UI_SCALE_BODY,
         FG);
 
     char count_text[64];
@@ -5204,86 +5221,192 @@ static void draw_systems(
     snprintf(
         count_text,
         sizeof(count_text),
-        "%d SYSTEMS",
-        available_system_count);
+        "%d SYSTEM%s",
+        available_system_count,
+        available_system_count == 1
+            ? ""
+            : "S");
 
     flip_draw_text(
         drm,
-        centred_text_x(count_text, UI_SCALE_META),
-        72,
+        centred_text_x(
+            count_text,
+            1),
+        44,
         count_text,
-        UI_SCALE_META,
+        1,
         DIM);
 
     if (available_system_count <= 0) {
 
+        flip_draw_rect(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            1,
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "NO GAMES FOUND",
-                2),
-            190,
+                UI_SCALE_SECTION,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            164,
             "NO GAMES FOUND",
-            2,
+            UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "ADD GAMES TO THE SD CARD",
-                1),
-            225,
+                UI_SCALE_BODY,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            220,
             "ADD GAMES TO THE SD CARD",
-            1,
+            UI_SCALE_BODY,
             DIM);
 
     } else {
 
-        for (int i = 0;
-             i < available_system_count;
-             ++i) {
+        int visible_rows =
+            (LIBRARY_LIST_BOTTOM -
+             LIBRARY_LIST_Y +
+             LIBRARY_SYSTEM_GAP) /
+            (LIBRARY_SYSTEM_ROW_H +
+             LIBRARY_SYSTEM_GAP);
 
-            const flip_system_t *system =
-                available_systems[i];
+        if (visible_rows < 1)
+            visible_rows = 1;
 
-            if (!system)
+        int first =
+            selected -
+            visible_rows / 2;
+
+        if (first < 0)
+            first = 0;
+
+        if (first >
+            available_system_count -
+            visible_rows) {
+
+            first =
+                available_system_count -
+                visible_rows;
+        }
+
+        if (first < 0)
+            first = 0;
+
+        for (int row = 0;
+             row < visible_rows;
+             ++row) {
+
+            int index =
+                first + row;
+
+            if (index >=
+                available_system_count)
+                break;
+
+            const flip_system_t *entry =
+                available_systems[index];
+
+            if (!entry)
                 continue;
 
             int y =
-                125 + i * 58;
+                LIBRARY_LIST_Y +
+                row *
+                    (LIBRARY_SYSTEM_ROW_H +
+                     LIBRARY_SYSTEM_GAP);
 
-            if (i == selected) {
+            int active =
+                index == selected;
 
-                flip_draw_rect(
-                    drm,
-                    115,
-                    y - 10,
-                    410,
-                    44,
-                    PANEL);
+            flip_draw_rect(
+                drm,
+                LIBRARY_MARGIN_X,
+                y,
+                LIBRARY_CONTENT_W,
+                LIBRARY_SYSTEM_ROW_H,
+                PANEL);
 
-                flip_draw_rect_outline(
-                    drm,
-                    115,
-                    y - 10,
-                    410,
-                    44,
-                    2,
-                    FG);
-            }
+            flip_draw_rect_outline(
+                drm,
+                LIBRARY_MARGIN_X,
+                y,
+                LIBRARY_CONTENT_W,
+                LIBRARY_SYSTEM_ROW_H,
+                active ? 2 : 1,
+                active
+                    ? FG
+                    : DIM);
 
             const char *name =
-                system->display_name
-                    ? system->display_name
-                    : system->id;
+                entry->display_name
+                    ? entry->display_name
+                    : entry->id;
+
+            int name_scale =
+                UI_SCALE_SECTION;
+
+            while (name_scale > 1 &&
+                   ui_text_width_px(
+                       name,
+                       name_scale) >
+                       LIBRARY_CONTENT_W - 64) {
+
+                name_scale--;
+            }
+
+            char visible[96];
+
+            fit_text_to_width(
+                name,
+                visible,
+                sizeof(visible),
+                LIBRARY_CONTENT_W - 64,
+                name_scale);
 
             flip_draw_text(
                 drm,
-                centred_text_x(name, UI_SCALE_SECTION),
-                y,
-                name,
-                UI_SCALE_SECTION,
-                i == selected
+                centred_text_x_in_rect(
+                    visible,
+                    name_scale,
+                    LIBRARY_MARGIN_X,
+                    LIBRARY_CONTENT_W),
+                y + 18,
+                visible,
+                name_scale,
+                active
+                    ? FG
+                    : DIM);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    "A OPEN",
+                    1,
+                    LIBRARY_MARGIN_X,
+                    LIBRARY_CONTENT_W),
+                y + 54,
+                "A OPEN",
+                1,
+                active
                     ? FG
                     : DIM);
         }
@@ -5292,20 +5415,10 @@ static void draw_systems(
     flip_draw_text(
         drm,
         centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
+            "A OPEN   B BACK",
             1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
-        1,
-        DIM);
-
-    flip_draw_text(
-        drm,
-        centred_text_x(
-            "A SELECT   B BACK",
-            1),
-        452,
-        "A SELECT   B BACK",
+        LIBRARY_FOOTER_Y,
+        "A OPEN   B BACK",
         1,
         DIM);
 
@@ -5318,8 +5431,10 @@ static void draw_systems(
     flip_osd_draw(
         drm);
 
-    flip_drm_present(drm);
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_games(
     flip_drm_t *drm,
@@ -5327,7 +5442,9 @@ static void draw_games(
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     const char *system_title =
         system &&
@@ -5335,14 +5452,23 @@ static void draw_games(
             ? system->display_name
             : "GAMES";
 
+    char header_title[64];
+
+    fit_text_to_width(
+        system_title,
+        header_title,
+        sizeof(header_title),
+        360,
+        UI_SCALE_BODY);
+
     flip_draw_text(
         drm,
         centred_text_x(
-            system_title,
-            4),
-        20,
-        system_title,
-        4,
+            header_title,
+            UI_SCALE_BODY),
+        14,
+        header_title,
+        UI_SCALE_BODY,
         FG);
 
     char count_text[64];
@@ -5350,60 +5476,98 @@ static void draw_games(
     snprintf(
         count_text,
         sizeof(count_text),
-        "%d GAMES",
-        rom_count);
+        "%d GAME%s",
+        rom_count,
+        rom_count == 1
+            ? ""
+            : "S");
 
     flip_draw_text(
         drm,
-        centred_text_x(count_text, UI_SCALE_META),
-        61,
+        centred_text_x(
+            count_text,
+            1),
+        44,
         count_text,
-        UI_SCALE_META,
+        1,
         DIM);
 
     if (rom_count <= 0) {
 
-        char no_games[96];
-        snprintf(
-            no_games,
-            sizeof(no_games),
-            "NO %s GAMES FOUND",
-            system_title);
+        flip_draw_rect(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            1,
+            DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(no_games, 2),
-            190,
-            no_games,
-            2,
+            centred_text_x_in_rect(
+                "NO GAMES FOUND",
+                UI_SCALE_SECTION,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            164,
+            "NO GAMES FOUND",
+            UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x("ADD GAMES TO THE SD CARD", UI_SCALE_BODY),
-            225,
+            centred_text_x_in_rect(
+                "ADD GAMES TO THE SD CARD",
+                UI_SCALE_BODY,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            220,
             "ADD GAMES TO THE SD CARD",
             UI_SCALE_BODY,
             DIM);
 
     } else {
 
+        int visible_rows =
+            (LIBRARY_LIST_BOTTOM -
+             LIBRARY_LIST_Y +
+             LIBRARY_GAME_GAP) /
+            (LIBRARY_GAME_ROW_H +
+             LIBRARY_GAME_GAP);
+
+        if (visible_rows < 1)
+            visible_rows = 1;
+
         int first =
-            selected - ROWS_VISIBLE / 2;
+            selected -
+            visible_rows / 2;
 
         if (first < 0)
             first = 0;
 
         if (first >
-            rom_count - ROWS_VISIBLE)
+            rom_count -
+            visible_rows) {
+
             first =
-                rom_count - ROWS_VISIBLE;
+                rom_count -
+                visible_rows;
+        }
 
         if (first < 0)
             first = 0;
 
         for (int row = 0;
-             row < ROWS_VISIBLE;
+             row < visible_rows;
              ++row) {
 
             int index =
@@ -5413,69 +5577,77 @@ static void draw_games(
                 break;
 
             int y =
-                92 + row * 44;
+                LIBRARY_LIST_Y +
+                row *
+                    (LIBRARY_GAME_ROW_H +
+                     LIBRARY_GAME_GAP);
 
-            if (index == selected) {
+            int active =
+                index == selected;
 
+            if (active) {
                 flip_draw_rect(
                     drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
+                    LIBRARY_MARGIN_X,
+                    y,
+                    LIBRARY_CONTENT_W,
+                    LIBRARY_GAME_ROW_H,
                     PANEL);
-
-                flip_draw_rect_outline(
-                    drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
-                    2,
-                    FG);
             }
 
-            /*
-             * Primary browser rows use the shared section scale. At scale 3,
-             * 29 characters fit comfortably inside the 550px list card.
-             */
-            char visible[32];
-
-            snprintf(
-                visible,
-                sizeof(visible),
-                "%.29s",
-                roms[index].display);
-
-            flip_draw_text(
+            flip_draw_rect_outline(
                 drm,
-                58,
+                LIBRARY_MARGIN_X,
                 y,
-                visible,
-                UI_SCALE_SECTION,
-                index == selected
+                LIBRARY_CONTENT_W,
+                LIBRARY_GAME_ROW_H,
+                active ? 2 : 1,
+                active
                     ? FG
                     : DIM);
 
+            int title_scale =
+                UI_SCALE_BODY;
+
+            char visible[96];
+
+            fit_text_to_width(
+                roms[index].display,
+                visible,
+                sizeof(visible),
+                LIBRARY_CONTENT_W - 116,
+                title_scale);
+
+            flip_draw_text(
+                drm,
+                LIBRARY_MARGIN_X + 18,
+                y + 13,
+                visible,
+                title_scale,
+                active
+                    ? FG
+                    : DIM);
+
+            if (active) {
+                flip_draw_text(
+                    drm,
+                    LIBRARY_MARGIN_X +
+                        LIBRARY_CONTENT_W -
+                        78,
+                    y + 18,
+                    "PLAY",
+                    1,
+                    FG);
+            }
         }
     }
 
     flip_draw_text(
         drm,
         centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
-            1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
-        1,
-        DIM);
-
-    flip_draw_text(
-        drm,
-        centred_text_x(
             "A LAUNCH   Y DETAILS   B BACK",
             1),
-        452,
+        LIBRARY_FOOTER_Y,
         "A LAUNCH   Y DETAILS   B BACK",
         1,
         DIM);
@@ -5486,16 +5658,13 @@ static void draw_games(
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    /*
-     * Global FlipOS OSD is composited last so hardware
-     * feedback appears consistently over every frontend
-     * screen.
-     */
     flip_osd_draw(
         drm);
 
-    flip_drm_present(drm);
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_recent(
     flip_drm_t *drm,
