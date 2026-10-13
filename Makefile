@@ -131,7 +131,7 @@ UMTP_SOURCES := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-experimental-calibration-tool optimizer-experimental-candidate-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-experimental-calibration-tool optimizer-experimental-candidate-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module opp-voltage-experimental-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba mtp-responder
 
@@ -178,6 +178,8 @@ optimizer-runtime-tool: $(BUILD)/flip-optimizer-runtime
 wifi-tool: $(BUILD)/flip-wifi-tool
 
 opp-voltage-module: $(BUILD)/flip_opp_voltage.ko
+
+opp-voltage-experimental-module: $(BUILD)/flip_opp_voltage_experimental.ko
 
 runtime-profile-module: $(BUILD)/flip_opp_runtime_profile.ko
 
@@ -1096,6 +1098,7 @@ OPTIMIZER_EXPERIMENTAL_DEFS := \
 	-DFLIP_OPTIMIZER_EXPERIMENTAL_BUILD=1 \
 	-DFLIP_OPTIMIZER_CALIBRATION_RK3566_FLOOR_UV=750000U \
 	-DFLIP_OPTIMIZER_CALIBRATION_TRIAL_PREFIX='"xuv"' \
+	-DFLIP_OPTIMIZER_MODULE_PATH='"/mnt/SDCARD/flipos-dev/lib/flip_opp_voltage_experimental.ko"' \
 	-DFLIP_OPTIMIZER_CALIBRATION_FILE='"/mnt/SDCARD/flipos-dev/state/optimizer/cpu-calibration-experimental"' \
 	-DFLIP_OPTIMIZER_RESULT_FILE='"/mnt/SDCARD/flipos-dev/state/optimizer/cpu-result-experimental"' \
 	-DFLIP_OPTIMIZER_REPORT_FILE='"/mnt/SDCARD/flipos-dev/state/optimizer/cpu-report-experimental"' \
@@ -1161,11 +1164,22 @@ $(BUILD)/flip_opp_voltage.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c t
 	rm -rf $(BUILD)/opp-voltage-module $(BUILD)/kernel-python-shim
 	mkdir -p $(BUILD)/opp-voltage-module $(BUILD)/kernel-python-shim
 	cp tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile $(BUILD)/opp-voltage-module/
-	ln -sf "$$(command -v python3)" $(BUILD)/kernel-python-shim/python
-	PATH="$(CURDIR)/$(BUILD)/kernel-python-shim:$$PATH" \
+	ln -sf "$(command -v python3)" $(BUILD)/kernel-python-shim/python
+	PATH="$(CURDIR)/$(BUILD)/kernel-python-shim:$PATH" \
 		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/opp-voltage-module" \
 		ARCH=arm64 CROSS_COMPILE="$(CROSS)" modules
 	cp $(BUILD)/opp-voltage-module/flip_opp_voltage.ko $@
+
+$(BUILD)/flip_opp_voltage_experimental.ko: tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile | $(BUILD)
+	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
+	rm -rf $(BUILD)/opp-voltage-experimental-module $(BUILD)/kernel-python-shim
+	mkdir -p $(BUILD)/opp-voltage-experimental-module $(BUILD)/kernel-python-shim
+	cp tools/kernel/flip_opp_voltage/flip_opp_voltage.c tools/kernel/flip_opp_voltage/Makefile $(BUILD)/opp-voltage-experimental-module/
+	ln -sf "$(command -v python3)" $(BUILD)/kernel-python-shim/python
+	PATH="$(CURDIR)/$(BUILD)/kernel-python-shim:$PATH" \
+		$(MAKE) -C "$(KERNEL_DIR)" M="$(CURDIR)/$(BUILD)/opp-voltage-experimental-module" \
+		ARCH=arm64 CROSS_COMPILE="$(CROSS)" EXTRA_CFLAGS="-DFLIP_OPP_SAFE_MIN_UV=750000UL" modules
+	cp $(BUILD)/opp-voltage-experimental-module/flip_opp_voltage.ko $@
 
 $(BUILD)/flip_opp_runtime_profile.ko: tools/kernel/flip_opp_runtime_profile/flip_opp_runtime_profile.c tools/kernel/flip_opp_runtime_profile/Makefile | $(BUILD)
 	@test -n "$(KERNEL_DIR)" || { echo "KERNEL_DIR must point to the prepared matching Rockchip kernel tree" >&2; exit 1; }
@@ -1296,6 +1310,7 @@ clean:
 		$(BUILD)/flip-optimizer-candidate-experimental \
 		$(BUILD)/flip-optimizer-runtime \
 		$(BUILD)/flip_opp_voltage.ko \
+		$(BUILD)/flip_opp_voltage_experimental.ko \
 		$(BUILD)/flip_opp_runtime_profile.ko \
 		$(BUILD)/libgambatte_libretro.a \
 		$(BUILD)/mgba_libretro.a \
