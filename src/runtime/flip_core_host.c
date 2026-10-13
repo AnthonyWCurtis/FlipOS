@@ -23,7 +23,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/reboot.h>
 #include <time.h>
+#include <unistd.h>
 
 typedef struct {
     const flip_core_host_config_t *config;
@@ -253,6 +255,7 @@ static void quick_menu_suppress_navigation_input(
     input->down[FLIP_BTN_A] = 0;
     input->down[FLIP_BTN_B] = 0;
     input->down[FLIP_BTN_MENU] = 0;
+    input->down[FLIP_BTN_POWER] = 0;
 }
 
 static flip_quick_menu_result_t run_quick_menu(
@@ -598,6 +601,229 @@ static flip_quick_menu_result_t run_quick_menu(
     return result;
 }
 
+
+typedef enum {
+    FLIP_POWER_MENU_RESUME = 0,
+    FLIP_POWER_MENU_SLEEP,
+    FLIP_POWER_MENU_RESTART,
+    FLIP_POWER_MENU_OFF,
+    FLIP_POWER_MENU_ERROR
+} flip_power_menu_result_t;
+
+static int power_menu_present(
+    int selected,
+    int confirm_action,
+    const char *status)
+{
+    flip_video_power_menu_view_t view;
+
+    memset(
+        &view,
+        0,
+        sizeof(view));
+
+    view.selected =
+        selected;
+
+    view.confirm_action =
+        confirm_action;
+
+    view.status =
+        status;
+
+    return flip_video_power_menu_present(
+        &view);
+}
+
+static flip_power_menu_result_t run_power_menu(
+    flip_input_state_t *physical_input)
+{
+    if (!physical_input)
+        return FLIP_POWER_MENU_ERROR;
+
+    if (flip_video_power_menu_begin() < 0) {
+        flip_osd_show_status(
+            "POWER MENU UNAVAILABLE");
+
+        return FLIP_POWER_MENU_RESUME;
+    }
+
+    int selected = 0;
+    int confirm_action = 0;
+    char status[64];
+
+    status[0] = '\0';
+
+    if (power_menu_present(
+            selected,
+            confirm_action,
+            status) < 0) {
+
+        flip_video_power_menu_end();
+        return FLIP_POWER_MENU_ERROR;
+    }
+
+    int prev_up =
+        physical_input->down[FLIP_BTN_UP];
+
+    int prev_down =
+        physical_input->down[FLIP_BTN_DOWN];
+
+    int prev_a =
+        physical_input->down[FLIP_BTN_A];
+
+    int prev_b =
+        physical_input->down[FLIP_BTN_B];
+
+    int prev_power =
+        physical_input->down[FLIP_BTN_POWER];
+
+    flip_power_menu_result_t result =
+        FLIP_POWER_MENU_RESUME;
+
+    int done = 0;
+
+    while (!done) {
+
+        if (flip_input_poll(
+                physical_input,
+                16) < 0) {
+
+            result =
+                FLIP_POWER_MENU_ERROR;
+            break;
+        }
+
+        int up =
+            physical_input->down[FLIP_BTN_UP];
+
+        int down =
+            physical_input->down[FLIP_BTN_DOWN];
+
+        int a =
+            physical_input->down[FLIP_BTN_A];
+
+        int b =
+            physical_input->down[FLIP_BTN_B];
+
+        int power =
+            physical_input->down[FLIP_BTN_POWER];
+
+        int redraw = 0;
+
+        if (b && !prev_b) {
+
+            if (confirm_action != 0) {
+                confirm_action = 0;
+                status[0] = '\0';
+                redraw = 1;
+            } else {
+                result =
+                    FLIP_POWER_MENU_RESUME;
+                done = 1;
+            }
+
+        } else if (
+            power &&
+            !prev_power &&
+            confirm_action == 0) {
+
+            /*
+             * A second short POWER press closes the menu. If the user keeps
+             * holding it, the hardware/emergency power path remains free to
+             * act independently of this userspace overlay.
+             */
+            result =
+                FLIP_POWER_MENU_RESUME;
+            done = 1;
+
+        } else if (
+            confirm_action == 0 &&
+            up &&
+            !prev_up) {
+
+            selected =
+                (selected + 2) % 3;
+
+            status[0] = '\0';
+            redraw = 1;
+
+        } else if (
+            confirm_action == 0 &&
+            down &&
+            !prev_down) {
+
+            selected =
+                (selected + 1) % 3;
+
+            status[0] = '\0';
+            redraw = 1;
+        }
+
+        if (!done &&
+            a &&
+            !prev_a) {
+
+            if (confirm_action == 1) {
+
+                result =
+                    FLIP_POWER_MENU_RESTART;
+                done = 1;
+
+            } else if (
+                confirm_action == 2) {
+
+                result =
+                    FLIP_POWER_MENU_OFF;
+                done = 1;
+
+            } else if (
+                selected == 0) {
+
+                result =
+                    FLIP_POWER_MENU_SLEEP;
+                done = 1;
+
+            } else {
+
+                confirm_action =
+                    selected == 1
+                        ? 1
+                        : 2;
+
+                redraw = 1;
+            }
+        }
+
+        if (redraw &&
+            !done) {
+
+            if (power_menu_present(
+                    selected,
+                    confirm_action,
+                    status) < 0) {
+
+                result =
+                    FLIP_POWER_MENU_ERROR;
+                break;
+            }
+        }
+
+        prev_up = up;
+        prev_down = down;
+        prev_a = a;
+        prev_b = b;
+        prev_power = power;
+    }
+
+    flip_video_power_menu_end();
+
+    quick_menu_suppress_navigation_input(
+        physical_input);
+
+    return result;
+}
+
 int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
 {
     if (!config || !config->core || !config->rom_path || !config->rom_path[0] ||
@@ -843,6 +1069,137 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
             fprintf(stderr, "FLIP_CORE_HOST: controls update failed\n");
             host_result = -1;
             break;
+        }
+
+        if (control_state.system.power_menu_requested) {
+
+            flip_power_menu_result_t power_result =
+                run_power_menu(
+                    &physical_input);
+
+            flip_controls_init(
+                &controls);
+
+            memset(
+                &control_state,
+                0,
+                sizeof(control_state));
+
+            if (power_result ==
+                FLIP_POWER_MENU_ERROR) {
+
+                fprintf(
+                    stderr,
+                    "FLIP_CORE_HOST: power menu failed\n");
+
+                host_result = -1;
+                break;
+            }
+
+            if (power_result !=
+                FLIP_POWER_MENU_RESUME) {
+
+                int save_result =
+                    lifecycle_save_bridge(
+                        &bridge);
+
+                if (save_result < 0) {
+
+                    flip_osd_show_status(
+                        "SAVE FAILED - POWER ACTION CANCELLED");
+
+                    (void)flip_lifecycle_resume_timing(
+                        &timing);
+
+                    continue;
+                }
+            }
+
+            if (power_result ==
+                FLIP_POWER_MENU_SLEEP) {
+
+                flip_log_write(
+                    FLIP_LOG_INFO,
+                    "FLIP_POWER",
+                    "in-game sleep requested");
+
+                if (flip_power_sleep_once() < 0) {
+
+                    flip_osd_show_status(
+                        "SLEEP FAILED");
+
+                } else {
+
+                    flip_log_write(
+                        FLIP_LOG_INFO,
+                        "FLIP_POWER",
+                        "in-game sleep resumed");
+                }
+
+                memset(
+                    &physical_input,
+                    0,
+                    sizeof(physical_input));
+
+                (void)flip_input_poll(
+                    &physical_input,
+                    0);
+
+                flip_controls_init(
+                    &controls);
+
+                (void)flip_lifecycle_resume_timing(
+                    &timing);
+
+                continue;
+            }
+
+            if (power_result ==
+                FLIP_POWER_MENU_RESTART) {
+
+                flip_log_write(
+                    FLIP_LOG_INFO,
+                    "FLIP_POWER",
+                    "in-game restart confirmed");
+
+                fflush(stderr);
+                sync();
+                reboot(RB_AUTOBOOT);
+
+                flip_osd_show_status(
+                    "RESTART FAILED");
+
+                (void)flip_lifecycle_resume_timing(
+                    &timing);
+
+                continue;
+            }
+
+            if (power_result ==
+                FLIP_POWER_MENU_OFF) {
+
+                flip_log_write(
+                    FLIP_LOG_INFO,
+                    "FLIP_POWER",
+                    "in-game poweroff confirmed");
+
+                fflush(stderr);
+                sync();
+                reboot(RB_POWER_OFF);
+
+                flip_osd_show_status(
+                    "POWER OFF FAILED");
+
+                (void)flip_lifecycle_resume_timing(
+                    &timing);
+
+                continue;
+            }
+
+            (void)flip_lifecycle_resume_timing(
+                &timing);
+
+            continue;
         }
 
         if (control_state.system.quick_menu_requested) {
