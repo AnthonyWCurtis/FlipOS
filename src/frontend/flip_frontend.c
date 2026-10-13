@@ -218,6 +218,27 @@ static const char *home_items[] = {
 #define HOME_MESSAGE_Y         440
 #define HOME_FOOTER_Y          458
 
+/*
+ * GameSwitcher uses the same 24 px safe margin and fixed 640x480 canvas as
+ * Home. The selected game owns the large hero card; the lower strip gives
+ * context without turning the screen back into a dense utility list.
+ */
+#define SWITCHER_SCREEN_W          640
+#define SWITCHER_SCREEN_H          480
+#define SWITCHER_MARGIN_X           24
+#define SWITCHER_CONTENT_W         592
+#define SWITCHER_HERO_X             24
+#define SWITCHER_HERO_Y             72
+#define SWITCHER_HERO_W            592
+#define SWITCHER_HERO_H            190
+#define SWITCHER_STRIP_LABEL_Y     278
+#define SWITCHER_CARD_Y            296
+#define SWITCHER_CARD_H             96
+#define SWITCHER_CARD_W            192
+#define SWITCHER_CARD_GAP            8
+#define SWITCHER_MESSAGE_Y         405
+#define SWITCHER_FOOTER_Y          458
+
 
 static const char *settings_items[] = {
     "CONNECTIVITY",
@@ -5484,195 +5505,452 @@ static void draw_recent(
 {
     (void)system;
 
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     load_suspended_session();
 
     flip_draw_text(
         drm,
-        centred_text_x("GAMESWITCHER", UI_SCALE_TITLE),
-        20,
+        centred_text_x(
+            "GAMESWITCHER",
+            UI_SCALE_BODY),
+        14,
         "GAMESWITCHER",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
-    char count_text[64];
+    char count_text[32];
 
     snprintf(
         count_text,
         sizeof(count_text),
-        "%d GAMES",
-        recent_count);
+        "%d GAME%s",
+        recent_count,
+        recent_count == 1
+            ? ""
+            : "S");
 
     flip_draw_text(
         drm,
         centred_text_x(
             count_text,
-            UI_SCALE_META),
-        61,
+            1),
+        44,
         count_text,
-        UI_SCALE_META,
+        1,
         DIM);
 
     if (recent_count <= 0) {
 
+        flip_draw_rect(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            1,
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "NO GAMES YET",
-                2),
-            190,
+                UI_SCALE_SECTION,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            126,
             "NO GAMES YET",
-            2,
+            UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x(
-                "LAUNCH A GAME FIRST",
-                1),
-            225,
-            "LAUNCH A GAME FIRST",
+            centred_text_x_in_rect(
+                "LAUNCH A GAME AND IT WILL APPEAR HERE",
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            188,
+            "LAUNCH A GAME AND IT WILL APPEAR HERE",
             1,
             DIM);
 
     } else {
 
+        if (selected < 0)
+            selected = 0;
+
+        if (selected >= recent_count)
+            selected = recent_count - 1;
+
+        const rom_entry_t *current =
+            &recent_roms[selected];
+
+        char session_state[32];
+
+        int have_session =
+            recent_session_registry_state(
+                current,
+                session_state,
+                sizeof(session_state)) > 0;
+
+        int is_suspended =
+            have_session &&
+            strcmp(
+                session_state,
+                "suspended") == 0;
+
+        int needs_recovery =
+            have_session &&
+            (strcmp(
+                 session_state,
+                 "interrupted") == 0 ||
+             strcmp(
+                 session_state,
+                 "signaled") == 0 ||
+             strcmp(
+                 session_state,
+                 "error") == 0);
+
+        int can_resume =
+            flip_system_resume_available(
+                current->system,
+                current->path);
+
+        const char *status =
+            is_suspended
+                ? "PAUSED"
+                : needs_recovery
+                    ? "RESTORE AVAILABLE"
+                    : can_resume
+                        ? "RESUME READY"
+                        : "READY TO PLAY";
+
+        flip_draw_rect(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            2,
+            FG);
+
+        const char *system_name =
+            current->system &&
+            current->system->display_name
+                ? current->system->display_name
+                : "GAME";
+
+        char system_visible[64];
+
+        fit_text_to_width(
+            system_name,
+            system_visible,
+            sizeof(system_visible),
+            SWITCHER_HERO_W - 48,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                system_visible,
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            89,
+            system_visible,
+            1,
+            DIM);
+
+        int title_scale =
+            UI_SCALE_SECTION;
+
+        while (title_scale > 1 &&
+               ui_text_width_px(
+                   current->display,
+                   title_scale) >
+                   SWITCHER_HERO_W - 64) {
+
+            title_scale--;
+        }
+
+        char title[96];
+
+        fit_text_to_width(
+            current->display,
+            title,
+            sizeof(title),
+            SWITCHER_HERO_W - 64,
+            title_scale);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                title,
+                title_scale,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            116,
+            title,
+            title_scale,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                status,
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            154,
+            status,
+            1,
+            is_suspended ||
+            needs_recovery ||
+            can_resume
+                ? FG
+                : DIM);
+
+        flip_game_stats_t selected_stats;
+
+        int have_stats =
+            current->system &&
+            current->system->id &&
+            flip_game_stats_load(
+                current->system->id,
+                current->path,
+                &selected_stats) == 1;
+
+        char play_time[32] = "0M";
+        char last_played[32] = "NOT YET";
+
+        if (have_stats) {
+            format_play_duration(
+                selected_stats.total_play_seconds,
+                play_time,
+                sizeof(play_time));
+
+            format_last_played(
+                selected_stats.last_played_epoch,
+                last_played,
+                sizeof(last_played));
+        }
+
+        char stats_line[96];
+
+        snprintf(
+            stats_line,
+            sizeof(stats_line),
+            "%s   %llu LAUNCH%s   %s",
+            play_time,
+            have_stats
+                ? selected_stats.launches
+                : 0ULL,
+            have_stats &&
+            selected_stats.launches == 1
+                ? ""
+                : "ES",
+            last_played);
+
+        char stats_visible[96];
+
+        fit_text_to_width(
+            stats_line,
+            stats_visible,
+            sizeof(stats_visible),
+            SWITCHER_HERO_W - 48,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                stats_visible,
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            187,
+            stats_visible,
+            1,
+            DIM);
+
+        const char *primary =
+            can_resume
+                ? "A RESUME"
+                : "A LAUNCH";
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                primary,
+                UI_SCALE_BODY,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            226,
+            primary,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            SWITCHER_MARGIN_X,
+            SWITCHER_STRIP_LABEL_Y,
+            "RECENT SESSIONS",
+            1,
+            DIM);
+
+        /*
+         * Keep the selected item visible in a three-card strip. Cards are
+         * fixed width, so titles must fit inside their own 168 px text area.
+         */
         int first =
-            selected - ROWS_VISIBLE / 2;
+            selected - 1;
 
         if (first < 0)
             first = 0;
 
-        if (first >
-            recent_count -
-            ROWS_VISIBLE)
-            first =
-                recent_count -
-                ROWS_VISIBLE;
+        if (first > recent_count - 3)
+            first = recent_count - 3;
 
         if (first < 0)
             first = 0;
 
-        for (int row = 0;
-             row < ROWS_VISIBLE;
-             ++row) {
+        for (int slot = 0;
+             slot < 3;
+             ++slot) {
 
             int index =
-                first + row;
+                first + slot;
 
-            if (index >=
-                recent_count)
+            if (index >= recent_count)
                 break;
 
-            int y =
-                92 + row * 44;
+            int card_x =
+                SWITCHER_MARGIN_X +
+                slot *
+                    (SWITCHER_CARD_W +
+                     SWITCHER_CARD_GAP);
 
-            if (index ==
-                selected) {
+            int active =
+                index == selected;
 
-                flip_draw_rect(
-                    drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
-                    PANEL);
+            flip_draw_rect(
+                drm,
+                card_x,
+                SWITCHER_CARD_Y,
+                SWITCHER_CARD_W,
+                SWITCHER_CARD_H,
+                PANEL);
 
-                flip_draw_rect_outline(
-                    drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
-                    2,
-                    FG);
+            flip_draw_rect_outline(
+                drm,
+                card_x,
+                SWITCHER_CARD_Y,
+                SWITCHER_CARD_W,
+                SWITCHER_CARD_H,
+                active ? 2 : 1,
+                active
+                    ? FG
+                    : DIM);
+
+            int card_title_scale =
+                UI_SCALE_BODY;
+
+            if (ui_text_width_px(
+                    recent_roms[index].display,
+                    card_title_scale) >
+                SWITCHER_CARD_W - 24) {
+
+                card_title_scale = 1;
             }
 
-            char visible[24];
+            char card_title[64];
 
-            snprintf(
-                visible,
-                sizeof(visible),
-                "%.21s",
-                recent_roms[index].display);
+            fit_text_to_width(
+                recent_roms[index].display,
+                card_title,
+                sizeof(card_title),
+                SWITCHER_CARD_W - 24,
+                card_title_scale);
 
             flip_draw_text(
                 drm,
-                58,
-                y,
-                visible,
-                UI_SCALE_SECTION,
-                index == selected
+                centred_text_x_in_rect(
+                    card_title,
+                    card_title_scale,
+                    card_x,
+                    SWITCHER_CARD_W),
+                SWITCHER_CARD_Y + 18,
+                card_title,
+                card_title_scale,
+                active
                     ? FG
                     : DIM);
+
+            const char *card_system =
+                recent_roms[index].system &&
+                recent_roms[index].system->display_name
+                    ? recent_roms[index].system->display_name
+                    : "GAME";
+
+            char card_system_visible[32];
+
+            fit_text_to_width(
+                card_system,
+                card_system_visible,
+                sizeof(card_system_visible),
+                SWITCHER_CARD_W - 24,
+                1);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    card_system_visible,
+                    1,
+                    card_x,
+                    SWITCHER_CARD_W),
+                SWITCHER_CARD_Y + 57,
+                card_system_visible,
+                1,
+                DIM);
 
             if (flip_system_resume_available(
                     recent_roms[index].system,
                     recent_roms[index].path)) {
 
-                char session_state[32];
-
-                int have_session =
-                    recent_session_registry_state(
-                        &recent_roms[index],
-                        session_state,
-                        sizeof(session_state)) > 0;
-
-                int is_suspended =
-                    have_session &&
-                    strcmp(
-                        session_state,
-                        "suspended") == 0;
-
-                int needs_recovery =
-                    have_session &&
-                    (strcmp(
-                         session_state,
-                         "interrupted") == 0 ||
-                     strcmp(
-                         session_state,
-                         "signaled") == 0 ||
-                     strcmp(
-                         session_state,
-                         "error") == 0);
-
-                const char *status =
-                    is_suspended
-                        ? "PAUSED"
-                        : needs_recovery
-                            ? "RESTORE"
-                            : "RESUME";
-
-                int status_x =
-                    is_suspended
-                        ? 490
-                        : needs_recovery
-                            ? 470
-                            : 490;
-
                 flip_draw_text(
                     drm,
-                    status_x,
-                    y + 3,
-                    status,
-                    UI_SCALE_META,
-                    index == selected
+                    centred_text_x_in_rect(
+                        "RESUME",
+                        1,
+                        card_x,
+                        SWITCHER_CARD_W),
+                    SWITCHER_CARD_Y + 76,
+                    "RESUME",
+                    1,
+                    active
                         ? FG
                         : DIM);
             }
         }
     }
-
-    flip_draw_text(
-        drm,
-        centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
-            1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
-        1,
-        DIM);
 
     const char *recent_help =
         "B BACK";
@@ -5706,14 +5984,23 @@ static void draw_recent(
         }
     }
 
+    char help_visible[96];
+
+    fit_text_to_width(
+        recent_help,
+        help_visible,
+        sizeof(help_visible),
+        SWITCHER_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
         centred_text_x(
-            recent_help,
-            UI_SCALE_HINT),
-        452,
-        recent_help,
-        UI_SCALE_HINT,
+            help_visible,
+            1),
+        SWITCHER_FOOTER_Y,
+        help_visible,
+        1,
         DIM);
 
     if (gameswitcher_confirm !=
@@ -5728,17 +6015,17 @@ static void draw_recent(
         flip_draw_rect(
             drm,
             115,
-            365,
+            395,
             410,
-            76,
+            50,
             PANEL);
 
         flip_draw_rect_outline(
             drm,
             115,
-            365,
+            395,
             410,
-            76,
+            50,
             1,
             FG);
 
@@ -5746,10 +6033,10 @@ static void draw_recent(
             drm,
             centred_text_x(
                 confirm_text,
-                2),
-            382,
+                UI_SCALE_BODY),
+            404,
             confirm_text,
-            2,
+            UI_SCALE_BODY,
             FG);
 
         flip_draw_text(
@@ -5757,7 +6044,7 @@ static void draw_recent(
             centred_text_x(
                 "A CONFIRM   B CANCEL",
                 1),
-            418,
+            430,
             "A CONFIRM   B CANCEL",
             1,
             DIM);
@@ -5769,15 +6056,11 @@ static void draw_recent(
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    /*
-     * Global FlipOS OSD is composited last so hardware
-     * feedback appears consistently over every frontend
-     * screen.
-     */
     flip_osd_draw(
         drm);
 
-    flip_drm_present(drm);
+    flip_drm_present(
+        drm);
 }
 
 static int launch_game_once(
@@ -6894,6 +7177,19 @@ int main(void)
             redraw = 1;
         }
 
+        if (screen == SCREEN_RECENT &&
+            recent_count > 0 &&
+            left && !prev_left) {
+
+            recent_selected--;
+
+            if (recent_selected < 0)
+                recent_selected =
+                    recent_count - 1;
+
+            redraw = 1;
+        }
+
         if (screen == SCREEN_HOME &&
             left && !prev_left) {
 
@@ -6907,6 +7203,19 @@ int main(void)
                     home_selected =
                         HOME_ITEM_COUNT - 1;
             }
+
+            redraw = 1;
+        }
+
+        if (screen == SCREEN_RECENT &&
+            recent_count > 0 &&
+            right && !prev_right) {
+
+            recent_selected++;
+
+            if (recent_selected >=
+                recent_count)
+                recent_selected = 0;
 
             redraw = 1;
         }
