@@ -8,6 +8,7 @@
 #define FLIP_HOTKEY_REPEAT_INITIAL_MS 450ULL
 #define FLIP_HOTKEY_REPEAT_INTERVAL_MS 120ULL
 #define FLIP_MENU_GAMESWITCHER_HOLD_MS 700ULL
+#define FLIP_POWER_MENU_TAP_MAX_MS 700ULL
 
 static uint64_t monotonic_ms(void)
 {
@@ -124,6 +125,9 @@ int flip_controls_update(
     int menu_now =
         input->down[FLIP_BTN_MENU];
 
+    int power_now =
+        input->down[FLIP_BTN_POWER];
+
     int r1_now =
         input->down[FLIP_BTN_R1];
 
@@ -143,6 +147,46 @@ int flip_controls_update(
 
         controls->menu_pending = 1;
         controls->menu_pressed_at_ms = now_ms;
+    }
+
+    /*
+     * POWER deliberately triggers on release, not press. A short press opens
+     * the software Power Menu; holding beyond the tap window is left entirely
+     * to the device's hardware/emergency power path.
+     */
+    if (power_now &&
+        !controls->previous_power) {
+
+        controls->power_pending = 1;
+        controls->power_pressed_at_ms = now_ms;
+    }
+
+    if (power_now &&
+        controls->power_pending &&
+        now_ms >= controls->power_pressed_at_ms &&
+        now_ms - controls->power_pressed_at_ms >
+            FLIP_POWER_MENU_TAP_MAX_MS) {
+
+        controls->power_pending = 0;
+    }
+
+    if (!power_now &&
+        controls->previous_power &&
+        controls->power_pending) {
+
+        uint64_t held_ms =
+            now_ms >= controls->power_pressed_at_ms
+                ? now_ms - controls->power_pressed_at_ms
+                : 0;
+
+        if (held_ms <=
+            FLIP_POWER_MENU_TAP_MAX_MS) {
+
+            state->system.power_menu_requested = 1;
+        }
+
+        controls->power_pending = 0;
+        controls->power_pressed_at_ms = 0;
     }
 
     /*
@@ -248,6 +292,9 @@ int flip_controls_update(
 
     controls->previous_menu =
         menu_now;
+
+    controls->previous_power =
+        power_now;
 
     controls->previous_r1 =
         r1_now;
