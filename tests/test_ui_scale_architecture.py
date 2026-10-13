@@ -136,15 +136,15 @@ assert "(show_battery_mode && i == 0) ? 72 : 54" in settings_menu
 assert "selection_height" in settings_menu
 
 
-# Library browsing is a first-class surface: Games/System/GameSwitcher primary
-# rows must use the same section scale as the rest of FlipOS, not the old dense
-# scale-2 browser.
-assert "#define ROWS_VISIBLE 7" in source
+# Library browsing is a first-class surface. The current console theme uses
+# measured text inside fixed-width 640x480 list cards rather than the old
+# dense seven-row browser.
 games_start = source.index("static void draw_games(")
 games_end = source.index("\nstatic void draw_recent(", games_start)
 games = source[games_start:games_end]
-assert "visible,\n                UI_SCALE_SECTION" in games
-assert "92 + row * 44" in games
+assert "LIBRARY_GAME_ROW_H" in games
+assert "fit_text_to_width(" in games
+assert "UI_SCALE_BODY" in games
 recent_start = source.index("static void draw_recent(")
 recent_end = source.index("\nstatic int launch_game_once(", recent_start)
 recent = source[recent_start:recent_end]
