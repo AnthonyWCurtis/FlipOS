@@ -1,6 +1,7 @@
 name: Publish FlipOS Beta 5
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
