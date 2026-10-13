@@ -451,6 +451,7 @@ test-architecture:
 	python3 tests/test_optimizer_layout_architecture.py
 	python3 tests/test_quick_menu_layout_architecture.py
 	python3 tests/test_play_options_layout_architecture.py
+	python3 tests/test_power_menu_architecture.py
 	python3 tests/test_ui_scale_architecture.py
 	python3 tests/test_keyboard_case_architecture.py
 	python3 tests/test_settings_navigation_architecture.py
