@@ -643,7 +643,13 @@ $(BUILD)/test-flip-osd: tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c s
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L -Iinclude 		tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c src/runtime/flip_osd.c 		-o $@
 
 $(BUILD)/test-flip-power: tests/test_flip_power.c src/runtime/flip_power.c include/flip_power.h include/flip_input.h | $(BUILD)
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L 		-DFLIP_BACKLIGHT_BRIGHTNESS='"/tmp/flipos-power-service-test/brightness"' 		-Iinclude tests/test_flip_power.c src/runtime/flip_power.c 		-o $@
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L \
+		-DFLIP_BACKLIGHT_BRIGHTNESS='"/tmp/flipos-power-service-test/brightness"' \
+		-DFLIP_POWER_MEM_SLEEP='"/tmp/flipos-power-service-test/mem_sleep"' \
+		-DFLIP_POWER_STATE='"/tmp/flipos-power-service-test/state"' \
+		-Iinclude tests/test_flip_power.c src/runtime/flip_power.c \
+		-o $@
 
 $(BUILD)/test-flip-library-cache: tests/test_flip_library_cache.c src/runtime/flip_library.c include/flip_library.h include/flip_paths.h include/flip_system.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L 		-DFLIP_STORAGE_ROOT='"/tmp/flipos-library-service-test"' -Iinclude 		tests/test_flip_library_cache.c src/runtime/flip_library.c 		-o $@
