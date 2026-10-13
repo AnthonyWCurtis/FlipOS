@@ -11,6 +11,7 @@
 #include "flip_lifecycle.h"
 #include "flip_log.h"
 #include "flip_osd.h"
+#include "flip_power.h"
 #include "flip_power_policy.h"
 #include "flip_perf_diag.h"
 #include "flip_settings.h"
@@ -185,6 +186,416 @@ static unsigned dynamic_cpu_allowed_max_from_env(void)
         return 0;
 
     return (unsigned)value;
+}
+
+
+typedef enum {
+    FLIP_QUICK_MENU_RESUME = 0,
+    FLIP_QUICK_MENU_GAMESWITCHER,
+    FLIP_QUICK_MENU_QUIT,
+    FLIP_QUICK_MENU_ERROR
+} flip_quick_menu_result_t;
+
+enum {
+    FLIP_QUICK_ITEM_RESUME = 0,
+    FLIP_QUICK_ITEM_SAVE,
+    FLIP_QUICK_ITEM_LOAD,
+    FLIP_QUICK_ITEM_VOLUME,
+    FLIP_QUICK_ITEM_BRIGHTNESS,
+    FLIP_QUICK_ITEM_PERFORMANCE,
+    FLIP_QUICK_ITEM_GAMESWITCHER,
+    FLIP_QUICK_ITEM_QUIT,
+    FLIP_QUICK_ITEM_COUNT
+};
+
+static int quick_menu_present(
+    int selected,
+    int perf_overlay_enabled,
+    const char *status)
+{
+    flip_video_quick_menu_view_t view;
+
+    memset(
+        &view,
+        0,
+        sizeof(view));
+
+    view.selected =
+        selected;
+
+    view.volume_percent =
+        flip_audio_get_volume();
+
+    view.brightness_percent =
+        flip_power_brightness_to_percent(
+            flip_settings_get_brightness());
+
+    view.performance_enabled =
+        perf_overlay_enabled;
+
+    view.status =
+        status;
+
+    return flip_video_quick_menu_present(
+        &view);
+}
+
+static void quick_menu_suppress_navigation_input(
+    flip_input_state_t *input)
+{
+    if (!input)
+        return;
+
+    input->down[FLIP_BTN_UP] = 0;
+    input->down[FLIP_BTN_DOWN] = 0;
+    input->down[FLIP_BTN_LEFT] = 0;
+    input->down[FLIP_BTN_RIGHT] = 0;
+    input->down[FLIP_BTN_A] = 0;
+    input->down[FLIP_BTN_B] = 0;
+    input->down[FLIP_BTN_MENU] = 0;
+}
+
+static flip_quick_menu_result_t run_quick_menu(
+    const flip_core_host_config_t *config,
+    persistence_bridge_t *bridge,
+    flip_input_state_t *physical_input,
+    flip_timing_t *timing,
+    int *perf_overlay_enabled,
+    flip_telemetry_t *telemetry,
+    int telemetry_ready,
+    double last_measured_fps,
+    int last_measured_fps_valid)
+{
+    if (!config ||
+        !bridge ||
+        !physical_input ||
+        !timing ||
+        !perf_overlay_enabled)
+        return FLIP_QUICK_MENU_ERROR;
+
+    if (flip_video_quick_menu_begin() < 0) {
+        flip_osd_show_status(
+            "QUICK MENU UNAVAILABLE");
+
+        return FLIP_QUICK_MENU_RESUME;
+    }
+
+    int selected =
+        FLIP_QUICK_ITEM_RESUME;
+
+    char status[64];
+
+    status[0] = '\0';
+
+    if (quick_menu_present(
+            selected,
+            *perf_overlay_enabled,
+            status) < 0) {
+
+        flip_video_quick_menu_end();
+        return FLIP_QUICK_MENU_ERROR;
+    }
+
+    int prev_up =
+        physical_input->down[FLIP_BTN_UP];
+    int prev_down =
+        physical_input->down[FLIP_BTN_DOWN];
+    int prev_left =
+        physical_input->down[FLIP_BTN_LEFT];
+    int prev_right =
+        physical_input->down[FLIP_BTN_RIGHT];
+    int prev_a =
+        physical_input->down[FLIP_BTN_A];
+    int prev_b =
+        physical_input->down[FLIP_BTN_B];
+    int prev_menu =
+        physical_input->down[FLIP_BTN_MENU];
+
+    flip_quick_menu_result_t result =
+        FLIP_QUICK_MENU_RESUME;
+
+    int done = 0;
+
+    while (!done) {
+
+        if (flip_input_poll(
+                physical_input,
+                16) < 0) {
+
+            result =
+                FLIP_QUICK_MENU_ERROR;
+            break;
+        }
+
+        int up =
+            physical_input->down[FLIP_BTN_UP];
+        int down =
+            physical_input->down[FLIP_BTN_DOWN];
+        int left =
+            physical_input->down[FLIP_BTN_LEFT];
+        int right =
+            physical_input->down[FLIP_BTN_RIGHT];
+        int a =
+            physical_input->down[FLIP_BTN_A];
+        int b =
+            physical_input->down[FLIP_BTN_B];
+        int menu =
+            physical_input->down[FLIP_BTN_MENU];
+
+        int redraw = 0;
+
+        if ((b && !prev_b) ||
+            (menu && !prev_menu)) {
+
+            result =
+                FLIP_QUICK_MENU_RESUME;
+            done = 1;
+
+        } else if (
+            up &&
+            !prev_up) {
+
+            selected =
+                (selected +
+                 FLIP_QUICK_ITEM_COUNT -
+                 1) %
+                FLIP_QUICK_ITEM_COUNT;
+
+            status[0] = '\0';
+            redraw = 1;
+
+        } else if (
+            down &&
+            !prev_down) {
+
+            selected =
+                (selected + 1) %
+                FLIP_QUICK_ITEM_COUNT;
+
+            status[0] = '\0';
+            redraw = 1;
+        }
+
+        int adjust =
+            (right && !prev_right)
+                ? 1
+                : (left && !prev_left)
+                    ? -1
+                    : 0;
+
+        if (!done &&
+            adjust != 0 &&
+            (selected ==
+                 FLIP_QUICK_ITEM_VOLUME ||
+             selected ==
+                 FLIP_QUICK_ITEM_BRIGHTNESS)) {
+
+            flip_system_actions_t actions;
+            flip_hotkeys_result_t hotkey_result;
+
+            memset(
+                &actions,
+                0,
+                sizeof(actions));
+
+            if (selected ==
+                FLIP_QUICK_ITEM_VOLUME) {
+
+                actions.volume_step =
+                    adjust;
+
+            } else {
+
+                actions.brightness_step =
+                    adjust;
+            }
+
+            if (flip_hotkeys_apply_actions(
+                    &actions,
+                    &hotkey_result) < 0) {
+
+                snprintf(
+                    status,
+                    sizeof(status),
+                    "ADJUST FAILED");
+
+            } else {
+
+                status[0] = '\0';
+            }
+
+            redraw = 1;
+        }
+
+        if (!done &&
+            a &&
+            !prev_a) {
+
+            switch (selected) {
+
+            case FLIP_QUICK_ITEM_RESUME:
+                result =
+                    FLIP_QUICK_MENU_RESUME;
+                done = 1;
+                break;
+
+            case FLIP_QUICK_ITEM_SAVE:
+                if (lifecycle_save_bridge(
+                        bridge) == 0) {
+
+                    snprintf(
+                        status,
+                        sizeof(status),
+                        "STATE SAVED");
+
+                } else {
+
+                    snprintf(
+                        status,
+                        sizeof(status),
+                        "SAVE FAILED");
+                }
+
+                redraw = 1;
+                break;
+
+            case FLIP_QUICK_ITEM_LOAD:
+                if (!config->restore_state) {
+
+                    snprintf(
+                        status,
+                        sizeof(status),
+                        "NO STATE AVAILABLE");
+
+                } else {
+
+                    int restore_result =
+                        config->restore_state(
+                            config->core,
+                            config->state_userdata);
+
+                    if (restore_result > 0) {
+
+                        if (config->post_restore) {
+                            (void)config->post_restore(
+                                config->core,
+                                config->post_restore_userdata);
+                        }
+
+                        (void)flip_lifecycle_resume_timing(
+                            timing);
+
+                        snprintf(
+                            status,
+                            sizeof(status),
+                            "STATE LOADED");
+
+                    } else if (
+                        restore_result == 0) {
+
+                        snprintf(
+                            status,
+                            sizeof(status),
+                            "NO STATE AVAILABLE");
+
+                    } else {
+
+                        snprintf(
+                            status,
+                            sizeof(status),
+                            "LOAD FAILED");
+                    }
+                }
+
+                redraw = 1;
+                break;
+
+            case FLIP_QUICK_ITEM_PERFORMANCE:
+                *perf_overlay_enabled =
+                    !*perf_overlay_enabled;
+
+                if (*perf_overlay_enabled &&
+                    telemetry_ready) {
+
+                    (void)flip_telemetry_sample(
+                        telemetry,
+                        last_measured_fps,
+                        last_measured_fps_valid);
+                }
+
+                flip_video_set_perf_overlay(
+                    *perf_overlay_enabled,
+                    telemetry_ready
+                        ? flip_telemetry_snapshot(
+                              telemetry)
+                        : NULL);
+
+                snprintf(
+                    status,
+                    sizeof(status),
+                    "PERFORMANCE HUD %s",
+                    *perf_overlay_enabled
+                        ? "ON"
+                        : "OFF");
+
+                redraw = 1;
+                break;
+
+            case FLIP_QUICK_ITEM_GAMESWITCHER:
+                result =
+                    FLIP_QUICK_MENU_GAMESWITCHER;
+                done = 1;
+                break;
+
+            case FLIP_QUICK_ITEM_QUIT:
+                result =
+                    FLIP_QUICK_MENU_QUIT;
+                done = 1;
+                break;
+
+            case FLIP_QUICK_ITEM_VOLUME:
+            case FLIP_QUICK_ITEM_BRIGHTNESS:
+            default:
+                break;
+            }
+        }
+
+        if (redraw &&
+            !done) {
+
+            if (quick_menu_present(
+                    selected,
+                    *perf_overlay_enabled,
+                    status) < 0) {
+
+                result =
+                    FLIP_QUICK_MENU_ERROR;
+                break;
+            }
+        }
+
+        prev_up = up;
+        prev_down = down;
+        prev_left = left;
+        prev_right = right;
+        prev_a = a;
+        prev_b = b;
+        prev_menu = menu;
+    }
+
+    flip_video_quick_menu_end();
+
+    quick_menu_suppress_navigation_input(
+        physical_input);
+
+    if (result ==
+        FLIP_QUICK_MENU_RESUME) {
+
+        (void)flip_lifecycle_resume_timing(
+            timing);
+    }
+
+    return result;
 }
 
 int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
@@ -432,6 +843,105 @@ int flip_core_host_run(const flip_core_host_config_t *config, int *exit_code)
             fprintf(stderr, "FLIP_CORE_HOST: controls update failed\n");
             host_result = -1;
             break;
+        }
+
+        if (control_state.system.quick_menu_requested) {
+            flip_quick_menu_result_t quick_result =
+                run_quick_menu(
+                    config,
+                    &bridge,
+                    &physical_input,
+                    &timing,
+                    &perf_overlay_enabled,
+                    &telemetry,
+                    telemetry_ready,
+                    last_measured_fps,
+                    last_measured_fps_valid);
+
+            /*
+             * The Quick Menu consumes navigation/button edges. Restart the
+             * system-action recognizer so the dismissing key cannot leak into
+             * the game or become a second MENU action.
+             */
+            flip_controls_init(
+                &controls);
+
+            memset(
+                &control_state,
+                0,
+                sizeof(control_state));
+
+            if (quick_result ==
+                FLIP_QUICK_MENU_ERROR) {
+
+                fprintf(
+                    stderr,
+                    "FLIP_CORE_HOST: quick menu failed\n");
+
+                host_result = -1;
+                break;
+            }
+
+            if (quick_result ==
+                FLIP_QUICK_MENU_GAMESWITCHER) {
+
+                control_state.system.gameswitcher_requested = 1;
+
+                flip_lifecycle_result_t quick_lifecycle;
+
+                int quick_lifecycle_result =
+                    flip_lifecycle_handle(
+                        &control_state.system,
+                        FLIP_LIFECYCLE_CHECKPOINT_IMMEDIATE,
+                        lifecycle_save_bridge,
+                        &bridge,
+                        &quick_lifecycle);
+
+                if (quick_lifecycle_result < 0) {
+                    host_result = -1;
+                    break;
+                }
+
+                if (quick_lifecycle.should_exit) {
+                    *exit_code =
+                        quick_lifecycle.exit_code;
+                    break;
+                }
+
+                flip_osd_show_status(
+                    "SAVE FAILED - GAME CONTINUES");
+
+                (void)flip_lifecycle_resume_timing(
+                    &timing);
+            } else if (
+                quick_result ==
+                    FLIP_QUICK_MENU_QUIT) {
+
+                control_state.system.exit_requested = 1;
+
+                flip_lifecycle_result_t quick_lifecycle;
+
+                int quick_lifecycle_result =
+                    flip_lifecycle_handle(
+                        &control_state.system,
+                        FLIP_LIFECYCLE_CHECKPOINT_AFTER_FRAME,
+                        lifecycle_save_bridge,
+                        &bridge,
+                        &quick_lifecycle);
+
+                if (quick_lifecycle_result < 0) {
+                    host_result = -1;
+                    break;
+                }
+
+                if (quick_lifecycle.should_exit) {
+                    *exit_code =
+                        quick_lifecycle.exit_code;
+                    break;
+                }
+            }
+
+            continue;
         }
 
         stage_start_us = monotonic_us();
