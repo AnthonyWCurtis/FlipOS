@@ -125,6 +125,79 @@ static void dev_lid_auto_open_after_resume(void)
     (void)unlink(FLIP_DEV_LID_AUTO_OPEN);
 }
 
+int flip_power_sleep_once(void)
+{
+    int saved_brightness =
+        read_backlight_brightness();
+
+    if (saved_brightness < 0)
+        saved_brightness = 200;
+
+    fprintf(
+        stderr,
+        "POWER: menu sleep enter brightness=%d\n",
+        saved_brightness);
+
+    if (write_backlight_brightness(0) < 0) {
+        fprintf(
+            stderr,
+            "POWER: menu backlight off failed\n");
+        return -1;
+    }
+
+    if (write_value(
+            FLIP_POWER_MEM_SLEEP,
+            "deep") < 0) {
+
+        fprintf(
+            stderr,
+            "POWER: menu select deep failed\n");
+
+        (void)write_backlight_brightness(
+            saved_brightness);
+
+        return -1;
+    }
+
+    /*
+     * Flush SD-backed state before userspace is frozen. The kernel resumes
+     * execution immediately after this write when a configured wake source
+     * (POWER, lid, charger, etc.) fires.
+     */
+    sync();
+
+    if (write_value(
+            FLIP_POWER_STATE,
+            "mem") < 0) {
+
+        fprintf(
+            stderr,
+            "POWER: menu suspend failed\n");
+
+        (void)write_backlight_brightness(
+            saved_brightness);
+
+        return -1;
+    }
+
+    if (write_backlight_brightness(
+            saved_brightness) < 0) {
+
+        fprintf(
+            stderr,
+            "POWER: menu backlight restore failed\n");
+
+        return -1;
+    }
+
+    fprintf(
+        stderr,
+        "POWER: menu sleep exit brightness=%d\n",
+        saved_brightness);
+
+    return 0;
+}
+
 int flip_power_sleep_until_lid_open(
     flip_input_state_t *state)
 {

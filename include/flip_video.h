@@ -27,6 +27,42 @@ int flip_video_open(void);
 
 void flip_video_close(void);
 
+
+typedef struct {
+    int selected;
+    int volume_percent;
+    int brightness_percent;
+    int performance_enabled;
+    const char *status;
+} flip_video_quick_menu_view_t;
+
+/*
+ * In-game Quick Menu composition.
+ *
+ * begin() snapshots the last presented game frame. present() redraws the
+ * menu from that immutable snapshot so navigation never accumulates drawing
+ * artifacts. end() restores the game frame before emulation resumes.
+ */
+int flip_video_quick_menu_begin(void);
+
+int flip_video_quick_menu_present(
+    const flip_video_quick_menu_view_t *view);
+
+void flip_video_quick_menu_end(void);
+
+typedef struct {
+    int selected;
+    int confirm_action;
+    const char *status;
+} flip_video_power_menu_view_t;
+
+int flip_video_power_menu_begin(void);
+
+int flip_video_power_menu_present(
+    const flip_video_power_menu_view_t *view);
+
+void flip_video_power_menu_end(void);
+
 int flip_video_submit(
     const void *data,
     unsigned width,

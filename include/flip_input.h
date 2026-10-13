@@ -22,6 +22,7 @@ typedef enum {
     FLIP_BTN_START,
     FLIP_BTN_SELECT,
     FLIP_BTN_MENU,
+    FLIP_BTN_POWER,
 
     FLIP_BTN_L3,
     FLIP_BTN_R3,

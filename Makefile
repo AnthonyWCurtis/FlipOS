@@ -45,6 +45,7 @@ RUNTIME_OBJS := \
 	$(BUILD)/flip_session_adapter.o \
 	$(BUILD)/flip_system.o \
 	$(BUILD)/flip_session.o \
+	$(BUILD)/flip_game_stats.o \
 	$(BUILD)/flip_recovery.o \
 	$(BUILD)/flip_save.o \
 	$(BUILD)/flip_state.o \
@@ -128,7 +129,7 @@ UMTP_SOURCES := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba mtp-responder
 
@@ -235,6 +236,7 @@ verify:
 		$(MAKE) test-session-persistence && \
 		$(MAKE) test-session-registry && \
 		$(MAKE) test-session-adapter && \
+		$(MAKE) test-game-stats && \
 		$(MAKE) test-system-registry && \
 		$(MAKE) test-session-save-safety && \
 		$(MAKE) test-perf-diag && \
@@ -405,6 +407,9 @@ test-session-registry: $(BUILD)/test-flip-session-registry
 test-session-adapter: $(BUILD)/test-flip-session-adapter
 	$(BUILD)/test-flip-session-adapter
 
+test-game-stats: $(BUILD)/test-flip-game-stats
+	$(BUILD)/test-flip-game-stats
+
 test-system-registry: $(BUILD)/test-flip-system-registry
 	$(BUILD)/test-flip-system-registry
 
@@ -434,6 +439,19 @@ test-architecture:
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
 	python3 tests/test_frontend_ux_architecture.py
+	python3 tests/test_home_layout_architecture.py
+	python3 tests/test_gameswitcher_layout_architecture.py
+	python3 tests/test_library_layout_architecture.py
+	python3 tests/test_stats_details_layout_architecture.py
+	python3 tests/test_settings_layout_architecture.py
+	python3 tests/test_wifi_layout_architecture.py
+	python3 tests/test_utility_layout_architecture.py
+	python3 tests/test_time_layout_architecture.py
+	python3 tests/test_first_boot_layout_architecture.py
+	python3 tests/test_optimizer_layout_architecture.py
+	python3 tests/test_quick_menu_layout_architecture.py
+	python3 tests/test_play_options_layout_architecture.py
+	python3 tests/test_power_menu_architecture.py
 	python3 tests/test_ui_scale_architecture.py
 	python3 tests/test_keyboard_case_architecture.py
 	python3 tests/test_settings_navigation_architecture.py
@@ -465,6 +483,7 @@ test-architecture:
 	python3 tests/test_optimizer_hw_watchdog_architecture.py
 	python3 tests/test_optimizer_session_architecture.py
 	python3 tests/test_optimizer_ui_architecture.py
+	python3 tests/test_play_stats_architecture.py
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -625,7 +644,13 @@ $(BUILD)/test-flip-osd: tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c s
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L -Iinclude 		tests/test_flip_osd.c tests/test_flip_osd_draw_stubs.c src/runtime/flip_osd.c 		-o $@
 
 $(BUILD)/test-flip-power: tests/test_flip_power.c src/runtime/flip_power.c include/flip_power.h include/flip_input.h | $(BUILD)
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L 		-DFLIP_BACKLIGHT_BRIGHTNESS='"/tmp/flipos-power-service-test/brightness"' 		-Iinclude tests/test_flip_power.c src/runtime/flip_power.c 		-o $@
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L \
+		-DFLIP_BACKLIGHT_BRIGHTNESS='"/tmp/flipos-power-service-test/brightness"' \
+		-DFLIP_POWER_MEM_SLEEP='"/tmp/flipos-power-service-test/mem_sleep"' \
+		-DFLIP_POWER_STATE='"/tmp/flipos-power-service-test/state"' \
+		-Iinclude tests/test_flip_power.c src/runtime/flip_power.c \
+		-o $@
 
 $(BUILD)/test-flip-library-cache: tests/test_flip_library_cache.c src/runtime/flip_library.c include/flip_library.h include/flip_paths.h include/flip_system.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror 		-D_POSIX_C_SOURCE=200809L 		-DFLIP_STORAGE_ROOT='"/tmp/flipos-library-service-test"' -Iinclude 		tests/test_flip_library_cache.c src/runtime/flip_library.c 		-o $@
@@ -658,6 +683,13 @@ $(BUILD)/test-flip-audio-queue: tests/test_flip_audio_queue.c src/audio/flip_aud
 $(BUILD)/test-flip-audio-resampler: tests/test_flip_audio_resampler.c src/audio/flip_audio_resampler.c include/flip_audio_resampler.h | $(BUILD)
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
 		tests/test_flip_audio_resampler.c src/audio/flip_audio_resampler.c \
+		-o $@
+
+$(BUILD)/test-flip-game-stats: tests/test_flip_game_stats.c src/runtime/flip_game_stats.c include/flip_game_stats.h include/flip_paths.h | $(BUILD)
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-D_POSIX_C_SOURCE=200809L \
+		-DFLIP_GAME_STATS_ROOT='"/tmp/flipos-game-stats-test"' -Iinclude \
+		tests/test_flip_game_stats.c src/runtime/flip_game_stats.c \
 		-o $@
 
 $(BUILD)/test-flip-lifecycle: tests/test_flip_lifecycle.c src/runtime/flip_lifecycle.c src/runtime/flip_log.c src/runtime/flip_paths.c src/runtime/flip_timing.c include/flip_lifecycle.h include/flip_log.h include/flip_paths.h | $(BUILD)
@@ -869,6 +901,9 @@ $(BUILD)/flip_system.o: src/runtime/flip_system.c | $(BUILD)
 
 $(BUILD)/flip_session.o: src/runtime/flip_session.c include/flip_session.h include/flip_session_persistence.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Dflip_session_launch=flip_session_launch_legacy -c $< -o $@
+
+$(BUILD)/flip_game_stats.o: src/runtime/flip_game_stats.c include/flip_game_stats.h include/flip_paths.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -c $< -o $@
 
 $(BUILD)/flip_recovery.o: src/runtime/flip_recovery.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@

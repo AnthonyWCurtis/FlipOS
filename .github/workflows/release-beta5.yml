@@ -1,0 +1,135 @@
+name: Publish FlipOS Beta 5
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - release/BETA5_VERSION
+
+permissions:
+  contents: write
+
+jobs:
+  publish-beta:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '\r\n' < release/BETA5_VERSION)"
+          test -n "$VERSION"
+          case "$VERSION" in
+            0.1.0-beta.5) ;;
+            *) echo "Unexpected Beta 5 version: $VERSION" >&2; exit 1 ;;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install AArch64 build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            linux-libc-dev-arm64-cross \
+            cmake curl unzip
+
+      - name: Run release gates
+        run: |
+          set -euo pipefail
+          make test-game-stats test-controls test-power
+          make test-architecture
+          git diff --check
+
+      - name: Build release userspace
+        run: |
+          set -euo pipefail
+          make \
+            frontend gb gba \
+            charge-service mtp-responder \
+            optimizer-supervisor-tool \
+            optimizer-deadman-tool \
+            optimizer-guard-tool \
+            optimizer-calibration-tool \
+            optimizer-candidate-tool \
+            optimizer-session-tool \
+            optimizer-progress-tool \
+            optimizer-validation-progress-tool \
+            optimizer-runtime-tool
+
+      - name: Restore unchanged Beta 4 kernel modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/flipos-beta4 build
+          curl -fL --retry 3 \
+            "https://github.com/AnthonyWCurtis/FlipOS/releases/download/v0.1.0-beta.4/FlipOS-Update.tar.gz" \
+            -o /tmp/flipos-beta4/update.tar.gz
+          tar -xzf /tmp/flipos-beta4/update.tar.gz -C /tmp/flipos-beta4
+          for module in \
+            flip_opp_voltage.ko \
+            flip_opp_runtime_profile.ko \
+            flip_tsadc_recovery.ko \
+            flip_rk817_charger.ko; do
+            cp "/tmp/flipos-beta4/FlipOSUpdate/payload/lib/$module" "build/$module"
+          done
+          sha256sum build/*.ko
+
+      - name: Validate release package builder
+        run: make test-release-package
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          tools/update/build-release-package "$VERSION" dist
+          tools/update/build-beta-install-bundle "$VERSION" dist
+
+          cp dist/FlipOS-Update.tar.gz dist/FlipOSUpdate.tar.gz
+          (
+            cd dist
+            sha256sum FlipOSUpdate.tar.gz > FlipOSUpdate.tar.gz.sha256
+          )
+
+          test -s dist/FlipOS-Fresh_Install.zip
+          test -s dist/FlipOS-Fresh_Install.zip.sha256
+          test -s dist/FlipOS-Update.tar.gz
+          test -s dist/FlipOS-Update.tar.gz.sha256
+          test -s dist/FlipOSUpdate.tar.gz
+          test -s dist/FlipOSUpdate.tar.gz.sha256
+
+          sha256sum dist/FlipOS-Fresh_Install.zip dist/FlipOS-Update.tar.gz dist/FlipOSUpdate.tar.gz
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+          gh release create "$TAG" \
+            dist/FlipOS-Fresh_Install.zip \
+            dist/FlipOS-Fresh_Install.zip.sha256 \
+            dist/FlipOS-Update.tar.gz \
+            dist/FlipOS-Update.tar.gz.sha256 \
+            dist/FlipOSUpdate.tar.gz \
+            dist/FlipOSUpdate.tar.gz.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "FlipOS Beta 5 — Console UX, Quick Menu & Power Menu" \
+            --notes-file release/BETA5_NOTES.md \
+            --prerelease

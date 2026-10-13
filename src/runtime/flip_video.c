@@ -3,6 +3,7 @@
 #include "flip_video.h"
 
 #include "flip_drm.h"
+#include "flip_draw.h"
 #include "flip_gpu_client.h"
 #include "flip_osd.h"
 #include "flip_video_layout.h"
@@ -17,6 +18,8 @@ static flip_drm_t video_overlay_drm;
 static uint32_t video_overlay_pixels[640u * 480u];
 static uint32_t video_osd_pixels[420u * 36u];
 static uint32_t video_perf_pixels[190u * 100u];
+static uint32_t video_quick_base_pixels[640u * 480u];
+static int video_quick_base_valid = 0;
 static flip_gpu_client_t video_gpu;
 
 static int video_open = 0;
@@ -682,6 +685,575 @@ static void update_gpu_overlays(void)
 {
     update_gpu_osd_overlay();
     update_gpu_perf_overlay();
+}
+
+
+static int quick_menu_copy_from_drm(void)
+{
+    if (!video_open ||
+        video_gpu_active ||
+        !video_drm.pixels ||
+        video_drm.width != 640 ||
+        video_drm.height != 480)
+        return -1;
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    for (unsigned y = 0;
+         y < 480;
+         ++y) {
+
+        memcpy(
+            video_quick_base_pixels +
+                y * 640u,
+            video_drm.pixels +
+                y * stride,
+            640u * sizeof(uint32_t));
+    }
+
+    return 0;
+}
+
+static void quick_menu_restore_to_drm(void)
+{
+    if (!video_quick_base_valid ||
+        !video_drm.pixels)
+        return;
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    for (unsigned y = 0;
+         y < 480;
+         ++y) {
+
+        memcpy(
+            video_drm.pixels +
+                y * stride,
+            video_quick_base_pixels +
+                y * 640u,
+            640u * sizeof(uint32_t));
+    }
+}
+
+int flip_video_quick_menu_begin(void)
+{
+    if (quick_menu_copy_from_drm() < 0)
+        return -1;
+
+    video_quick_base_valid = 1;
+    return 0;
+}
+
+#define QUICK_MENU_SCREEN_W       640
+#define QUICK_MENU_SCREEN_H       480
+#define QUICK_MENU_PANEL_X         72
+#define QUICK_MENU_PANEL_Y         28
+#define QUICK_MENU_PANEL_W        496
+#define QUICK_MENU_PANEL_H        424
+#define QUICK_MENU_INNER_X         96
+#define QUICK_MENU_INNER_W        448
+#define QUICK_MENU_ITEM_Y          82
+#define QUICK_MENU_ITEM_H          32
+#define QUICK_MENU_ITEM_GAP         6
+#define QUICK_MENU_STATUS_Y       398
+#define QUICK_MENU_FOOTER_Y       425
+
+int flip_video_quick_menu_present(
+    const flip_video_quick_menu_view_t *view)
+{
+    if (!view ||
+        !video_quick_base_valid ||
+        !video_open ||
+        video_gpu_active)
+        return -1;
+
+    quick_menu_restore_to_drm();
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    /*
+     * Keep the frozen game visible as context, but push it far enough into
+     * the background that the same dark/white FlipOS console language reads
+     * clearly over any game palette.
+     */
+    for (unsigned y = 0;
+         y < QUICK_MENU_SCREEN_H;
+         ++y) {
+
+        uint32_t *row =
+            video_drm.pixels +
+            y * stride;
+
+        for (unsigned x = 0;
+             x < QUICK_MENU_SCREEN_W;
+             ++x) {
+
+            row[x] =
+                (row[x] >> 2) &
+                0x003f3f3f;
+        }
+    }
+
+    const uint32_t panel =
+        0x00101010;
+
+    const uint32_t card =
+        0x00202020;
+
+    const uint32_t fg =
+        0x00ffffff;
+
+    const uint32_t dim =
+        0x00606060;
+
+    flip_draw_rect(
+        &video_drm,
+        QUICK_MENU_PANEL_X,
+        QUICK_MENU_PANEL_Y,
+        QUICK_MENU_PANEL_W,
+        QUICK_MENU_PANEL_H,
+        panel);
+
+    flip_draw_rect_outline(
+        &video_drm,
+        QUICK_MENU_PANEL_X,
+        QUICK_MENU_PANEL_Y,
+        QUICK_MENU_PANEL_W,
+        QUICK_MENU_PANEL_H,
+        2,
+        fg);
+
+    const char *title =
+        "QUICK MENU";
+
+    int title_x =
+        QUICK_MENU_PANEL_X +
+        (QUICK_MENU_PANEL_W -
+         (int)strlen(title) * 18) /
+        2;
+
+    flip_draw_text(
+        &video_drm,
+        title_x,
+        48,
+        title,
+        3,
+        fg);
+
+    static const char *labels[] = {
+        "RESUME",
+        "SAVE STATE",
+        "LOAD STATE",
+        "VOLUME",
+        "BRIGHTNESS",
+        "PERFORMANCE HUD",
+        "GAMESWITCHER",
+        "QUIT GAME"
+    };
+
+    const int item_count =
+        (int)(sizeof(labels) /
+              sizeof(labels[0]));
+
+    for (int i = 0;
+         i < item_count;
+         ++i) {
+
+        int y =
+            QUICK_MENU_ITEM_Y +
+            i *
+                (QUICK_MENU_ITEM_H +
+                 QUICK_MENU_ITEM_GAP);
+
+        int selected =
+            i == view->selected;
+
+        if (selected) {
+            flip_draw_rect(
+                &video_drm,
+                QUICK_MENU_INNER_X,
+                y,
+                QUICK_MENU_INNER_W,
+                QUICK_MENU_ITEM_H,
+                card);
+        }
+
+        flip_draw_rect_outline(
+            &video_drm,
+            QUICK_MENU_INNER_X,
+            y,
+            QUICK_MENU_INNER_W,
+            QUICK_MENU_ITEM_H,
+            selected ? 2 : 1,
+            selected
+                ? fg
+                : dim);
+
+        flip_draw_text(
+            &video_drm,
+            QUICK_MENU_INNER_X + 18,
+            y + 8,
+            labels[i],
+            2,
+            selected
+                ? fg
+                : dim);
+
+        char value[32];
+
+        value[0] = '\0';
+
+        if (i == 3) {
+            snprintf(
+                value,
+                sizeof(value),
+                "%d%%",
+                view->volume_percent);
+        } else if (i == 4) {
+            snprintf(
+                value,
+                sizeof(value),
+                "%d%%",
+                view->brightness_percent);
+        } else if (i == 5) {
+            snprintf(
+                value,
+                sizeof(value),
+                "%s",
+                view->performance_enabled
+                    ? "ON"
+                    : "OFF");
+        }
+
+        if (value[0]) {
+
+            int value_width =
+                (int)strlen(value) *
+                12;
+
+            flip_draw_text(
+                &video_drm,
+                QUICK_MENU_INNER_X +
+                    QUICK_MENU_INNER_W -
+                    18 -
+                    value_width,
+                y + 8,
+                value,
+                2,
+                selected
+                    ? fg
+                    : dim);
+        }
+    }
+
+    if (view->status &&
+        view->status[0]) {
+
+        flip_draw_text(
+            &video_drm,
+            QUICK_MENU_INNER_X,
+            QUICK_MENU_STATUS_Y,
+            view->status,
+            1,
+            fg);
+    }
+
+    const char *footer =
+        "A SELECT   B OR MENU RESUME   LEFT RIGHT ADJUST";
+
+    int footer_x =
+        QUICK_MENU_PANEL_X +
+        (QUICK_MENU_PANEL_W -
+         (int)strlen(footer) * 6) /
+        2;
+
+    flip_draw_text(
+        &video_drm,
+        footer_x,
+        QUICK_MENU_FOOTER_Y,
+        footer,
+        1,
+        dim);
+
+    return flip_drm_present(
+        &video_drm);
+}
+
+#define POWER_OVERLAY_PANEL_X       128
+#define POWER_OVERLAY_PANEL_Y        70
+#define POWER_OVERLAY_PANEL_W       384
+#define POWER_OVERLAY_PANEL_H       340
+#define POWER_OVERLAY_ROW_X         154
+#define POWER_OVERLAY_ROW_W         332
+#define POWER_OVERLAY_ROW_Y         144
+#define POWER_OVERLAY_ROW_H          52
+#define POWER_OVERLAY_ROW_GAP        10
+#define POWER_OVERLAY_CONFIRM_Y     338
+
+int flip_video_power_menu_begin(void)
+{
+    return flip_video_quick_menu_begin();
+}
+
+int flip_video_power_menu_present(
+    const flip_video_power_menu_view_t *view)
+{
+    if (!view ||
+        !video_quick_base_valid ||
+        !video_open ||
+        video_gpu_active)
+        return -1;
+
+    quick_menu_restore_to_drm();
+
+    uint32_t stride =
+        video_drm.pitch /
+        sizeof(uint32_t);
+
+    for (unsigned y = 0;
+         y < 480;
+         ++y) {
+
+        uint32_t *row =
+            video_drm.pixels +
+            y * stride;
+
+        for (unsigned x = 0;
+             x < 640;
+             ++x) {
+
+            row[x] =
+                (row[x] >> 2) &
+                0x003f3f3f;
+        }
+    }
+
+    const uint32_t panel =
+        0x00101010;
+
+    const uint32_t card =
+        0x00202020;
+
+    const uint32_t fg =
+        0x00ffffff;
+
+    const uint32_t dim =
+        0x00606060;
+
+    flip_draw_rect(
+        &video_drm,
+        POWER_OVERLAY_PANEL_X,
+        POWER_OVERLAY_PANEL_Y,
+        POWER_OVERLAY_PANEL_W,
+        POWER_OVERLAY_PANEL_H,
+        panel);
+
+    flip_draw_rect_outline(
+        &video_drm,
+        POWER_OVERLAY_PANEL_X,
+        POWER_OVERLAY_PANEL_Y,
+        POWER_OVERLAY_PANEL_W,
+        POWER_OVERLAY_PANEL_H,
+        2,
+        fg);
+
+    const char *title =
+        "POWER";
+
+    int title_x =
+        POWER_OVERLAY_PANEL_X +
+        (POWER_OVERLAY_PANEL_W -
+         (int)strlen(title) * 18) /
+        2;
+
+    flip_draw_text(
+        &video_drm,
+        title_x,
+        94,
+        title,
+        3,
+        fg);
+
+    static const char *labels[] = {
+        "SLEEP",
+        "RESTART",
+        "POWER OFF"
+    };
+
+    for (int i = 0;
+         i < 3;
+         ++i) {
+
+        int y =
+            POWER_OVERLAY_ROW_Y +
+            i *
+                (POWER_OVERLAY_ROW_H +
+                 POWER_OVERLAY_ROW_GAP);
+
+        int selected =
+            i == view->selected;
+
+        if (selected) {
+            flip_draw_rect(
+                &video_drm,
+                POWER_OVERLAY_ROW_X,
+                y,
+                POWER_OVERLAY_ROW_W,
+                POWER_OVERLAY_ROW_H,
+                card);
+        }
+
+        flip_draw_rect_outline(
+            &video_drm,
+            POWER_OVERLAY_ROW_X,
+            y,
+            POWER_OVERLAY_ROW_W,
+            POWER_OVERLAY_ROW_H,
+            selected ? 2 : 1,
+            selected
+                ? fg
+                : dim);
+
+        int label_x =
+            POWER_OVERLAY_ROW_X +
+            (POWER_OVERLAY_ROW_W -
+             (int)strlen(labels[i]) * 12) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            label_x,
+            y + 18,
+            labels[i],
+            2,
+            selected
+                ? fg
+                : dim);
+    }
+
+    if (view->confirm_action != 0) {
+
+        const char *confirm =
+            view->confirm_action == 1
+                ? "RESTART FLIPOS?"
+                : "POWER OFF FLIPOS?";
+
+        flip_draw_rect(
+            &video_drm,
+            POWER_OVERLAY_ROW_X,
+            POWER_OVERLAY_CONFIRM_Y,
+            POWER_OVERLAY_ROW_W,
+            54,
+            card);
+
+        flip_draw_rect_outline(
+            &video_drm,
+            POWER_OVERLAY_ROW_X,
+            POWER_OVERLAY_CONFIRM_Y,
+            POWER_OVERLAY_ROW_W,
+            54,
+            2,
+            fg);
+
+        int confirm_x =
+            POWER_OVERLAY_ROW_X +
+            (POWER_OVERLAY_ROW_W -
+             (int)strlen(confirm) * 12) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            confirm_x,
+            POWER_OVERLAY_CONFIRM_Y + 8,
+            confirm,
+            2,
+            fg);
+
+        const char *confirm_hint =
+            "A CONFIRM   B CANCEL";
+
+        int hint_x =
+            POWER_OVERLAY_ROW_X +
+            (POWER_OVERLAY_ROW_W -
+             (int)strlen(confirm_hint) * 6) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            hint_x,
+            POWER_OVERLAY_CONFIRM_Y + 36,
+            confirm_hint,
+            1,
+            dim);
+
+    } else if (
+        view->status &&
+        view->status[0]) {
+
+        int status_x =
+            POWER_OVERLAY_PANEL_X +
+            (POWER_OVERLAY_PANEL_W -
+             (int)strlen(view->status) * 6) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            status_x,
+            356,
+            view->status,
+            1,
+            fg);
+
+    } else {
+
+        const char *hint =
+            "A SELECT   B BACK";
+
+        int hint_x =
+            POWER_OVERLAY_PANEL_X +
+            (POWER_OVERLAY_PANEL_W -
+             (int)strlen(hint) * 6) /
+            2;
+
+        flip_draw_text(
+            &video_drm,
+            hint_x,
+            372,
+            hint,
+            1,
+            dim);
+    }
+
+    return flip_drm_present(
+        &video_drm);
+}
+
+void flip_video_power_menu_end(void)
+{
+    flip_video_quick_menu_end();
+}
+
+void flip_video_quick_menu_end(void)
+{
+    if (!video_quick_base_valid)
+        return;
+
+    if (video_open &&
+        !video_gpu_active) {
+
+        quick_menu_restore_to_drm();
+
+        (void)flip_drm_present(
+            &video_drm);
+    }
+
+    video_quick_base_valid = 0;
 }
 
 int flip_video_submit(

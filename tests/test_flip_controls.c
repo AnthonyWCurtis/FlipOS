@@ -73,6 +73,7 @@ int main(void)
         &input,
         &out);
 
+    assert(out.system.quick_menu_requested == 0);
     assert(out.system.gameswitcher_requested == 0);
 
     clear_input(
@@ -83,7 +84,123 @@ int main(void)
         &input,
         &out);
 
+    assert(out.system.quick_menu_requested == 1);
+    assert(out.system.gameswitcher_requested == 0);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.quick_menu_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
+
+    /*
+     * A short POWER press opens the software Power Menu on release.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_POWER] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 0);
+
+    clear_input(
+        &input);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 1);
+
+    /*
+     * A long POWER hold belongs to the hardware/emergency path and must not
+     * become a software menu request.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_POWER] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    struct timespec power_hold = {
+        .tv_sec = 0,
+        .tv_nsec = 750000000L
+    };
+
+    nanosleep(
+        &power_hold,
+        NULL);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 0);
+
+    clear_input(
+        &input);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.power_menu_requested == 0);
+
+    /*
+     * Holding MENU is a separate deliberate GameSwitcher gesture.
+     */
+    flip_controls_init(
+        &controls);
+
+    clear_input(
+        &input);
+
+    input.down[FLIP_BTN_MENU] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    struct timespec menu_hold = {
+        .tv_sec = 0,
+        .tv_nsec = 750000000L
+    };
+
+    nanosleep(
+        &menu_hold,
+        NULL);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
     assert(out.system.gameswitcher_requested == 1);
+    assert(out.system.quick_menu_requested == 0);
+
+    clear_input(
+        &input);
 
     update(
         &controls,
@@ -91,6 +208,7 @@ int main(void)
         &out);
 
     assert(out.system.gameswitcher_requested == 0);
+    assert(out.system.quick_menu_requested == 0);
 
     clear_input(
         &input);
@@ -124,19 +242,16 @@ int main(void)
 
     assert(out.system.gameswitcher_requested == 0);
 
+    /*
+     * MENU+SELECT is intentionally not a FlipOS chord.
+     */
     clear_input(
         &input);
 
     flip_controls_init(
         &controls);
 
-    input.down[FLIP_BTN_START] = 1;
-
-    update(
-        &controls,
-        &input,
-        &out);
-
+    input.down[FLIP_BTN_MENU] = 1;
     input.down[FLIP_BTN_SELECT] = 1;
 
     update(
@@ -144,13 +259,37 @@ int main(void)
         &input,
         &out);
 
-    assert(out.system.exit_requested == 1);
+    clear_input(
+        &input);
 
     update(
         &controls,
         &input,
         &out);
 
+    assert(out.system.quick_menu_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
+
+    /*
+     * START+SELECT belongs to the game now. It is no longer a global
+     * FlipOS exit chord; Quick Menu owns deliberate game-exit UX.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_START] = 1;
+    input.down[FLIP_BTN_SELECT] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.game.down[FLIP_GAME_START] == 1);
+    assert(out.game.down[FLIP_GAME_SELECT] == 1);
     assert(out.system.exit_requested == 0);
 
     clear_input(

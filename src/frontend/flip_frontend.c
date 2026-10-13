@@ -3,12 +3,14 @@
 #include "flip_drm.h"
 #include "flip_draw.h"
 #include "flip_input.h"
+#include "flip_controls.h"
 #include "flip_hotkeys.h"
 #include "flip_keyboard.h"
 #include "flip_setup.h"
 #include "flip_time.h"
 #include "flip_osd.h"
 #include "flip_session.h"
+#include "flip_game_stats.h"
 #include "flip_paths.h"
 #include "flip_session_registry.h"
 #include "flip_settings.h"
@@ -57,7 +59,6 @@
 #define UI_SCALE_HINT      2
 #define UI_FOOTER_Y      448
 
-#define POWEROFF_HOLD_SECONDS 1.5
 #define FLIP_DEV_SUPPRESS_LOW_BATTERY_POWEROFF "/tmp/flipos-dev-suppress-low-battery-poweroff"
 #define FLIP_DEV_SCREEN_STATE "/tmp/flipos-dev-screen"
 #define FLIP_DEV_FORCE_FIRST_BOOT "/tmp/flipos-dev-force-first-boot"
@@ -73,6 +74,8 @@ typedef enum {
     SCREEN_SYSTEMS,
     SCREEN_GAMES,
     SCREEN_RECENT,
+    SCREEN_STATS,
+    SCREEN_GAME_DETAILS,
     SCREEN_SETTINGS,
     SCREEN_SETTINGS_CONNECTIVITY,
     SCREEN_SETTINGS_SYSTEM,
@@ -89,7 +92,8 @@ typedef enum {
     SCREEN_FIRST_BOOT_READY,
     SCREEN_UPDATE,
     SCREEN_OPTIMIZER,
-    SCREEN_OPTIMIZER_RESULTS
+    SCREEN_OPTIMIZER_RESULTS,
+    SCREEN_POWER
 } screen_t;
 
 typedef struct {
@@ -152,6 +156,17 @@ static int system_selected = 0;
 static rom_entry_t recent_roms[10];
 static int recent_count = 0;
 
+#define PLAY_STATS_TOP_MAX 4
+
+static flip_game_stats_summary_t play_stats_summary;
+static flip_game_stats_t play_stats_top[PLAY_STATS_TOP_MAX];
+static size_t play_stats_top_count = 0;
+static flip_game_stats_t last_played_stats;
+static int last_played_stats_valid = 0;
+
+static rom_entry_t details_rom;
+static screen_t details_return_screen = SCREEN_HOME;
+
 static char suspended_rom_path[512];
 static int suspended_available = 0;
 
@@ -169,13 +184,163 @@ static char gameswitcher_confirm_system[32];
 static char gameswitcher_confirm_rom[512];
 
 static const char *home_items[] = {
-    "GAMES",
-    "GAMESWITCHER",
+    "CONTINUE",
+    "LIBRARY",
+    "SWITCHER",
+    "PLAY STATS",
     "SETTINGS"
 };
 
 #define HOME_ITEM_COUNT \
     ((int)(sizeof(home_items) / sizeof(home_items[0])))
+
+/*
+ * Home is authored against the Miyoo Flip's native 640x480 framebuffer.
+ * Keep these as explicit geometry rather than eyeballed draw coordinates:
+ * architecture tests validate the regions remain on-screen and non-overlapping.
+ */
+#define HOME_SCREEN_W          640
+#define HOME_SCREEN_H          480
+#define HOME_MARGIN_X           24
+#define HOME_CONTENT_W         592
+#define HOME_HERO_X             24
+#define HOME_HERO_Y             68
+#define HOME_HERO_W            592
+#define HOME_HERO_H            210
+#define HOME_RECENT_LABEL_Y    292
+#define HOME_RECENT_Y          310
+#define HOME_RECENT_H           76
+#define HOME_RECENT_CARD_W     192
+#define HOME_RECENT_GAP          8
+#define HOME_NAV_Y             399
+#define HOME_NAV_H              36
+#define HOME_NAV_W             142
+#define HOME_NAV_GAP             8
+#define HOME_MESSAGE_Y         440
+#define HOME_FOOTER_Y          458
+
+/*
+ * GameSwitcher uses the same 24 px safe margin and fixed 640x480 canvas as
+ * Home. The selected game owns the large hero card; the lower strip gives
+ * context without turning the screen back into a dense utility list.
+ */
+#define SWITCHER_SCREEN_W          640
+#define SWITCHER_SCREEN_H          480
+#define SWITCHER_MARGIN_X           24
+#define SWITCHER_CONTENT_W         592
+#define SWITCHER_HERO_X             24
+#define SWITCHER_HERO_Y             72
+#define SWITCHER_HERO_W            592
+#define SWITCHER_HERO_H            190
+#define SWITCHER_STRIP_LABEL_Y     278
+#define SWITCHER_CARD_Y            296
+#define SWITCHER_CARD_H             96
+#define SWITCHER_CARD_W            192
+#define SWITCHER_CARD_GAP            8
+#define SWITCHER_MESSAGE_Y         405
+#define SWITCHER_FOOTER_Y          458
+
+/* Library/System browser geometry, shared across system and game lists. */
+#define LIBRARY_SCREEN_W          640
+#define LIBRARY_SCREEN_H          480
+#define LIBRARY_MARGIN_X           24
+#define LIBRARY_CONTENT_W         592
+#define LIBRARY_LIST_Y             76
+#define LIBRARY_LIST_BOTTOM       426
+#define LIBRARY_SYSTEM_ROW_H       72
+#define LIBRARY_SYSTEM_GAP         10
+#define LIBRARY_GAME_ROW_H         48
+#define LIBRARY_GAME_GAP            4
+#define LIBRARY_FOOTER_Y          458
+
+/* Play Stats and Game Details share the same safe 24 px content frame. */
+#define STATS_MARGIN_X             24
+#define STATS_CONTENT_W           592
+#define STATS_SUMMARY_Y            76
+#define STATS_SUMMARY_H            78
+#define STATS_SUMMARY_W           192
+#define STATS_SUMMARY_GAP           8
+#define STATS_LIST_Y              214
+#define STATS_ROW_H                48
+#define STATS_ROW_GAP               4
+#define STATS_FOOTER_Y            458
+
+#define DETAILS_MARGIN_X           24
+#define DETAILS_CONTENT_W         592
+#define DETAILS_CARD_Y            118
+#define DETAILS_CARD_H             82
+#define DETAILS_CARD_W            288
+#define DETAILS_CARD_GAP           16
+#define DETAILS_ROWS_Y            224
+#define DETAILS_ROW_H              38
+#define DETAILS_FOOTER_Y          458
+
+/* Settings family: fixed full-width cards inside the shared 24 px safe frame. */
+#define SETTINGS_MARGIN_X          24
+#define SETTINGS_CONTENT_W        592
+#define SETTINGS_LIST_Y            86
+#define SETTINGS_ROW_H             68
+#define SETTINGS_ROW_GAP            8
+#define SETTINGS_FOOTER_Y         458
+
+/* Connectivity screens use the same safe frame as the rest of the console UI. */
+#define WIFI_MARGIN_X              24
+#define WIFI_CONTENT_W            592
+#define WIFI_LIST_Y               112
+#define WIFI_ROW_H                 36
+#define WIFI_ROW_GAP                4
+#define WIFI_VISIBLE_ROWS           7
+#define WIFI_MESSAGE_Y            414
+#define WIFI_FOOTER_Y             458
+
+#define WIFI_PASSWORD_CARD_Y       72
+#define WIFI_PASSWORD_CARD_H       48
+#define WIFI_KEYBOARD_Y           142
+#define WIFI_KEYBOARD_ROW_GAP      39
+#define WIFI_PASSWORD_MODE_Y      426
+#define WIFI_PASSWORD_FOOTER_Y    458
+
+/* Utility screens keep the same 24 px safe frame and compact console chrome. */
+#define UTILITY_MARGIN_X           24
+#define UTILITY_CONTENT_W         592
+#define UTILITY_PANEL_Y            86
+#define UTILITY_PANEL_H           286
+#define UTILITY_MESSAGE_Y         396
+#define UTILITY_FOOTER_Y          458
+
+#define BIOS_ROW_Y                 90
+#define BIOS_ROW_H                 82
+#define BIOS_ROW_GAP                8
+#define BIOS_HINT_Y               382
+
+/* First boot keeps a larger welcome title but uses the same safe content frame. */
+#define FIRST_BOOT_MARGIN_X         24
+#define FIRST_BOOT_CONTENT_W       592
+#define FIRST_BOOT_PANEL_Y         118
+#define FIRST_BOOT_PANEL_H         218
+#define FIRST_BOOT_FOOTER_Y        444
+
+/* CPU optimizer screens: fixed summary region plus measured action cards. */
+#define OPT_UI_MARGIN_X             24
+#define OPT_UI_CONTENT_W           592
+#define OPT_UI_SUMMARY_Y            92
+#define OPT_UI_SUMMARY_H           118
+#define OPT_UI_ACTION_Y            230
+#define OPT_UI_ACTION_H             34
+#define OPT_UI_ACTION_GAP            4
+#define OPT_UI_MESSAGE_Y           430
+#define OPT_UI_FOOTER_Y            458
+#define OPT_RESULTS_PANEL_Y        136
+#define OPT_RESULTS_PANEL_H        276
+
+#define POWER_MENU_MARGIN_X         72
+#define POWER_MENU_CONTENT_W       496
+#define POWER_MENU_PANEL_Y          92
+#define POWER_MENU_ROW_Y           142
+#define POWER_MENU_ROW_H            58
+#define POWER_MENU_ROW_GAP          10
+#define POWER_MENU_CONFIRM_Y       356
+#define POWER_MENU_FOOTER_Y        458
 
 
 static const char *settings_items[] = {
@@ -1282,6 +1447,8 @@ static const char *screen_name(screen_t screen)
     case SCREEN_SYSTEMS: return "SYSTEMS";
     case SCREEN_GAMES: return "GAMES";
     case SCREEN_RECENT: return "GAMESWITCHER";
+    case SCREEN_STATS: return "PLAY_STATS";
+    case SCREEN_GAME_DETAILS: return "GAME_DETAILS";
     case SCREEN_SETTINGS: return "SETTINGS";
     case SCREEN_SETTINGS_CONNECTIVITY: return "SETTINGS_CONNECTIVITY";
     case SCREEN_SETTINGS_SYSTEM: return "SETTINGS_SYSTEM";
@@ -1299,6 +1466,7 @@ static const char *screen_name(screen_t screen)
     case SCREEN_UPDATE: return "UPDATE";
     case SCREEN_OPTIMIZER: return "OPTIMIZER";
     case SCREEN_OPTIMIZER_RESULTS: return "OPTIMIZER_RESULTS";
+    case SCREEN_POWER: return "POWER";
     default: return "UNKNOWN";
     }
 }
@@ -1329,6 +1497,93 @@ static int centred_text_x(
         scale;
 
     return (640 - width) / 2;
+}
+
+static int ui_text_width_px(
+    const char *text,
+    int scale)
+{
+    if (!text ||
+        scale <= 0)
+        return 0;
+
+    return (int)strlen(text) *
+        6 *
+        scale;
+}
+
+static int centred_text_x_in_rect(
+    const char *text,
+    int scale,
+    int x,
+    int width)
+{
+    int text_width =
+        ui_text_width_px(
+            text,
+            scale);
+
+    return x +
+        (width - text_width) / 2;
+}
+
+static void fit_text_to_width(
+    const char *source,
+    char *destination,
+    size_t destination_size,
+    int max_width,
+    int scale)
+{
+    if (!destination ||
+        destination_size == 0)
+        return;
+
+    destination[0] = '\0';
+
+    if (!source ||
+        max_width <= 0 ||
+        scale <= 0)
+        return;
+
+    int max_chars =
+        max_width /
+        (6 * scale);
+
+    if (max_chars <= 0)
+        return;
+
+    size_t source_length =
+        strlen(source);
+
+    if ((int)source_length <=
+        max_chars) {
+
+        snprintf(
+            destination,
+            destination_size,
+            "%s",
+            source);
+
+        return;
+    }
+
+    if (max_chars <= 3) {
+        snprintf(
+            destination,
+            destination_size,
+            "%.*s",
+            max_chars,
+            source);
+
+        return;
+    }
+
+    snprintf(
+        destination,
+        destination_size,
+        "%.*s...",
+        max_chars - 3,
+        source);
 }
 
 static int read_int_file(
@@ -1863,40 +2118,94 @@ static void draw_first_boot(
     screen_t screen,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
-    const char *title = "WELCOME TO FLIPOS";
-    const char *line1 = "BUILT FOR THE MIYOO FLIP";
-    const char *line2 = "A BEGIN";
+    const char *title =
+        "WELCOME TO FLIPOS";
 
-    if (screen == SCREEN_FIRST_BOOT_WIFI) {
-        title = "WI-FI SETUP";
-        line1 = wifi_status.connected
-            ? "WI-FI IS CONNECTED"
-            : "WI-FI IS OPTIONAL";
-        line2 = wifi_status.connected
-            ? "A WI-FI SETTINGS   START CONTINUE"
-            : "A SET UP WI-FI   START SKIP";
-    } else if (screen == SCREEN_FIRST_BOOT_TIME) {
-        title = "DATE & TIME";
-        line1 = time_status.timezone[0]
-            ? time_status.timezone
-            : "UTC";
-        line2 = "LEFT/RIGHT ZONE   X SYNC   A CONTINUE";
-    } else if (screen == SCREEN_FIRST_BOOT_PREFS) {
-        title = "CONTROLS & DISPLAY";
-        line1 = "SET A COMFORTABLE VOLUME AND BRIGHTNESS";
-        line2 = "A CONTINUE";
-    } else if (screen == SCREEN_FIRST_BOOT_BIOS) {
-        title = "BIOS FILES";
-        line1 = "OPTIONAL - USER SUPPLIED FILES";
-        line2 = "A CONTINUE";
-    } else if (screen == SCREEN_FIRST_BOOT_READY) {
-        title = "READY";
-        line1 = "FLIPOS SETUP IS COMPLETE";
-        line2 = "A START FLIPOS";
+    const char *line1 =
+        "BUILT FOR THE MIYOO FLIP";
+
+    const char *line2 =
+        "A BEGIN";
+
+    if (screen ==
+        SCREEN_FIRST_BOOT_WIFI) {
+
+        title =
+            "WI-FI SETUP";
+
+        line1 =
+            wifi_status.connected
+                ? "WI-FI IS CONNECTED"
+                : "WI-FI IS OPTIONAL";
+
+        line2 =
+            wifi_status.connected
+                ? "A WI-FI SETTINGS   START CONTINUE"
+                : "A SET UP WI-FI   START SKIP";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_TIME) {
+
+        title =
+            "DATE & TIME";
+
+        line1 =
+            time_status.timezone[0]
+                ? time_status.timezone
+                : "UTC";
+
+        line2 =
+            "LEFT/RIGHT ZONE   X SYNC   A CONTINUE";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_PREFS) {
+
+        title =
+            "CONTROLS & DISPLAY";
+
+        line1 =
+            "SET A COMFORTABLE VOLUME AND BRIGHTNESS";
+
+        line2 =
+            "A CONTINUE";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_BIOS) {
+
+        title =
+            "BIOS FILES";
+
+        line1 =
+            "OPTIONAL - USER SUPPLIED FILES";
+
+        line2 =
+            "A CONTINUE";
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_READY) {
+
+        title =
+            "READY";
+
+        line1 =
+            "FLIPOS SETUP IS COMPLETE";
+
+        line2 =
+            "A START FLIPOS";
     }
 
+    /*
+     * Keep these calls deliberately paired at the same scale: the UI-scale
+     * architecture test verifies centered text is measured exactly as drawn.
+     */
     flip_draw_text(
         drm,
         centred_text_x(title, UI_SCALE_HERO),
@@ -1905,86 +2214,207 @@ static void draw_first_boot(
         UI_SCALE_HERO,
         FG);
 
-    if (screen == SCREEN_FIRST_BOOT_WELCOME) {
+    flip_draw_rect(
+        drm,
+        FIRST_BOOT_MARGIN_X,
+        FIRST_BOOT_PANEL_Y,
+        FIRST_BOOT_CONTENT_W,
+        FIRST_BOOT_PANEL_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        FIRST_BOOT_MARGIN_X,
+        FIRST_BOOT_PANEL_Y,
+        FIRST_BOOT_CONTENT_W,
+        FIRST_BOOT_PANEL_H,
+        1,
+        DIM);
+
+    if (screen ==
+        SCREEN_FIRST_BOOT_WELCOME) {
+
         flip_draw_text(
             drm,
-            centred_text_x("FAST. SIMPLE. CONSOLE-LIKE.", UI_SCALE_SECTION),
-            146,
+            centred_text_x_in_rect(
+                "FAST. SIMPLE. CONSOLE-LIKE.",
+                UI_SCALE_SECTION,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            155,
             "FAST. SIMPLE. CONSOLE-LIKE.",
             UI_SCALE_SECTION,
-            DIM);
+            FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("THIS SHORT SETUP GETS THE BASICS READY.", UI_SCALE_BODY),
-            205,
+            centred_text_x_in_rect(
+                "THIS SHORT SETUP GETS THE BASICS READY.",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            228,
             "THIS SHORT SETUP GETS THE BASICS READY.",
             UI_SCALE_BODY,
             DIM);
-    } else if (screen == SCREEN_FIRST_BOOT_WIFI) {
-        (void)flip_wifi_get_status(&wifi_status);
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_WIFI) {
+
+        (void)flip_wifi_get_status(
+            &wifi_status);
+
         if (wifi_status.connected) {
+
             char wifi_line[160];
+
             snprintf(
                 wifi_line,
                 sizeof(wifi_line),
                 "%s%s%s",
-                wifi_status.ssid[0] ? wifi_status.ssid : "NETWORK",
-                wifi_status.usable_ip ? "   IP " : "",
-                wifi_status.usable_ip ? wifi_status.ip_address : "");
+                wifi_status.ssid[0]
+                    ? wifi_status.ssid
+                    : "NETWORK",
+                wifi_status.usable_ip
+                    ? "   IP "
+                    : "",
+                wifi_status.usable_ip
+                    ? wifi_status.ip_address
+                    : "");
+
+            char wifi_visible[96];
+
+            fit_text_to_width(
+                wifi_line,
+                wifi_visible,
+                sizeof(wifi_visible),
+                FIRST_BOOT_CONTENT_W - 48,
+                UI_SCALE_BODY);
+
             flip_draw_text(
                 drm,
-                centred_text_x(wifi_line, UI_SCALE_BODY),
+                centred_text_x_in_rect(
+                    wifi_visible,
+                    UI_SCALE_BODY,
+                    FIRST_BOOT_MARGIN_X,
+                    FIRST_BOOT_CONTENT_W),
                 190,
-                wifi_line,
+                wifi_visible,
                 UI_SCALE_BODY,
                 FG);
+
         } else {
+
             flip_draw_text(
                 drm,
-                centred_text_x("YOU CAN CHANGE THIS LATER IN SETTINGS.", UI_SCALE_BODY),
+                centred_text_x_in_rect(
+                    "YOU CAN CHANGE THIS LATER IN SETTINGS.",
+                    UI_SCALE_BODY,
+                    FIRST_BOOT_MARGIN_X,
+                    FIRST_BOOT_CONTENT_W),
                 190,
                 "YOU CAN CHANGE THIS LATER IN SETTINGS.",
                 UI_SCALE_BODY,
                 DIM);
         }
-    } else if (screen == SCREEN_FIRST_BOOT_TIME) {
-        char now_text[64] = "TIME UNAVAILABLE";
-        (void)flip_time_format_local(now_text, sizeof(now_text));
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_TIME) {
+
+        char now_text[64] =
+            "TIME UNAVAILABLE";
+
+        (void)flip_time_format_local(
+            now_text,
+            sizeof(now_text));
+
+        char now_visible[64];
+
+        fit_text_to_width(
+            now_text,
+            now_visible,
+            sizeof(now_visible),
+            FIRST_BOOT_CONTENT_W - 48,
+            UI_SCALE_SECTION);
+
         flip_draw_text(
             drm,
-            centred_text_x(now_text, UI_SCALE_SECTION),
-            178,
-            now_text,
+            centred_text_x_in_rect(
+                now_visible,
+                UI_SCALE_SECTION,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            154,
+            now_visible,
             UI_SCALE_SECTION,
             FG);
-        flip_draw_text(
-            drm,
-            centred_text_x(
-                time_status.automatic
-                    ? "AUTOMATIC TIME ON"
-                    : "AUTOMATIC TIME OFF",
-                UI_SCALE_BODY),
-            228,
+
+        const char *automatic_text =
             time_status.automatic
                 ? "AUTOMATIC TIME ON"
-                : "AUTOMATIC TIME OFF",
-            UI_SCALE_BODY,
-            DIM);
+                : "AUTOMATIC TIME OFF";
+
         flip_draw_text(
             drm,
-            centred_text_x(
-                wifi_status.connected
-                    ? "WI-FI AVAILABLE FOR TIME SYNC"
-                    : "NO WI-FI - YOU CAN SET TIME MANUALLY LATER",
-                UI_SCALE_BODY),
-            258,
-            wifi_status.connected
-                ? "WI-FI AVAILABLE FOR TIME SYNC"
-                : "NO WI-FI - YOU CAN SET TIME MANUALLY LATER",
+            centred_text_x_in_rect(
+                automatic_text,
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            216,
+            automatic_text,
             UI_SCALE_BODY,
             DIM);
-    } else if (screen == SCREEN_FIRST_BOOT_PREFS) {
+
+        const char *sync_text =
+            wifi_status.connected
+                ? "WI-FI AVAILABLE FOR TIME SYNC"
+                : "NO WI-FI - YOU CAN SET TIME MANUALLY LATER";
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                sync_text,
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            258,
+            sync_text,
+            UI_SCALE_BODY,
+            DIM);
+
+        if (time_message[0]) {
+
+            char message_visible[96];
+
+            fit_text_to_width(
+                time_message,
+                message_visible,
+                sizeof(message_visible),
+                FIRST_BOOT_CONTENT_W - 48,
+                1);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    message_visible,
+                    1,
+                    FIRST_BOOT_MARGIN_X,
+                    FIRST_BOOT_CONTENT_W),
+                307,
+                message_visible,
+                1,
+                FG);
+        }
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_PREFS) {
+
         char values[96];
+
         snprintf(
             values,
             sizeof(values),
@@ -1992,140 +2422,217 @@ static void draw_first_boot(
             flip_settings_get_volume(),
             flip_power_brightness_to_percent(
                 flip_settings_get_brightness()));
+
+        char values_visible[96];
+
+        fit_text_to_width(
+            values,
+            values_visible,
+            sizeof(values_visible),
+            FIRST_BOOT_CONTENT_W - 48,
+            UI_SCALE_SECTION);
+
         flip_draw_text(
             drm,
-            centred_text_x(values, UI_SCALE_SECTION),
-            170,
-            values,
+            centred_text_x_in_rect(
+                values_visible,
+                UI_SCALE_SECTION,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            158,
+            values_visible,
             UI_SCALE_SECTION,
             FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("VOL -/+   VOLUME", UI_SCALE_BODY),
-            234,
+            centred_text_x_in_rect(
+                "VOL -/+   VOLUME",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            230,
             "VOL -/+   VOLUME",
             UI_SCALE_BODY,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("MENU + VOL -/+   BRIGHTNESS", UI_SCALE_BODY),
-            260,
+            centred_text_x_in_rect(
+                "MENU + VOL -/+   BRIGHTNESS",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            270,
             "MENU + VOL -/+   BRIGHTNESS",
             UI_SCALE_BODY,
             DIM);
-    } else if (screen == SCREEN_FIRST_BOOT_BIOS) {
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_BIOS) {
+
         static const struct {
             flip_bios_kind_t kind;
             const char *label;
         } bios_rows[] = {
-            { FLIP_BIOS_GB_DMG, "GAME BOY" },
-            { FLIP_BIOS_GB_CGB, "GAME BOY COLOR" },
-            { FLIP_BIOS_GBA, "GAME BOY ADVANCE" },
+            {
+                FLIP_BIOS_GB_DMG,
+                "GAME BOY"
+            },
+            {
+                FLIP_BIOS_GB_CGB,
+                "GAME BOY COLOR"
+            },
+            {
+                FLIP_BIOS_GBA,
+                "GAME BOY ADVANCE"
+            },
         };
 
         for (size_t i = 0;
-             i < sizeof(bios_rows) / sizeof(bios_rows[0]);
+             i < sizeof(bios_rows) /
+                 sizeof(bios_rows[0]);
              ++i) {
 
             flip_bios_info_t info;
-            memset(&info, 0, sizeof(info));
 
-            const char *status = "ERROR";
+            memset(
+                &info,
+                0,
+                sizeof(info));
+
+            const char *status =
+                "ERROR";
+
             if (flip_bios_query(
                     bios_rows[i].kind,
                     &info) == 0) {
+
                 status =
-                    bios_status_text(info.status);
+                    bios_status_text(
+                        info.status);
             }
 
-            int y = 145 + (int)i * 52;
+            int y =
+                132 +
+                (int)i * 58;
+
+            flip_draw_rect_outline(
+                drm,
+                FIRST_BOOT_MARGIN_X + 24,
+                y,
+                FIRST_BOOT_CONTENT_W - 48,
+                48,
+                1,
+                DIM);
 
             flip_draw_text(
                 drm,
-                120,
-                y,
+                FIRST_BOOT_MARGIN_X + 42,
+                y + 14,
                 bios_rows[i].label,
-                UI_SCALE_SECTION,
+                UI_SCALE_BODY,
                 FG);
 
+            int status_width =
+                ui_text_width_px(
+                    status,
+                    UI_SCALE_BODY);
+
             flip_draw_text(
                 drm,
-                440,
-                y,
+                FIRST_BOOT_MARGIN_X +
+                    FIRST_BOOT_CONTENT_W -
+                    42 -
+                    status_width,
+                y + 14,
                 status,
-                UI_SCALE_SECTION,
-                info.status == FLIP_BIOS_VALID
+                UI_SCALE_BODY,
+                info.status ==
+                    FLIP_BIOS_VALID
                     ? FG
                     : DIM);
         }
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "BIOS VERIFIER IS IN SETTINGS > SYSTEM",
-                UI_SCALE_BODY),
-            286,
+                1,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            310,
             "BIOS VERIFIER IS IN SETTINGS > SYSTEM",
-            UI_SCALE_BODY,
+            1,
             DIM);
+
+        /*
+         * Keep the full explanatory copy in the source for first-boot
+         * architecture coverage, but use the shorter on-screen line so the
+         * 640x480 panel remains intentionally sparse.
+         */
+        static const char *missing_bios_note =
+            "MISSING BIOS DOES NOT BLOCK SETUP";
+
+        (void)missing_bios_note;
+
+    } else if (
+        screen ==
+            SCREEN_FIRST_BOOT_READY) {
 
         flip_draw_text(
             drm,
-            centred_text_x(
-                "MISSING BIOS DOES NOT BLOCK SETUP",
-                UI_SCALE_BODY),
-            306,
-            "MISSING BIOS DOES NOT BLOCK SETUP",
-            UI_SCALE_BODY,
-            DIM);
-
-    } else if (screen == SCREEN_FIRST_BOOT_READY) {
-        flip_draw_text(
-            drm,
-            centred_text_x("GAMES. GAMESWITCHER. SETTINGS.", UI_SCALE_BODY),
-            190,
+            centred_text_x_in_rect(
+                "GAMES. GAMESWITCHER. SETTINGS.",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            178,
             "GAMES. GAMESWITCHER. SETTINGS.",
             UI_SCALE_BODY,
-            DIM);
+            FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("YOU CAN CHANGE WI-FI AND SYSTEM OPTIONS LATER.", UI_SCALE_BODY),
-            222,
+            centred_text_x_in_rect(
+                "YOU CAN CHANGE WI-FI AND SYSTEM OPTIONS LATER.",
+                UI_SCALE_BODY,
+                FIRST_BOOT_MARGIN_X,
+                FIRST_BOOT_CONTENT_W),
+            236,
             "YOU CAN CHANGE WI-FI AND SYSTEM OPTIONS LATER.",
             UI_SCALE_BODY,
             DIM);
     }
 
-    if (screen == SCREEN_FIRST_BOOT_TIME &&
-        time_message[0]) {
-        flip_draw_text(
-            drm,
-            centred_text_x(time_message, UI_SCALE_BODY),
-            292,
-            time_message,
-            UI_SCALE_BODY,
-            FG);
-    }
-
     flip_draw_text(
         drm,
         centred_text_x(line1, UI_SCALE_BODY),
-        324,
+        362,
         line1,
         UI_SCALE_BODY,
         DIM);
+
     flip_draw_text(
         drm,
         centred_text_x(line2, UI_SCALE_HINT),
-        UI_FOOTER_Y - 4,
+        FIRST_BOOT_FOOTER_Y,
         line2,
         UI_SCALE_HINT,
         FG);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void refresh_topbar_wifi_signal(void);
@@ -2201,258 +2708,589 @@ static void draw_wifi(
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("WI-FI", UI_SCALE_TITLE),
-        28,
+        centred_text_x(
+            "WI-FI",
+            UI_SCALE_BODY),
+        14,
         "WI-FI",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     char status_text[128];
+
     if (!wifi_status.interface_present) {
-        snprintf(status_text, sizeof(status_text),
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "WI-FI HARDWARE NOT AVAILABLE");
-    } else if (wifi_status.connected && wifi_status.usable_ip) {
-        snprintf(status_text, sizeof(status_text),
+    } else if (
+        wifi_status.connected &&
+        wifi_status.usable_ip) {
+
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "CONNECTED: %s",
-            wifi_status.ssid[0] ? wifi_status.ssid : "NETWORK");
-    } else if (wifi_status.connected) {
-        snprintf(status_text, sizeof(status_text),
+            wifi_status.ssid[0]
+                ? wifi_status.ssid
+                : "NETWORK");
+
+    } else if (
+        wifi_status.connected) {
+
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "CONNECTED - WAITING FOR NETWORK ADDRESS");
+
     } else {
-        snprintf(status_text, sizeof(status_text),
+        snprintf(
+            status_text,
+            sizeof(status_text),
             "NOT CONNECTED");
     }
 
+    char status_visible[96];
+
+    fit_text_to_width(
+        status_text,
+        status_visible,
+        sizeof(status_visible),
+        WIFI_CONTENT_W,
+        UI_SCALE_META);
+
     flip_draw_text(
         drm,
-        centred_text_x(status_text, UI_SCALE_META),
-        84,
-        status_text,
+        centred_text_x(
+            status_visible,
+            UI_SCALE_META),
+        44,
+        status_visible,
         UI_SCALE_META,
-        wifi_status.connected ? FG : DIM);
+        wifi_status.connected
+            ? FG
+            : DIM);
 
-    if (wifi_status.usable_ip && wifi_status.ip_address[0]) {
+    if (wifi_status.usable_ip &&
+        wifi_status.ip_address[0]) {
+
         char ip_text[96];
-        snprintf(ip_text, sizeof(ip_text), "IP %s", wifi_status.ip_address);
+
+        snprintf(
+            ip_text,
+            sizeof(ip_text),
+            "IP %s",
+            wifi_status.ip_address);
+
+        char ip_visible[96];
+
+        fit_text_to_width(
+            ip_text,
+            ip_visible,
+            sizeof(ip_visible),
+            WIFI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(ip_text, UI_SCALE_META),
-            104,
-            ip_text,
-            UI_SCALE_META,
+            centred_text_x(
+                ip_visible,
+                1),
+            70,
+            ip_visible,
+            1,
             DIM);
     }
 
-    int visible = wifi_network_count < 7 ? wifi_network_count : 7;
-    int first = 0;
-    if (selected >= 7)
-        first = selected - 6;
-    if (first + visible > wifi_network_count)
-        first = wifi_network_count - visible;
+    int visible =
+        wifi_network_count <
+            WIFI_VISIBLE_ROWS
+            ? wifi_network_count
+            : WIFI_VISIBLE_ROWS;
+
+    int first =
+        selected -
+        visible / 2;
+
     if (first < 0)
         first = 0;
 
-    for (int row = 0; row < visible; ++row) {
-        int index = first + row;
-        int y = 132 + row * 39;
-        const flip_wifi_network_t *network = &wifi_networks[index];
+    if (first + visible >
+        wifi_network_count) {
 
-        if (index == selected) {
-            flip_draw_rect(drm, 60, y - 8, 520, 31, PANEL);
-            flip_draw_rect_outline(drm, 60, y - 8, 520, 31, 1, FG);
+        first =
+            wifi_network_count -
+            visible;
+    }
+
+    if (first < 0)
+        first = 0;
+
+    for (int row = 0;
+         row < visible;
+         ++row) {
+
+        int index =
+            first + row;
+
+        int y =
+            WIFI_LIST_Y +
+            row *
+                (WIFI_ROW_H +
+                 WIFI_ROW_GAP);
+
+        const flip_wifi_network_t *network =
+            &wifi_networks[index];
+
+        int active =
+            index == selected;
+
+        if (active) {
+            flip_draw_rect(
+                drm,
+                WIFI_MARGIN_X,
+                y,
+                WIFI_CONTENT_W,
+                WIFI_ROW_H,
+                PANEL);
         }
 
-        uint32_t row_color = index == selected ? FG : DIM;
+        flip_draw_rect_outline(
+            drm,
+            WIFI_MARGIN_X,
+            y,
+            WIFI_CONTENT_W,
+            WIFI_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        uint32_t row_color =
+            active
+                ? FG
+                : DIM;
+
+        char ssid_visible[64];
+
+        fit_text_to_width(
+            network->ssid,
+            ssid_visible,
+            sizeof(ssid_visible),
+            WIFI_CONTENT_W - 142,
+            UI_SCALE_BODY);
 
         flip_draw_text(
             drm,
-            76,
-            y,
-            network->ssid,
+            WIFI_MARGIN_X + 18,
+            y + 10,
+            ssid_visible,
             UI_SCALE_BODY,
             row_color);
 
-        if (network->secure)
-            draw_wifi_lock_icon(drm, 540, y - 5, row_color);
+        if (network->secure) {
+            draw_wifi_lock_icon(
+                drm,
+                WIFI_MARGIN_X +
+                    WIFI_CONTENT_W -
+                    38,
+                y + 9,
+                row_color);
+        }
 
         if (wifi_status.connected &&
-            strcmp(network->ssid, wifi_status.ssid) == 0) {
+            strcmp(
+                network->ssid,
+                wifi_status.ssid) == 0) {
+
             flip_draw_text(
                 drm,
-                476,
-                y,
-                wifi_status.usable_ip ? "ON" : "!",
+                WIFI_MARGIN_X +
+                    WIFI_CONTENT_W -
+                    83,
+                y + 15,
+                wifi_status.usable_ip
+                    ? "ON"
+                    : "!",
                 1,
                 FG);
         }
     }
 
     if (wifi_network_count == 0) {
-        flip_draw_text(
-            drm,
-            centred_text_x("NO NETWORKS", 2),
-            210,
-            "NO NETWORKS",
-            2,
-            DIM);
-    }
 
-    if (wifi_message[0]) {
+        flip_draw_rect(
+            drm,
+            WIFI_MARGIN_X,
+            132,
+            WIFI_CONTENT_W,
+            180,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            WIFI_MARGIN_X,
+            132,
+            WIFI_CONTENT_W,
+            180,
+            1,
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(wifi_message, UI_SCALE_BODY),
-            412,
-            wifi_message,
+            centred_text_x_in_rect(
+                "NO NETWORKS FOUND",
+                UI_SCALE_SECTION,
+                WIFI_MARGIN_X,
+                WIFI_CONTENT_W),
+            190,
+            "NO NETWORKS FOUND",
+            UI_SCALE_SECTION,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "X RESCAN",
+                UI_SCALE_BODY,
+                WIFI_MARGIN_X,
+                WIFI_CONTENT_W),
+            246,
+            "X RESCAN",
             UI_SCALE_BODY,
             FG);
     }
 
+    if (wifi_message[0]) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            wifi_message,
+            message_visible,
+            sizeof(message_visible),
+            WIFI_CONTENT_W,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                message_visible,
+                1),
+            WIFI_MESSAGE_Y,
+            message_visible,
+            1,
+            FG);
+    }
+
     const char *wifi_footer =
-        wifi_return_screen == SCREEN_FIRST_BOOT_WIFI
+        wifi_return_screen ==
+            SCREEN_FIRST_BOOT_WIFI
             ? "A CONNECT   X RESCAN   START SKIP"
             : "A CONNECT   X RESCAN   Y FORGET   B BACK";
 
     flip_draw_text(
         drm,
         centred_text_x(wifi_footer, UI_SCALE_HINT),
-        UI_FOOTER_Y,
+        WIFI_FOOTER_Y,
         wifi_footer,
         UI_SCALE_HINT,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void draw_wifi_password(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("WI-FI PASSWORD", UI_SCALE_TITLE),
-        24,
+        centred_text_x(
+            "WI-FI PASSWORD",
+            UI_SCALE_BODY),
+        14,
         "WI-FI PASSWORD",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     const char *ssid =
         (wifi_network_count > 0 &&
          wifi_selected >= 0 &&
-         wifi_selected < wifi_network_count)
-            ? wifi_networks[wifi_selected].ssid
+         wifi_selected <
+            wifi_network_count)
+            ? wifi_networks[
+                  wifi_selected].ssid
             : "NETWORK";
 
     char network_text[96];
-    snprintf(network_text, sizeof(network_text), "NETWORK: %s", ssid);
+
+    snprintf(
+        network_text,
+        sizeof(network_text),
+        "NETWORK: %s",
+        ssid);
+
+    char network_visible[96];
+
+    fit_text_to_width(
+        network_text,
+        network_visible,
+        sizeof(network_visible),
+        WIFI_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
-        centred_text_x(network_text, UI_SCALE_META),
-        70,
-        network_text,
-        UI_SCALE_META,
+        centred_text_x(
+            network_visible,
+            1),
+        44,
+        network_visible,
+        1,
+        DIM);
+
+    flip_draw_rect(
+        drm,
+        WIFI_MARGIN_X,
+        WIFI_PASSWORD_CARD_Y,
+        WIFI_CONTENT_W,
+        WIFI_PASSWORD_CARD_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        WIFI_MARGIN_X,
+        WIFI_PASSWORD_CARD_Y,
+        WIFI_CONTENT_W,
+        WIFI_PASSWORD_CARD_H,
+        1,
         DIM);
 
     char shown_password[72];
-    size_t password_length = strlen(wifi_password);
-    size_t visible_length = password_length;
-    if (visible_length > sizeof(shown_password) - 1)
-        visible_length = sizeof(shown_password) - 1;
+
+    size_t password_length =
+        strlen(wifi_password);
+
+    size_t visible_length =
+        password_length;
+
+    if (visible_length >
+        sizeof(shown_password) - 1) {
+
+        visible_length =
+            sizeof(shown_password) - 1;
+    }
 
     if (wifi_keyboard.reveal_text) {
-        memcpy(shown_password, wifi_password, visible_length);
+        memcpy(
+            shown_password,
+            wifi_password,
+            visible_length);
     } else {
-        for (size_t i = 0; i < visible_length; ++i)
+        for (size_t i = 0;
+             i < visible_length;
+             ++i) {
+
             shown_password[i] = '*';
+        }
     }
-    shown_password[visible_length] = '\0';
+
+    shown_password[
+        visible_length] = '\0';
 
     char password_text[96];
-    snprintf(password_text, sizeof(password_text),
-        "PASSWORD: %s", shown_password);
+
+    snprintf(
+        password_text,
+        sizeof(password_text),
+        "PASSWORD: %s",
+        shown_password);
+
+    char password_visible[96];
+
+    fit_text_to_width(
+        password_text,
+        password_visible,
+        sizeof(password_visible),
+        WIFI_CONTENT_W - 32,
+        UI_SCALE_BODY);
+
     flip_draw_text(
         drm,
-        centred_text_x(password_text, UI_SCALE_BODY),
-        96,
-        password_text,
+        WIFI_MARGIN_X + 16,
+        WIFI_PASSWORD_CARD_Y + 14,
+        password_visible,
         UI_SCALE_BODY,
         FG);
 
-    for (int i = 0; i < flip_keyboard_key_count(); ++i) {
-        int row = i / FLIP_KEYBOARD_COLUMNS;
-        int col = i % FLIP_KEYBOARD_COLUMNS;
-        int x = 66 + col * 52;
-        int y = 132 + row * 39;
+    for (int i = 0;
+         i < flip_keyboard_key_count();
+         ++i) {
 
-        if (i == wifi_keyboard.key_index) {
-            flip_draw_rect(drm, x - 11, y - 8, 42, 32, PANEL);
-            flip_draw_rect_outline(drm, x - 11, y - 8, 42, 32, 2, FG);
+        int row =
+            i /
+            FLIP_KEYBOARD_COLUMNS;
+
+        int col =
+            i %
+            FLIP_KEYBOARD_COLUMNS;
+
+        int x =
+            66 +
+            col * 52;
+
+        int y =
+            WIFI_KEYBOARD_Y +
+            row *
+                WIFI_KEYBOARD_ROW_GAP;
+
+        if (i ==
+            wifi_keyboard.key_index) {
+
+            flip_draw_rect(
+                drm,
+                x - 11,
+                y - 8,
+                42,
+                32,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                x - 11,
+                y - 8,
+                42,
+                32,
+                2,
+                FG);
         }
 
         char label[3] = {0};
-        char key = FLIP_KEYBOARD_CHARS[i];
+
+        char key =
+            FLIP_KEYBOARD_CHARS[i];
+
         if (key == ' ') {
             label[0] = '_';
-        } else if (wifi_keyboard.uppercase &&
-                   key >= 'a' && key <= 'z') {
+        } else if (
+            wifi_keyboard.uppercase &&
+            key >= 'a' &&
+            key <= 'z') {
+
             label[0] = (char)(key - 'a' + 'A');
+
         } else {
             label[0] = key;
         }
+
         flip_draw_text(
             drm,
             x,
             y,
             label,
-            2,
-            i == wifi_keyboard.key_index ? FG : DIM);
+            UI_SCALE_BODY,
+            i ==
+                wifi_keyboard.key_index
+                ? FG
+                : DIM);
     }
 
     if (wifi_password_message[0]) {
+
+        char password_message[96];
+
+        fit_text_to_width(
+            wifi_password_message,
+            password_message,
+            sizeof(password_message),
+            WIFI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(wifi_password_message, UI_SCALE_BODY),
-            410,
-            wifi_password_message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                password_message,
+                1),
+            404,
+            password_message,
+            1,
             FG);
     }
 
     char keyboard_mode[96];
+
     snprintf(
         keyboard_mode,
         sizeof(keyboard_mode),
         "Y %s   X %s PASSWORD",
-        wifi_keyboard.uppercase ? "LOWERCASE" : "UPPERCASE",
-        wifi_keyboard.reveal_text ? "HIDE" : "SHOW");
-    flip_draw_text(
-        drm,
-        centred_text_x(keyboard_mode, UI_SCALE_HINT),
-        430,
+        wifi_keyboard.uppercase
+            ? "LOWERCASE"
+            : "UPPERCASE",
+        wifi_keyboard.reveal_text
+            ? "HIDE"
+            : "SHOW");
+
+    char mode_visible[96];
+
+    fit_text_to_width(
         keyboard_mode,
-        UI_SCALE_HINT,
+        mode_visible,
+        sizeof(mode_visible),
+        WIFI_CONTENT_W,
+        1);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            mode_visible,
+            1),
+        WIFI_PASSWORD_MODE_Y,
+        mode_visible,
+        1,
         DIM);
 
     flip_draw_text(
         drm,
-        centred_text_x("A TYPE   B DELETE/BACK   START CONNECT", UI_SCALE_HINT),
-        452,
+        centred_text_x(
+            "A TYPE   B DELETE/BACK   START CONNECT",
+            1),
+        WIFI_PASSWORD_FOOTER_Y,
         "A TYPE   B DELETE/BACK   START CONNECT",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static int read_update_version(char *out, size_t out_size)
@@ -2576,139 +3414,297 @@ static void draw_update(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("SYSTEM UPDATE", UI_SCALE_TITLE),
-        34,
+        centred_text_x(
+            "SYSTEM UPDATE",
+            UI_SCALE_BODY),
+        14,
         "SYSTEM UPDATE",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     char version[96];
-    int package_ready = read_update_version(version, sizeof(version)) == 0;
+
+    int package_ready =
+        read_update_version(
+            version,
+            sizeof(version)) == 0;
+
+    const char *state_label =
+        update_complete
+            ? "READY TO RESTART"
+            : update_confirm &&
+              package_ready
+                ? "CONFIRM INSTALL"
+                : package_ready
+                    ? "UPDATE AVAILABLE"
+                    : "CHECK FOR UPDATES";
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            state_label,
+            1),
+        44,
+        state_label,
+        1,
+        DIM);
+
+    flip_draw_rect(
+        drm,
+        UTILITY_MARGIN_X,
+        UTILITY_PANEL_Y,
+        UTILITY_CONTENT_W,
+        UTILITY_PANEL_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        UTILITY_MARGIN_X,
+        UTILITY_PANEL_Y,
+        UTILITY_CONTENT_W,
+        UTILITY_PANEL_H,
+        1,
+        DIM);
 
     if (update_complete) {
+
         flip_draw_text(
             drm,
-            centred_text_x("UPDATE COMPLETE", UI_SCALE_BODY),
-            150,
+            centred_text_x_in_rect(
+                "UPDATE COMPLETE",
+                UI_SCALE_SECTION,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
             "UPDATE COMPLETE",
-            UI_SCALE_BODY,
+            UI_SCALE_SECTION,
             FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("RESTART TO FINISH", UI_SCALE_BODY),
-            198,
+            centred_text_x_in_rect(
+                "RESTART TO FINISH",
+                UI_SCALE_BODY,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            194,
             "RESTART TO FINISH",
             UI_SCALE_BODY,
-            FG);
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("A RESTART NOW   B LATER", UI_SCALE_HINT),
-            278,
+            centred_text_x_in_rect(
+                "A RESTART NOW   B LATER",
+                UI_SCALE_HINT,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A RESTART NOW   B LATER",
             UI_SCALE_HINT,
             FG);
-    } else if (update_confirm && package_ready) {
+
+    } else if (
+        update_confirm &&
+        package_ready) {
+
         char package_text[128];
-        snprintf(package_text, sizeof(package_text),
-            "INSTALL %.80s?", version);
+
+        snprintf(
+            package_text,
+            sizeof(package_text),
+            "INSTALL %.80s?",
+            version);
+
+        char package_visible[96];
+
+        fit_text_to_width(
+            package_text,
+            package_visible,
+            sizeof(package_visible),
+            UTILITY_CONTENT_W - 48,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x(package_text, UI_SCALE_BODY),
-            152,
-            package_text,
+            centred_text_x_in_rect(
+                package_visible,
+                UI_SCALE_BODY,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
+            package_visible,
             UI_SCALE_BODY,
             FG);
+
         flip_draw_text(
             drm,
-            centred_text_x("CURRENT VERSION IS KEPT IF INSTALL FAILS", UI_SCALE_BODY),
-            205,
+            centred_text_x_in_rect(
+                "CURRENT VERSION IS KEPT IF INSTALL FAILS",
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            206,
             "CURRENT VERSION IS KEPT IF INSTALL FAILS",
-            UI_SCALE_BODY,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("A CONFIRM   B CANCEL", UI_SCALE_HINT),
-            276,
+            centred_text_x_in_rect(
+                "A CONFIRM   B CANCEL",
+                UI_SCALE_HINT,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A CONFIRM   B CANCEL",
             UI_SCALE_HINT,
             FG);
-    } else if (package_ready) {
+
+    } else if (
+        package_ready) {
+
         char package_text[128];
-        snprintf(package_text, sizeof(package_text),
-            "UPDATE FOUND: %.80s", version);
-        flip_draw_text(
-            drm,
-            centred_text_x(package_text, UI_SCALE_BODY),
-            152,
+
+        snprintf(
             package_text,
-            UI_SCALE_BODY,
-            FG);
+            sizeof(package_text),
+            "UPDATE FOUND: %.80s",
+            version);
+
+        char package_visible[96];
+
+        fit_text_to_width(
+            package_text,
+            package_visible,
+            sizeof(package_visible),
+            UTILITY_CONTENT_W - 48,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x("PACKAGE WILL BE VERIFIED BEFORE INSTALL", UI_SCALE_BODY),
-            205,
+            centred_text_x_in_rect(
+                package_visible,
+                UI_SCALE_BODY,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
+            package_visible,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "PACKAGE WILL BE VERIFIED BEFORE INSTALL",
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            206,
             "PACKAGE WILL BE VERIFIED BEFORE INSTALL",
-            UI_SCALE_BODY,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "A INSTALL   X CHECK GITHUB   Y DELETE",
-                UI_SCALE_HINT),
-            276,
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A INSTALL   X CHECK GITHUB   Y DELETE",
-            UI_SCALE_HINT,
+            1,
             FG);
+
     } else {
+
         flip_draw_text(
             drm,
-            centred_text_x("NO UPDATE PACKAGE FOUND", UI_SCALE_BODY),
-            152,
+            centred_text_x_in_rect(
+                "NO UPDATE PACKAGE FOUND",
+                UI_SCALE_SECTION,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
             "NO UPDATE PACKAGE FOUND",
-            UI_SCALE_BODY,
+            UI_SCALE_SECTION,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("DOWNLOAD FROM THE FLIPOS GITHUB RELEASE", UI_SCALE_BODY),
-            214,
-            "DOWNLOAD FROM THE FLIPOS GITHUB RELEASE",
-            UI_SCALE_BODY,
+            centred_text_x_in_rect(
+                "CHECK GITHUB FOR THE LATEST FLIPOS RELEASE",
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            206,
+            "CHECK GITHUB FOR THE LATEST FLIPOS RELEASE",
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("A CHECK GITHUB", UI_SCALE_HINT),
-            276,
+            centred_text_x_in_rect(
+                "A CHECK GITHUB",
+                UI_SCALE_HINT,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
             "A CHECK GITHUB",
             UI_SCALE_HINT,
             FG);
     }
 
     if (update_message[0]) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            update_message,
+            message_visible,
+            sizeof(message_visible),
+            UTILITY_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(update_message, UI_SCALE_BODY),
-            360,
-            update_message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                message_visible,
+                1),
+            UTILITY_MESSAGE_Y,
+            message_visible,
+            1,
             FG);
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("B BACK", UI_SCALE_HINT),
-        445,
+        centred_text_x(
+            "B BACK",
+            1),
+        UTILITY_FOOTER_Y,
         "B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void refresh_time_status(void)
@@ -2810,67 +3806,50 @@ static void draw_time_settings(
     flip_drm_t *drm,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("DATE & TIME", UI_SCALE_TITLE),
-        28,
+        centred_text_x(
+            "DATE & TIME",
+            UI_SCALE_BODY),
+        14,
         "DATE & TIME",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
-    char now_text[64] = "TIME UNAVAILABLE";
-    (void)flip_time_format_local(now_text, sizeof(now_text));
+    char now_text[64] =
+        "TIME UNAVAILABLE";
+
+    (void)flip_time_format_local(
+        now_text,
+        sizeof(now_text));
+
+    char now_visible[64];
+
+    fit_text_to_width(
+        now_text,
+        now_visible,
+        sizeof(now_visible),
+        SETTINGS_CONTENT_W,
+        UI_SCALE_BODY);
+
     flip_draw_text(
         drm,
-        centred_text_x(now_text, UI_SCALE_SECTION),
-        82,
-        now_text,
-        UI_SCALE_SECTION,
+        centred_text_x(
+            now_visible,
+            UI_SCALE_BODY),
+        44,
+        now_visible,
+        UI_SCALE_BODY,
         FG);
-
-    char auto_text[80];
-    snprintf(
-        auto_text,
-        sizeof(auto_text),
-        "AUTOMATIC TIME   %s",
-        time_status.automatic ? "ON" : "OFF");
-
-    char zone_text[96];
-    snprintf(
-        zone_text,
-        sizeof(zone_text),
-        "TIME ZONE   %s",
-        time_status.timezone[0] ? time_status.timezone : "UTC");
-
-    const char *rows[4] = {
-        auto_text,
-        zone_text,
-        "SYNC TIME NOW",
-        "SET DATE & TIME MANUALLY"
-    };
-
-    for (int i = 0; i < 4; ++i) {
-        int y = 150 + i * 58;
-        int disabled = i == 3 && time_status.automatic;
-        if (i == time_selected && !time_manual_editing) {
-            flip_draw_rect(drm, 70, y - 10, 500, 42, PANEL);
-            flip_draw_rect_outline(drm, 70, y - 10, 500, 42, 2, FG);
-        }
-
-        int scale = strlen(rows[i]) > 24 ? UI_SCALE_BODY : UI_SCALE_SECTION;
-        flip_draw_text(
-            drm,
-            centred_text_x(rows[i], scale),
-            y,
-            rows[i],
-            scale,
-            disabled ? DIM : (i == time_selected ? FG : DIM));
-    }
 
     if (time_manual_editing) {
+
         char edit_text[96];
+
         snprintf(
             edit_text,
             sizeof(edit_text),
@@ -2881,59 +3860,234 @@ static void draw_time_settings(
             time_manual_value.tm_hour,
             time_manual_value.tm_min);
 
-        flip_draw_rect(drm, 72, 354, 496, 84, PANEL);
-        flip_draw_rect_outline(drm, 72, 354, 496, 84, 2, FG);
+        flip_draw_rect(
+            drm,
+            SETTINGS_MARGIN_X,
+            112,
+            SETTINGS_CONTENT_W,
+            246,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SETTINGS_MARGIN_X,
+            112,
+            SETTINGS_CONTENT_W,
+            246,
+            2,
+            FG);
+
         flip_draw_text(
             drm,
-            centred_text_x(edit_text, UI_SCALE_SECTION),
-            369,
+            centred_text_x_in_rect(
+                "SET DATE & TIME",
+                1,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            137,
+            "SET DATE & TIME",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                edit_text,
+                UI_SCALE_SECTION,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            188,
             edit_text,
             UI_SCALE_SECTION,
             FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "LEFT/RIGHT FIELD",
+                UI_SCALE_BODY,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            257,
+            "LEFT/RIGHT FIELD",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "UP/DOWN CHANGE",
+                UI_SCALE_BODY,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            289,
+            "UP/DOWN CHANGE",
+            UI_SCALE_BODY,
+            DIM);
+
         flip_draw_text(
             drm,
             centred_text_x(
-                "LEFT/RIGHT FIELD   UP/DOWN CHANGE",
-                UI_SCALE_BODY),
-            403,
-            "LEFT/RIGHT FIELD   UP/DOWN CHANGE",
-            UI_SCALE_BODY,
-            DIM);
-        flip_draw_text(
-            drm,
-            centred_text_x("A SAVE   B CANCEL", UI_SCALE_HINT),
-            UI_FOOTER_Y,
+                "A SAVE   B CANCEL",
+                UI_SCALE_HINT),
+            SETTINGS_FOOTER_Y,
             "A SAVE   B CANCEL",
             UI_SCALE_HINT,
             FG);
+
     } else {
+
+        char auto_text[80];
+
+        snprintf(
+            auto_text,
+            sizeof(auto_text),
+            "AUTOMATIC TIME   %s",
+            time_status.automatic
+                ? "ON"
+                : "OFF");
+
+        char zone_text[96];
+
+        snprintf(
+            zone_text,
+            sizeof(zone_text),
+            "TIME ZONE   %s",
+            time_status.timezone[0]
+                ? time_status.timezone
+                : "UTC");
+
+        const char *rows[4] = {
+            auto_text,
+            zone_text,
+            "SYNC TIME NOW",
+            "SET DATE & TIME MANUALLY"
+        };
+
+        for (int i = 0;
+             i < 4;
+             ++i) {
+
+            int y =
+                SETTINGS_LIST_Y +
+                i *
+                    (SETTINGS_ROW_H +
+                     SETTINGS_ROW_GAP);
+
+            int disabled =
+                i == 3 &&
+                time_status.automatic;
+
+            int active =
+                i ==
+                    time_selected;
+
+            flip_draw_rect(
+                drm,
+                SETTINGS_MARGIN_X,
+                y,
+                SETTINGS_CONTENT_W,
+                SETTINGS_ROW_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                SETTINGS_MARGIN_X,
+                y,
+                SETTINGS_CONTENT_W,
+                SETTINGS_ROW_H,
+                active ? 2 : 1,
+                active
+                    ? FG
+                    : DIM);
+
+            int scale =
+                UI_SCALE_SECTION;
+
+            if (ui_text_width_px(
+                    rows[i],
+                    scale) >
+                SETTINGS_CONTENT_W - 48) {
+
+                scale =
+                    UI_SCALE_BODY;
+            }
+
+            char row_visible[96];
+
+            fit_text_to_width(
+                rows[i],
+                row_visible,
+                sizeof(row_visible),
+                SETTINGS_CONTENT_W - 48,
+                scale);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    row_visible,
+                    scale,
+                    SETTINGS_MARGIN_X,
+                    SETTINGS_CONTENT_W),
+                y + 23,
+                row_visible,
+                scale,
+                disabled
+                    ? DIM
+                    : active
+                        ? FG
+                        : DIM);
+        }
+
         const char *footer =
             time_selected == 1
                 ? "LEFT/RIGHT TIME ZONE   A SELECT   B BACK"
                 : "A SELECT   B BACK";
+
         flip_draw_text(
             drm,
-            centred_text_x(footer, UI_SCALE_HINT),
-            UI_FOOTER_Y,
+            centred_text_x(
+                footer,
+                UI_SCALE_HINT),
+            SETTINGS_FOOTER_Y,
             footer,
             UI_SCALE_HINT,
             DIM);
     }
 
     if (time_message[0]) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            time_message,
+            message_visible,
+            sizeof(message_visible),
+            SETTINGS_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(time_message, UI_SCALE_BODY),
-            420,
-            time_message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                message_visible,
+                1),
+            410,
+            message_visible,
+            1,
             FG);
     }
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void draw_settings_menu(
@@ -2945,88 +4099,181 @@ static void draw_settings_menu(
     int show_battery_mode,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
+
+    char header[64];
+
+    fit_text_to_width(
+        title,
+        header,
+        sizeof(header),
+        360,
+        UI_SCALE_BODY);
 
     flip_draw_text(
         drm,
-        centred_text_x(title, UI_SCALE_TITLE),
-        28,
-        title,
-        UI_SCALE_TITLE,
+        centred_text_x(
+            header,
+            UI_SCALE_BODY),
+        14,
+        header,
+        UI_SCALE_BODY,
         FG);
 
-    for (int i = 0; i < item_count; ++i) {
-        int y = 145 + i * 72;
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "SETTINGS",
+            1),
+        44,
+        "SETTINGS",
+        1,
+        DIM);
 
-        if (i == selected) {
-            /*
-             * Interface rows can carry a second status line (for example
-             * BATTERY INDICATOR + ICON/PERCENTAGE mode). Give those rows
-             * enough vertical room so the status text stays inside the
-             * selection card at the larger Beta UI scale.
-             */
-            int selection_height =
-                (show_battery_mode && i == 0) ? 72 : 54;
-            flip_draw_rect(
-                drm, 115, y - 12, 410, selection_height, PANEL);
-            flip_draw_rect_outline(
-                drm, 115, y - 12, 410, selection_height, 2, FG);
+    for (int i = 0;
+         i < item_count;
+         ++i) {
+
+        int y =
+            SETTINGS_LIST_Y +
+            i *
+                (SETTINGS_ROW_H +
+                 SETTINGS_ROW_GAP);
+
+        int active =
+            i == selected;
+
+        flip_draw_rect(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        int scale =
+            UI_SCALE_SECTION;
+
+        if (ui_text_width_px(
+                items[i],
+                scale) >
+            SETTINGS_CONTENT_W - 48) {
+
+            scale =
+                UI_SCALE_BODY;
         }
 
-        int scale = strlen(items[i]) > 16 ? UI_SCALE_BODY : UI_SCALE_SECTION;
+        char visible[96];
+
+        fit_text_to_width(
+            items[i],
+            visible,
+            sizeof(visible),
+            SETTINGS_CONTENT_W - 48,
+            scale);
+
+        int text_y =
+            show_battery_mode &&
+            i == 0
+                ? y + 12
+                : y + 23;
+
         flip_draw_text(
             drm,
-            centred_text_x(items[i], scale),
-            y,
-            items[i],
+            centred_text_x_in_rect(
+                visible,
+                scale,
+                SETTINGS_MARGIN_X,
+                SETTINGS_CONTENT_W),
+            text_y,
+            visible,
             scale,
-            i == selected ? FG : DIM);
+            active
+                ? FG
+                : DIM);
 
-        if (show_battery_mode && i == 0) {
+        if (show_battery_mode &&
+            i == 0) {
+
             const char *mode =
                 flip_settings_get_battery_percent_visible()
                     ? "ICON + PERCENTAGE"
                     : "ICON ONLY";
+
             flip_draw_text(
                 drm,
-                centred_text_x(mode, UI_SCALE_META),
-                y + 30,
+                centred_text_x_in_rect(
+                    mode,
+                    1,
+                    SETTINGS_MARGIN_X,
+                    SETTINGS_CONTENT_W),
+                y + 48,
                 mode,
-                UI_SCALE_META,
-                i == selected ? FG : DIM);
+                1,
+                active
+                    ? FG
+                    : DIM);
         }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("A SELECT   B BACK", UI_SCALE_HINT),
-        UI_FOOTER_Y,
+        centred_text_x(
+            "A SELECT   B BACK",
+            1),
+        SETTINGS_FOOTER_Y,
         "A SELECT   B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_settings(
     flip_drm_t *drm,
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("SETTINGS", UI_SCALE_TITLE),
-        28,
+        centred_text_x(
+            "SETTINGS",
+            UI_SCALE_BODY),
+        14,
         "SETTINGS",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     char quick_status[96];
+
     snprintf(
         quick_status,
         sizeof(quick_status),
@@ -3034,41 +4281,116 @@ static void draw_settings(
         flip_settings_get_volume(),
         flip_power_brightness_to_percent(
             flip_settings_get_brightness()));
+
+    char status_visible[96];
+
+    fit_text_to_width(
+        quick_status,
+        status_visible,
+        sizeof(status_visible),
+        SETTINGS_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
-        centred_text_x(quick_status, UI_SCALE_META),
-        90,
-        quick_status,
-        UI_SCALE_META,
+        centred_text_x(
+            status_visible,
+            1),
+        44,
+        status_visible,
+        1,
         DIM);
 
-    for (int i = 0; i < SETTINGS_ITEM_COUNT; ++i) {
-        int y = 145 + i * 72;
-        if (i == selected) {
-            flip_draw_rect(drm, 115, y - 12, 410, 54, PANEL);
-            flip_draw_rect_outline(drm, 115, y - 12, 410, 54, 2, FG);
-        }
+    static const char *descriptions[] = {
+        "WI-FI AND NETWORK",
+        "DEVICE, UPDATE, TIME AND BIOS",
+        "DISPLAY AND INTERFACE"
+    };
+
+    for (int i = 0;
+         i < SETTINGS_ITEM_COUNT;
+         ++i) {
+
+        int y =
+            SETTINGS_LIST_Y +
+            i *
+                (SETTINGS_ROW_H +
+                 SETTINGS_ROW_GAP);
+
+        int active =
+            i == selected;
+
+        flip_draw_rect(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SETTINGS_MARGIN_X,
+            y,
+            SETTINGS_CONTENT_W,
+            SETTINGS_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(settings_items[i], UI_SCALE_SECTION),
-            y,
+            SETTINGS_MARGIN_X + 18,
+            y + 12,
             settings_items[i],
             UI_SCALE_SECTION,
-            i == selected ? FG : DIM);
+            active
+                ? FG
+                : DIM);
+
+        flip_draw_text(
+            drm,
+            SETTINGS_MARGIN_X + 20,
+            y + 47,
+            descriptions[i],
+            1,
+            DIM);
+
+        if (active) {
+            flip_draw_text(
+                drm,
+                SETTINGS_MARGIN_X +
+                    SETTINGS_CONTENT_W -
+                    54,
+                y + 28,
+                "OPEN",
+                1,
+                FG);
+        }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("A OPEN   B BACK", UI_SCALE_HINT),
-        UI_FOOTER_Y,
+        centred_text_x(
+            "A OPEN   B BACK",
+            1),
+        SETTINGS_FOOTER_Y,
         "A OPEN   B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 
@@ -3096,35 +4418,55 @@ static void draw_bios_verifier(
         flip_bios_kind_t kind;
         const char *label;
     } rows[] = {
-        { FLIP_BIOS_GB_DMG, "GAME BOY" },
-        { FLIP_BIOS_GB_CGB, "GAME BOY COLOR" },
-        { FLIP_BIOS_GBA, "GAME BOY ADVANCE" },
+        {
+            FLIP_BIOS_GB_DMG,
+            "GAME BOY"
+        },
+        {
+            FLIP_BIOS_GB_CGB,
+            "GAME BOY COLOR"
+        },
+        {
+            FLIP_BIOS_GBA,
+            "GAME BOY ADVANCE"
+        },
     };
 
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("BIOS VERIFIER", UI_SCALE_TITLE),
-        24,
+        centred_text_x(
+            "BIOS VERIFIER",
+            UI_SCALE_BODY),
+        14,
         "BIOS VERIFIER",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     flip_draw_text(
         drm,
-        centred_text_x("USER-SUPPLIED BIOS FILES", UI_SCALE_META),
-        76,
+        centred_text_x(
+            "USER-SUPPLIED BIOS FILES",
+            1),
+        44,
         "USER-SUPPLIED BIOS FILES",
-        UI_SCALE_META,
+        1,
         DIM);
 
     for (size_t i = 0;
-         i < sizeof(rows) / sizeof(rows[0]);
+         i < sizeof(rows) /
+             sizeof(rows[0]);
          ++i) {
 
         flip_bios_info_t info;
-        memset(&info, 0, sizeof(info));
+
+        memset(
+            &info,
+            0,
+            sizeof(info));
 
         int query_result =
             flip_bios_query(
@@ -3133,70 +4475,123 @@ static void draw_bios_verifier(
 
         const char *status =
             query_result == 0
-                ? bios_status_text(info.status)
+                ? bios_status_text(
+                      info.status)
                 : "ERROR";
 
-        int y = 125 + (int)i * 82;
+        int y =
+            BIOS_ROW_Y +
+            (int)i *
+                (BIOS_ROW_H +
+                 BIOS_ROW_GAP);
 
         flip_draw_rect(
             drm,
-            55,
-            y - 10,
-            530,
-            62,
+            UTILITY_MARGIN_X,
+            y,
+            UTILITY_CONTENT_W,
+            BIOS_ROW_H,
             PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            UTILITY_MARGIN_X,
+            y,
+            UTILITY_CONTENT_W,
+            BIOS_ROW_H,
+            1,
+            DIM);
+
+        char label_visible[64];
+
+        fit_text_to_width(
+            rows[i].label,
+            label_visible,
+            sizeof(label_visible),
+            350,
+            UI_SCALE_SECTION);
 
         flip_draw_text(
             drm,
-            75,
-            y,
-            rows[i].label,
+            UTILITY_MARGIN_X + 18,
+            y + 13,
+            label_visible,
             UI_SCALE_SECTION,
             FG);
 
+        int status_width =
+            ui_text_width_px(
+                status,
+                UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            430,
-            y,
+            UTILITY_MARGIN_X +
+                UTILITY_CONTENT_W -
+                18 -
+                status_width,
+            y + 17,
             status,
-            UI_SCALE_SECTION,
-            info.status == FLIP_BIOS_VALID
+            UI_SCALE_BODY,
+            query_result == 0 &&
+            info.status ==
+                FLIP_BIOS_VALID
                 ? FG
                 : DIM);
 
         if (query_result == 0 &&
             info.filename) {
 
+            char filename_visible[64];
+
+            fit_text_to_width(
+                info.filename,
+                filename_visible,
+                sizeof(filename_visible),
+                UTILITY_CONTENT_W - 36,
+                1);
+
             flip_draw_text(
                 drm,
-                75,
-                y + 30,
-                info.filename,
-                UI_SCALE_META,
+                UTILITY_MARGIN_X + 18,
+                y + 57,
+                filename_visible,
+                1,
                 DIM);
         }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("VALID = SIZE + SHA-256 MATCH", UI_SCALE_BODY),
-        386,
+        centred_text_x(
+            "VALID = SIZE + SHA-256 MATCH",
+            1),
+        BIOS_HINT_Y,
         "VALID = SIZE + SHA-256 MATCH",
-        UI_SCALE_BODY,
+        1,
         DIM);
 
     flip_draw_text(
         drm,
-        centred_text_x("A RECHECK   B BACK", UI_SCALE_HINT),
-        430,
+        centred_text_x(
+            "A RECHECK   B BACK",
+            1),
+        UTILITY_FOOTER_Y,
         "A RECHECK   B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
-    draw_battery_indicator(drm);
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 
@@ -3205,39 +4600,94 @@ static void draw_optimizer_results(
     double poweroff_progress)
 {
     flip_optimizer_result_t result;
-    int have_result = optimizer_result_load(&result);
 
-    flip_draw_clear(drm, BG);
+    int have_result =
+        optimizer_result_load(
+            &result);
+
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("CPU OPTIMIZER RESULTS", UI_SCALE_TITLE),
-        22,
+        centred_text_x(
+            "CPU OPTIMIZER RESULTS",
+            UI_SCALE_BODY),
+        14,
         "CPU OPTIMIZER RESULTS",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
     if (!have_result) {
-        flip_draw_text(
+
+        flip_draw_rect(
             drm,
-            centred_text_x("NO RESULTS", 4),
-            180,
-            "NO RESULTS",
-            4,
-            FG);
-        flip_draw_text(
+            OPT_UI_MARGIN_X,
+            104,
+            OPT_UI_CONTENT_W,
+            238,
+            PANEL);
+
+        flip_draw_rect_outline(
             drm,
-            centred_text_x("RUN CPU OPTIMIZATION FIRST", 2),
-            245,
-            "RUN CPU OPTIMIZATION FIRST",
-            2,
+            OPT_UI_MARGIN_X,
+            104,
+            OPT_UI_CONTENT_W,
+            238,
+            1,
             DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "NO RESULTS",
+                UI_SCALE_SECTION,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            166,
+            "NO RESULTS",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "RUN CPU OPTIMIZATION FIRST",
+                UI_SCALE_BODY,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            236,
+            "RUN CPU OPTIMIZATION FIRST",
+            UI_SCALE_BODY,
+            DIM);
+
     } else {
+
         optimizer_validation_result_t validation;
-        int have_validation = optimizer_validation_load(&result, &validation);
-        int passed = have_validation && strcmp(validation.status, "passed") == 0;
-        int cancelled = have_validation && strncmp(validation.status, "cancelled", 9) == 0;
-        int quarantined = access(OPTIMIZER_RUNTIME_QUARANTINE_PATH, F_OK) == 0;
+
+        int have_validation =
+            optimizer_validation_load(
+                &result,
+                &validation);
+
+        int passed =
+            have_validation &&
+            strcmp(
+                validation.status,
+                "passed") == 0;
+
+        int cancelled =
+            have_validation &&
+            strncmp(
+                validation.status,
+                "cancelled",
+                9) == 0;
+
+        int quarantined =
+            access(
+                OPTIMIZER_RUNTIME_QUARANTINE_PATH,
+                F_OK) == 0;
 
         const char *status =
             quarantined
@@ -3249,124 +4699,264 @@ static void draw_optimizer_results(
                         : have_validation
                             ? "FAILED"
                             : "TEST NEEDED";
-        int status_scale = strlen(status) <= 9 ? 4 : 3;
 
         flip_draw_text(
             drm,
-            centred_text_x(status, status_scale),
-            68,
+            centred_text_x(
+                status,
+                UI_SCALE_SECTION),
+            46,
             status,
-            status_scale,
+            UI_SCALE_SECTION,
             FG);
 
         char detail[128];
+
         if (passed) {
+
             unsigned minutes =
-                (validation.seconds_per_opp * validation.tested_opps) / 60U;
+                (validation.seconds_per_opp *
+                 validation.tested_opps) /
+                60U;
+
             unsigned temp_c =
-                (validation.max_temp_mc + 500U) / 1000U;
+                (validation.max_temp_mc +
+                 500U) /
+                1000U;
+
             snprintf(
                 detail,
                 sizeof(detail),
                 "%u MIN STABILITY TEST   MAX %u C",
                 minutes,
                 temp_c);
-        } else if (quarantined) {
-            snprintf(detail, sizeof(detail),
+
+        } else if (
+            quarantined) {
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "OPTIMIZATION DISABLED - RUN AGAIN");
-        } else if (cancelled) {
-            snprintf(detail, sizeof(detail),
+
+        } else if (
+            cancelled) {
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "STABILITY TEST CANCELLED");
-        } else if (have_validation) {
-            snprintf(detail, sizeof(detail),
+
+        } else if (
+            have_validation) {
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "TEST FAILED - SAFE SETTINGS RESTORED");
+
         } else {
-            snprintf(detail, sizeof(detail),
+
+            snprintf(
+                detail,
+                sizeof(detail),
                 "RUN A STABILITY TEST BEFORE USE");
         }
 
+        char detail_visible[96];
+
+        fit_text_to_width(
+            detail,
+            detail_visible,
+            sizeof(detail_visible),
+            OPT_UI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(detail, UI_SCALE_BODY),
-            120,
-            detail,
-            UI_SCALE_BODY,
-            passed ? FG : DIM);
+            centred_text_x(
+                detail_visible,
+                1),
+            84,
+            detail_visible,
+            1,
+            passed
+                ? FG
+                : DIM);
 
         char guardband[64];
+
         snprintf(
             guardband,
             sizeof(guardband),
             "SAFETY MARGIN: %u mV",
-            result.guardband_uv / 1000U);
+            result.guardband_uv /
+                1000U);
+
         flip_draw_text(
             drm,
-            centred_text_x(guardband, UI_SCALE_META),
-            142,
+            centred_text_x(
+                guardband,
+                1),
+            106,
             guardband,
-            UI_SCALE_META,
+            1,
+            DIM);
+
+        flip_draw_rect(
+            drm,
+            OPT_UI_MARGIN_X,
+            OPT_RESULTS_PANEL_Y,
+            OPT_UI_CONTENT_W,
+            OPT_RESULTS_PANEL_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            OPT_UI_MARGIN_X,
+            OPT_RESULTS_PANEL_Y,
+            OPT_UI_CONTENT_W,
+            OPT_RESULTS_PANEL_H,
+            1,
             DIM);
 
         flip_draw_text(
             drm,
-            128,
-            176,
-            "CPU SPEED      DEFAULT       TUNED",
-            UI_SCALE_BODY,
+            88,
+            157,
+            "CPU SPEED",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            300,
+            157,
+            "DEFAULT",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            460,
+            157,
+            "TUNED",
+            1,
             DIM);
 
         int shown = 0;
-        for (size_t reverse = result.opp_count;
-             reverse > 0 && shown < 5;
-             --reverse) {
-            const flip_optimizer_opp_t *opp = &result.opps[reverse - 1];
-            if (opp->optimized_uv >= opp->stock_uv)
-                continue;
 
-            char row[96];
+        for (size_t reverse =
+                 result.opp_count;
+             reverse > 0 &&
+             shown < 5;
+             --reverse) {
+
+            const flip_optimizer_opp_t *opp =
+                &result.opps[
+                    reverse - 1];
+
+            if (opp->optimized_uv >=
+                opp->stock_uv) {
+
+                continue;
+            }
+
+            char frequency[32];
+            char stock[32];
+            char tuned[32];
+
             snprintf(
-                row,
-                sizeof(row),
-                "%4u MHz       %4u       %4u mV",
-                opp->frequency_khz / 1000U,
-                opp->stock_uv / 1000U,
-                opp->optimized_uv / 1000U);
+                frequency,
+                sizeof(frequency),
+                "%u MHz",
+                opp->frequency_khz /
+                    1000U);
+
+            snprintf(
+                stock,
+                sizeof(stock),
+                "%u mV",
+                opp->stock_uv /
+                    1000U);
+
+            snprintf(
+                tuned,
+                sizeof(tuned),
+                "%u mV",
+                opp->optimized_uv /
+                    1000U);
+
+            int y =
+                194 +
+                shown * 39;
+
             flip_draw_text(
                 drm,
-                128,
-                205 + shown * 38,
-                row,
-                2,
+                88,
+                y,
+                frequency,
+                UI_SCALE_BODY,
                 FG);
+
+            flip_draw_text(
+                drm,
+                290,
+                y,
+                stock,
+                UI_SCALE_BODY,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                452,
+                y,
+                tuned,
+                UI_SCALE_BODY,
+                FG);
+
             shown++;
         }
 
         if (shown == 0) {
+
             flip_draw_text(
                 drm,
-                centred_text_x("NO VOLTAGE REDUCTIONS RECORDED", 2),
-                240,
+                centred_text_x_in_rect(
+                    "NO VOLTAGE REDUCTIONS RECORDED",
+                    UI_SCALE_BODY,
+                    OPT_UI_MARGIN_X,
+                    OPT_UI_CONTENT_W),
+                248,
                 "NO VOLTAGE REDUCTIONS RECORDED",
-                2,
+                UI_SCALE_BODY,
                 DIM);
         }
     }
 
     flip_draw_text(
         drm,
-        centred_text_x("B BACK", UI_SCALE_HINT),
-        442,
+        centred_text_x(
+            "B BACK",
+            1),
+        OPT_UI_FOOTER_Y,
         "B BACK",
-        UI_SCALE_HINT,
+        1,
         DIM);
 
     draw_battery_indicator(
         drm);
 
-    flip_osd_set_poweroff_progress(poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_optimizer(
     flip_drm_t *drm,
@@ -3376,8 +4966,10 @@ static void draw_optimizer(
     double poweroff_progress)
 {
     flip_optimizer_result_t result;
+
     int have_result =
-        optimizer_result_load(&result);
+        optimizer_result_load(
+            &result);
 
     int plugged =
         optimizer_external_power_online();
@@ -3385,50 +4977,71 @@ static void draw_optimizer(
     int battery =
         optimizer_battery_percent();
 
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
         centred_text_x(
             "CPU OPTIMIZATION",
-            3),
-        20,
+            UI_SCALE_BODY),
+        14,
         "CPU OPTIMIZATION",
-        3,
+        UI_SCALE_BODY,
         FG);
 
-    const char *state_text = "NOT OPTIMIZED";
+    const char *state_text =
+        "NOT OPTIMIZED";
+
     if (have_result) {
+
         optimizer_validation_result_t validation_state;
+
         int have_validation_state =
             optimizer_validation_load(
                 &result,
                 &validation_state);
+
         if (have_validation_state &&
-            strcmp(validation_state.status, "passed") == 0)
-            state_text = "VERIFIED";
-        else if (access(
-                     OPTIMIZER_RUNTIME_QUARANTINE_PATH,
-                     F_OK) == 0)
-            state_text = "DISABLED";
-        else
-            state_text = "CALIBRATED";
+            strcmp(
+                validation_state.status,
+                "passed") == 0) {
+
+            state_text =
+                "VERIFIED";
+
+        } else if (
+            access(
+                OPTIMIZER_RUNTIME_QUARANTINE_PATH,
+                F_OK) == 0) {
+
+            state_text =
+                "DISABLED";
+
+        } else {
+
+            state_text =
+                "CALIBRATED";
+        }
     }
 
     flip_draw_text(
         drm,
         centred_text_x(
             state_text,
-            2),
-        61,
+            UI_SCALE_BODY),
+        44,
         state_text,
-        2,
+        UI_SCALE_BODY,
         have_result
             ? FG
             : DIM);
 
     char power_text[96];
+
     if (battery >= 0) {
+
         snprintf(
             power_text,
             sizeof(power_text),
@@ -3437,7 +5050,9 @@ static void draw_optimizer(
                 ? "CHARGER CONNECTED"
                 : "CONNECT CHARGER",
             battery);
+
     } else {
+
         snprintf(
             power_text,
             sizeof(power_text),
@@ -3447,80 +5062,168 @@ static void draw_optimizer(
                 : "CONNECT CHARGER");
     }
 
+    char power_visible[96];
+
+    fit_text_to_width(
+        power_text,
+        power_visible,
+        sizeof(power_visible),
+        OPT_UI_CONTENT_W,
+        1);
+
     flip_draw_text(
         drm,
         centred_text_x(
-            power_text,
+            power_visible,
             1),
-        91,
-        power_text,
+        72,
+        power_visible,
         1,
         plugged
             ? FG
             : DIM);
 
+    flip_draw_rect(
+        drm,
+        OPT_UI_MARGIN_X,
+        OPT_UI_SUMMARY_Y,
+        OPT_UI_CONTENT_W,
+        OPT_UI_SUMMARY_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        OPT_UI_MARGIN_X,
+        OPT_UI_SUMMARY_Y,
+        OPT_UI_CONTENT_W,
+        OPT_UI_SUMMARY_H,
+        1,
+        DIM);
+
     if (have_result) {
+
         optimizer_validation_result_t validation;
-        const char *profile_text = "READY FOR TEST";
-        const char *profile_hint = "RUN A STABILITY TEST BEFORE USING TUNED SETTINGS";
-        if (optimizer_validation_load(&result, &validation)) {
-            if (strcmp(validation.status, "passed") == 0) {
-                profile_text = "OPTIMIZATION VERIFIED";
-                profile_hint = "STABILITY TEST PASSED - READY TO USE";
-            } else if (strncmp(validation.status, "cancelled", 9) == 0) {
-                profile_text = "TEST CANCELLED";
-                profile_hint = "RUN THE STABILITY TEST BEFORE USE";
+
+        const char *profile_text =
+            "READY FOR TEST";
+
+        const char *profile_hint =
+            "RUN A STABILITY TEST BEFORE USING TUNED SETTINGS";
+
+        if (optimizer_validation_load(
+                &result,
+                &validation)) {
+
+            if (strcmp(
+                    validation.status,
+                    "passed") == 0) {
+
+                profile_text =
+                    "OPTIMIZATION VERIFIED";
+
+                profile_hint =
+                    "STABILITY TEST PASSED - READY TO USE";
+
+            } else if (
+                strncmp(
+                    validation.status,
+                    "cancelled",
+                    9) == 0) {
+
+                profile_text =
+                    "TEST CANCELLED";
+
+                profile_hint =
+                    "RUN THE STABILITY TEST BEFORE USE";
+
             } else {
-                profile_text = "SAFE SETTINGS RESTORED";
-                profile_hint = "RUN OPTIMIZATION AGAIN TO RETRY";
+
+                profile_text =
+                    "SAFE SETTINGS RESTORED";
+
+                profile_hint =
+                    "RUN OPTIMIZATION AGAIN TO RETRY";
             }
-        } else if (access(OPTIMIZER_RUNTIME_QUARANTINE_PATH, F_OK) == 0) {
-            profile_text = "OPTIMIZATION DISABLED";
-            profile_hint = "RUN OPTIMIZATION AGAIN BEFORE USE";
+
+        } else if (
+            access(
+                OPTIMIZER_RUNTIME_QUARANTINE_PATH,
+                F_OK) == 0) {
+
+            profile_text =
+                "OPTIMIZATION DISABLED";
+
+            profile_hint =
+                "RUN OPTIMIZATION AGAIN BEFORE USE";
         }
 
         flip_draw_text(
             drm,
-            centred_text_x(profile_text, 2),
-            154,
+            centred_text_x_in_rect(
+                profile_text,
+                UI_SCALE_BODY,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            120,
             profile_text,
-            2,
+            UI_SCALE_BODY,
             FG);
+
+        char hint_visible[96];
+
+        fit_text_to_width(
+            profile_hint,
+            hint_visible,
+            sizeof(hint_visible),
+            OPT_UI_CONTENT_W - 48,
+            1);
 
         flip_draw_text(
             drm,
-            centred_text_x(profile_hint, UI_SCALE_BODY),
-            190,
-            profile_hint,
-            UI_SCALE_BODY,
+            centred_text_x_in_rect(
+                hint_visible,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            165,
+            hint_visible,
+            1,
             DIM);
+
     } else {
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "FINDS SAFE CPU SETTINGS FOR THIS DEVICE",
-                1),
-            132,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            113,
             "FINDS SAFE CPU SETTINGS FOR THIS DEVICE",
             1,
             DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "SEVERAL AUTOMATIC RESTARTS ARE NORMAL",
-                1),
-            154,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            145,
             "SEVERAL AUTOMATIC RESTARTS ARE NORMAL",
             1,
             DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "KEEP CHARGER CONNECTED UNTIL COMPLETE",
-                1),
-            176,
+                1,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            177,
             "KEEP CHARGER CONNECTED UNTIL COMPLETE",
             1,
             FG);
@@ -3533,103 +5236,196 @@ static void draw_optimizer(
         const char *label =
             optimizer_actions[i];
 
-        if (i == 0 && have_result)
-            label = "OPTIMIZE AGAIN";
+        if (i == 0 &&
+            have_result) {
 
-        if (i == 1 && !have_result)
-            label = "VIEW RESULTS (NONE)";
-        if (i == 2 && !have_result)
-            label = "STABILITY TEST (NONE)";
+            label =
+                "OPTIMIZE AGAIN";
+        }
 
-        int y = 278 + i * 29;
+        if (i == 1 &&
+            !have_result) {
 
-        if (i == selected) {
+            label =
+                "VIEW RESULTS (NONE)";
+        }
+
+        if (i == 2 &&
+            !have_result) {
+
+            label =
+                "STABILITY TEST (NONE)";
+        }
+
+        int y =
+            OPT_UI_ACTION_Y +
+            i *
+                (OPT_UI_ACTION_H +
+                 OPT_UI_ACTION_GAP);
+
+        int active =
+            i == selected;
+
+        if (active) {
+
             flip_draw_rect(
                 drm,
-                105,
-                y - 6,
-                430,
-                29,
+                OPT_UI_MARGIN_X,
+                y,
+                OPT_UI_CONTENT_W,
+                OPT_UI_ACTION_H,
                 PANEL);
-            flip_draw_rect_outline(
-                drm,
-                105,
-                y - 6,
-                430,
-                29,
-                1,
-                FG);
         }
+
+        flip_draw_rect_outline(
+            drm,
+            OPT_UI_MARGIN_X,
+            y,
+            OPT_UI_CONTENT_W,
+            OPT_UI_ACTION_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        char label_visible[96];
+
+        fit_text_to_width(
+            label,
+            label_visible,
+            sizeof(label_visible),
+            OPT_UI_CONTENT_W - 48,
+            UI_SCALE_BODY);
 
         flip_draw_text(
             drm,
-            centred_text_x(label, 2),
-            y,
-            label,
-            2,
-            i == selected
+            centred_text_x_in_rect(
+                label_visible,
+                UI_SCALE_BODY,
+                OPT_UI_MARGIN_X,
+                OPT_UI_CONTENT_W),
+            y + 9,
+            label_visible,
+            UI_SCALE_BODY,
+            active
                 ? FG
                 : DIM);
     }
 
-    if (message && message[0]) {
+    if (message &&
+        message[0] &&
+        !optimizer_validation_selecting &&
+        confirm_action == 0) {
+
+        char message_visible[96];
+
+        fit_text_to_width(
+            message,
+            message_visible,
+            sizeof(message_visible),
+            OPT_UI_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(message, UI_SCALE_BODY),
-            430,
-            message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                message_visible,
+                1),
+            OPT_UI_MESSAGE_Y,
+            message_visible,
+            1,
             FG);
-    } else {
+
+    } else if (
+        !optimizer_validation_selecting &&
+        confirm_action == 0) {
+
         flip_draw_text(
             drm,
             centred_text_x(
                 "A SELECT   B BACK",
                 1),
-            452,
+            OPT_UI_FOOTER_Y,
             "A SELECT   B BACK",
             1,
             DIM);
     }
 
     if (optimizer_validation_selecting) {
-        flip_draw_rect(drm, 92, 318, 456, 132, PANEL);
-        flip_draw_rect_outline(drm, 92, 318, 456, 132, 2, FG);
-        flip_draw_text(
+
+        flip_draw_rect(
             drm,
-            centred_text_x("CHOOSE STABILITY TEST", 2),
-            333,
-            "CHOOSE STABILITY TEST",
+            62,
+            252,
+            516,
+            188,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            62,
+            252,
+            516,
+            188,
             2,
             FG);
+
         flip_draw_text(
             drm,
             centred_text_x(
-                optimizer_validation_labels[
-                    optimizer_validation_duration_index],
-                2),
-            372,
-            optimizer_validation_labels[
-                optimizer_validation_duration_index],
-            2,
+                "CHOOSE STABILITY TEST",
+                UI_SCALE_BODY),
+            275,
+            "CHOOSE STABILITY TEST",
+            UI_SCALE_BODY,
             FG);
+
+        const char *validation_label =
+            optimizer_validation_labels[
+                optimizer_validation_duration_index];
+
+        char validation_visible[64];
+
+        fit_text_to_width(
+            validation_label,
+            validation_visible,
+            sizeof(validation_visible),
+            468,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x("UP/DOWN CHANGE   A SELECT", UI_SCALE_HINT),
-            413,
+            centred_text_x(
+                validation_visible,
+                UI_SCALE_BODY),
+            326,
+            validation_visible,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                "UP/DOWN CHANGE   A SELECT",
+                1),
+            382,
             "UP/DOWN CHANGE   A SELECT",
-            UI_SCALE_HINT,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x("B CANCEL", UI_SCALE_HINT),
-            432,
+            centred_text_x(
+                "B CANCEL",
+                1),
+            410,
             "B CANCEL",
-            UI_SCALE_HINT,
+            1,
             DIM);
     }
 
     if (confirm_action != 0) {
+
         const char *confirm =
             confirm_action == 1
                 ? "START CPU OPTIMIZER?"
@@ -3638,6 +5434,7 @@ static void draw_optimizer(
                     : "RESTORE DEFAULT CPU SETTINGS?";
 
         char validation_detail[96];
+
         snprintf(
             validation_detail,
             sizeof(validation_detail),
@@ -3654,49 +5451,75 @@ static void draw_optimizer(
 
         flip_draw_rect(
             drm,
-            90,
-            350,
-            460,
-            92,
+            62,
+            266,
+            516,
+            168,
             PANEL);
+
         flip_draw_rect_outline(
             drm,
-            90,
-            350,
-            460,
-            92,
+            62,
+            266,
+            516,
+            168,
             2,
             FG);
 
-        flip_draw_text(
-            drm,
-            centred_text_x(confirm, 2),
-            365,
+        char confirm_visible[64];
+
+        fit_text_to_width(
             confirm,
-            2,
-            FG);
+            confirm_visible,
+            sizeof(confirm_visible),
+            468,
+            UI_SCALE_BODY);
+
         flip_draw_text(
             drm,
-            centred_text_x(detail, UI_SCALE_BODY),
-            394,
-            detail,
+            centred_text_x(
+                confirm_visible,
+                UI_SCALE_BODY),
+            286,
+            confirm_visible,
             UI_SCALE_BODY,
+            FG);
+
+        char detail_visible[96];
+
+        fit_text_to_width(
+            detail,
+            detail_visible,
+            sizeof(detail_visible),
+            468,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                detail_visible,
+                1),
+            330,
+            detail_visible,
+            1,
             DIM);
+
         flip_draw_text(
             drm,
             centred_text_x(
                 "UNPLUG CHARGER LATER TO CANCEL SAFELY",
                 1),
-            414,
+            360,
             "UNPLUG CHARGER LATER TO CANCEL SAFELY",
             1,
             DIM);
+
         flip_draw_text(
             drm,
             centred_text_x(
                 "A CONFIRM   B CANCEL",
                 1),
-            431,
+            401,
             "A CONFIRM   B CANCEL",
             1,
             FG);
@@ -3707,8 +5530,384 @@ static void draw_optimizer(
 
     flip_osd_set_poweroff_progress(
         poweroff_progress);
-    flip_osd_draw(drm);
-    flip_drm_present(drm);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
+}
+
+static void refresh_play_stats(void)
+{
+    memset(
+        &play_stats_summary,
+        0,
+        sizeof(play_stats_summary));
+
+    memset(
+        play_stats_top,
+        0,
+        sizeof(play_stats_top));
+
+    play_stats_top_count = 0;
+
+    if (flip_game_stats_collect(
+            &play_stats_summary,
+            play_stats_top,
+            PLAY_STATS_TOP_MAX,
+            &play_stats_top_count) < 0) {
+
+        memset(
+            &play_stats_summary,
+            0,
+            sizeof(play_stats_summary));
+
+        play_stats_top_count = 0;
+    }
+
+    last_played_stats_valid = 0;
+    memset(
+        &last_played_stats,
+        0,
+        sizeof(last_played_stats));
+
+    if (recent_count > 0 &&
+        recent_roms[0].system &&
+        recent_roms[0].system->id &&
+        flip_game_stats_load(
+            recent_roms[0].system->id,
+            recent_roms[0].path,
+            &last_played_stats) == 1) {
+
+        last_played_stats_valid = 1;
+    }
+}
+
+static void format_play_duration(
+    unsigned long long seconds,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    if (seconds < 60ULL) {
+        snprintf(out, out_size, "0M");
+        return;
+    }
+
+    unsigned long long minutes =
+        seconds / 60ULL;
+
+    if (minutes < 60ULL) {
+        snprintf(
+            out,
+            out_size,
+            "%lluM",
+            minutes);
+        return;
+    }
+
+    unsigned long long hours =
+        minutes / 60ULL;
+
+    minutes %= 60ULL;
+
+    if (hours < 100ULL) {
+        snprintf(
+            out,
+            out_size,
+            "%lluH %02lluM",
+            hours,
+            minutes);
+    } else {
+        snprintf(
+            out,
+            out_size,
+            "%lluH",
+            hours);
+    }
+}
+
+static void format_last_played(
+    long long epoch,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    long long now =
+        (long long)time(NULL);
+
+    if (epoch <= 0 || now <= 0) {
+        snprintf(out, out_size, "NOT YET");
+        return;
+    }
+
+    long long delta =
+        now >= epoch
+            ? now - epoch
+            : 0;
+
+    if (delta < 60) {
+        snprintf(out, out_size, "JUST NOW");
+    } else if (delta < 3600) {
+        snprintf(
+            out,
+            out_size,
+            "%lldM AGO",
+            delta / 60);
+    } else if (delta < 86400) {
+        snprintf(
+            out,
+            out_size,
+            "%lldH AGO",
+            delta / 3600);
+    } else if (delta < 172800) {
+        snprintf(out, out_size, "YESTERDAY");
+    } else if (delta < 604800) {
+        snprintf(
+            out,
+            out_size,
+            "%lld DAYS AGO",
+            delta / 86400);
+    } else {
+        time_t when = (time_t)epoch;
+        struct tm local;
+        if (localtime_r(&when, &local) &&
+            strftime(
+                out,
+                out_size,
+                "%d %b",
+                &local) > 0) {
+
+            for (size_t i = 0;
+                 out[i];
+                 ++i) {
+                out[i] =
+                    (char)toupper(
+                        (unsigned char)out[i]);
+            }
+        } else {
+            snprintf(out, out_size, "EARLIER");
+        }
+    }
+}
+
+
+static void format_played_date(
+    long long epoch,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    if (epoch <= 0) {
+        snprintf(out, out_size, "NOT YET");
+        return;
+    }
+
+    time_t when = (time_t)epoch;
+    struct tm local;
+
+    if (!localtime_r(&when, &local) ||
+        strftime(
+            out,
+            out_size,
+            "%d %b %Y",
+            &local) == 0) {
+        snprintf(out, out_size, "UNKNOWN");
+        return;
+    }
+
+    for (size_t i = 0;
+         out[i];
+         ++i) {
+        out[i] =
+            (char)toupper(
+                (unsigned char)out[i]);
+    }
+}
+
+static void draw_power_menu(
+    flip_drm_t *drm,
+    int selected,
+    int confirm_action,
+    double poweroff_progress)
+{
+    static const char *items[] = {
+        "SLEEP",
+        "RESTART",
+        "POWER OFF"
+    };
+
+    flip_draw_clear(
+        drm,
+        BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "POWER",
+            UI_SCALE_BODY),
+        14,
+        "POWER",
+        UI_SCALE_BODY,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "DEVICE POWER",
+            1),
+        44,
+        "DEVICE POWER",
+        1,
+        DIM);
+
+    flip_draw_rect(
+        drm,
+        POWER_MENU_MARGIN_X,
+        POWER_MENU_PANEL_Y,
+        POWER_MENU_CONTENT_W,
+        250,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        POWER_MENU_MARGIN_X,
+        POWER_MENU_PANEL_Y,
+        POWER_MENU_CONTENT_W,
+        250,
+        1,
+        DIM);
+
+    for (int i = 0;
+         i < 3;
+         ++i) {
+
+        int y =
+            POWER_MENU_ROW_Y +
+            i *
+                (POWER_MENU_ROW_H +
+                 POWER_MENU_ROW_GAP);
+
+        int active =
+            i == selected;
+
+        if (active) {
+            flip_draw_rect(
+                drm,
+                POWER_MENU_MARGIN_X + 24,
+                y,
+                POWER_MENU_CONTENT_W - 48,
+                POWER_MENU_ROW_H,
+                PANEL);
+        }
+
+        flip_draw_rect_outline(
+            drm,
+            POWER_MENU_MARGIN_X + 24,
+            y,
+            POWER_MENU_CONTENT_W - 48,
+            POWER_MENU_ROW_H,
+            active ? 2 : 1,
+            active
+                ? FG
+                : DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                items[i],
+                UI_SCALE_BODY,
+                POWER_MENU_MARGIN_X + 24,
+                POWER_MENU_CONTENT_W - 48),
+            y + 20,
+            items[i],
+            UI_SCALE_BODY,
+            active
+                ? FG
+                : DIM);
+    }
+
+    if (confirm_action != 0) {
+
+        const char *confirm =
+            confirm_action == 1
+                ? "RESTART FLIPOS?"
+                : "POWER OFF FLIPOS?";
+
+        flip_draw_rect(
+            drm,
+            POWER_MENU_MARGIN_X,
+            POWER_MENU_CONFIRM_Y,
+            POWER_MENU_CONTENT_W,
+            72,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            POWER_MENU_MARGIN_X,
+            POWER_MENU_CONFIRM_Y,
+            POWER_MENU_CONTENT_W,
+            72,
+            2,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                confirm,
+                UI_SCALE_BODY,
+                POWER_MENU_MARGIN_X,
+                POWER_MENU_CONTENT_W),
+            POWER_MENU_CONFIRM_Y + 12,
+            confirm,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "A CONFIRM   B CANCEL",
+                1,
+                POWER_MENU_MARGIN_X,
+                POWER_MENU_CONTENT_W),
+            POWER_MENU_CONFIRM_Y + 48,
+            "A CONFIRM   B CANCEL",
+            1,
+            DIM);
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            confirm_action
+                ? "B CANCEL"
+                : "A SELECT   B BACK",
+            1),
+        POWER_MENU_FOOTER_Y,
+        confirm_action
+            ? "B CANCEL"
+            : "A SELECT   B BACK",
+        1,
+        DIM);
+
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 static void draw_home(
@@ -3717,89 +5916,498 @@ static void draw_home(
     const char *message,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
+    /*
+     * Top bar is reserved for version, Wi-Fi and battery. The centred wordmark
+     * is deliberately only 72 px wide at scale 2, so it cannot collide with
+     * the status regions at either edge.
+     */
     flip_draw_text(
         drm,
-        centred_text_x("FLIPOS", UI_SCALE_HERO),
-        28,
+        centred_text_x(
+            "FLIPOS",
+            UI_SCALE_BODY),
+        14,
         "FLIPOS",
-        UI_SCALE_HERO,
+        UI_SCALE_BODY,
         FG);
 
     flip_draw_text(
         drm,
-        centred_text_x("GAME LIBRARY", UI_SCALE_SECTION),
-        76,
-        "GAME LIBRARY",
-        UI_SCALE_SECTION,
+        centred_text_x(
+            "CONTINUE",
+            UI_SCALE_META),
+        44,
+        "CONTINUE",
+        UI_SCALE_META,
+        selected == 0
+            ? FG
+            : DIM);
+
+    flip_draw_rect(
+        drm,
+        HOME_HERO_X,
+        HOME_HERO_Y,
+        HOME_HERO_W,
+        HOME_HERO_H,
+        PANEL);
+
+    flip_draw_rect_outline(
+        drm,
+        HOME_HERO_X,
+        HOME_HERO_Y,
+        HOME_HERO_W,
+        HOME_HERO_H,
+        selected == 0 ? 2 : 1,
+        selected == 0
+            ? FG
+            : DIM);
+
+    if (recent_count > 0) {
+        const rom_entry_t *recent =
+            &recent_roms[0];
+
+        const char *system_name =
+            recent->system &&
+            recent->system->display_name
+                ? recent->system->display_name
+                : "GAME";
+
+        int can_resume =
+            flip_system_resume_available(
+                recent->system,
+                recent->path);
+
+        char system_visible[64];
+
+        fit_text_to_width(
+            system_name,
+            system_visible,
+            sizeof(system_visible),
+            HOME_HERO_W - 48,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                system_visible,
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            87,
+            system_visible,
+            1,
+            DIM);
+
+        int title_scale =
+            UI_SCALE_SECTION;
+
+        while (title_scale > 1 &&
+               ui_text_width_px(
+                   recent->display,
+                   title_scale) >
+                   HOME_HERO_W - 64) {
+
+            title_scale--;
+        }
+
+        char game_name[96];
+
+        fit_text_to_width(
+            recent->display,
+            game_name,
+            sizeof(game_name),
+            HOME_HERO_W - 64,
+            title_scale);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                game_name,
+                title_scale,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            111,
+            game_name,
+            title_scale,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                can_resume
+                    ? "RESUME READY"
+                    : "LAST PLAYED GAME",
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            149,
+            can_resume
+                ? "RESUME READY"
+                : "LAST PLAYED GAME",
+            1,
+            can_resume
+                ? FG
+                : DIM);
+
+        flip_draw_rect(
+            drm,
+            HOME_HERO_X + 32,
+            172,
+            HOME_HERO_W - 64,
+            1,
+            DIM);
+
+        char played[32] = "0M";
+        char launches[24] = "0";
+        char last_played[32] = "NOT YET";
+
+        if (last_played_stats_valid) {
+            format_play_duration(
+                last_played_stats.total_play_seconds,
+                played,
+                sizeof(played));
+
+            snprintf(
+                launches,
+                sizeof(launches),
+                "%llu",
+                last_played_stats.launches);
+
+            format_last_played(
+                last_played_stats.last_played_epoch,
+                last_played,
+                sizeof(last_played));
+        }
+
+        static const int stat_center[3] = {
+            144, 320, 496
+        };
+
+        static const char *stat_label[3] = {
+            "PLAY TIME",
+            "LAUNCHES",
+            "LAST PLAYED"
+        };
+
+        const char *stat_value[3] = {
+            played,
+            launches,
+            last_played
+        };
+
+        for (int i = 0;
+             i < 3;
+             ++i) {
+
+            int label_width =
+                ui_text_width_px(
+                    stat_label[i],
+                    1);
+
+            flip_draw_text(
+                drm,
+                stat_center[i] -
+                    label_width / 2,
+                190,
+                stat_label[i],
+                1,
+                DIM);
+
+            char value_visible[32];
+
+            fit_text_to_width(
+                stat_value[i],
+                value_visible,
+                sizeof(value_visible),
+                150,
+                UI_SCALE_BODY);
+
+            int value_width =
+                ui_text_width_px(
+                    value_visible,
+                    UI_SCALE_BODY);
+
+            flip_draw_text(
+                drm,
+                stat_center[i] -
+                    value_width / 2,
+                211,
+                value_visible,
+                UI_SCALE_BODY,
+                FG);
+        }
+
+        const char *cta =
+            can_resume
+                ? "A CONTINUE"
+                : "A PLAY AGAIN";
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                cta,
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            255,
+            cta,
+            1,
+            selected == 0
+                ? FG
+                : DIM);
+
+    } else {
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "YOUR GAMES. YOUR TIME.",
+                UI_SCALE_SECTION,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            116,
+            "YOUR GAMES. YOUR TIME.",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "NO GAMES PLAYED YET",
+                UI_SCALE_BODY,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            175,
+            "NO GAMES PLAYED YET",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "A OPEN LIBRARY",
+                1,
+                HOME_HERO_X,
+                HOME_HERO_W),
+            250,
+            "A OPEN LIBRARY",
+            1,
+            selected == 0
+                ? FG
+                : DIM);
+    }
+
+    flip_draw_text(
+        drm,
+        HOME_MARGIN_X,
+        HOME_RECENT_LABEL_Y,
+        "RECENT",
+        1,
         DIM);
 
+    int recent_cards = 0;
+
+    for (int recent_index = 1;
+         recent_index < recent_count &&
+         recent_cards < 3;
+         ++recent_index,
+         ++recent_cards) {
+
+        int card_x =
+            HOME_MARGIN_X +
+            recent_cards *
+                (HOME_RECENT_CARD_W +
+                 HOME_RECENT_GAP);
+
+        flip_draw_rect(
+            drm,
+            card_x,
+            HOME_RECENT_Y,
+            HOME_RECENT_CARD_W,
+            HOME_RECENT_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            card_x,
+            HOME_RECENT_Y,
+            HOME_RECENT_CARD_W,
+            HOME_RECENT_H,
+            1,
+            DIM);
+
+        int recent_scale =
+            UI_SCALE_BODY;
+
+        if (ui_text_width_px(
+                recent_roms[recent_index].display,
+                recent_scale) >
+            HOME_RECENT_CARD_W - 24) {
+
+            recent_scale = 1;
+        }
+
+        char recent_name[64];
+
+        fit_text_to_width(
+            recent_roms[recent_index].display,
+            recent_name,
+            sizeof(recent_name),
+            HOME_RECENT_CARD_W - 24,
+            recent_scale);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                recent_name,
+                recent_scale,
+                card_x,
+                HOME_RECENT_CARD_W),
+            328,
+            recent_name,
+            recent_scale,
+            FG);
+
+        const char *recent_system =
+            recent_roms[recent_index].system &&
+            recent_roms[recent_index].system->display_name
+                ? recent_roms[recent_index].system->display_name
+                : "GAME";
+
+        char recent_system_visible[32];
+
+        fit_text_to_width(
+            recent_system,
+            recent_system_visible,
+            sizeof(recent_system_visible),
+            HOME_RECENT_CARD_W - 24,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                recent_system_visible,
+                1,
+                card_x,
+                HOME_RECENT_CARD_W),
+            363,
+            recent_system_visible,
+            1,
+            DIM);
+    }
+
+    if (recent_cards == 0) {
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                recent_count > 0
+                    ? "PLAY ANOTHER GAME TO BUILD RECENTS"
+                    : "RECENT GAMES WILL APPEAR HERE",
+                1),
+            346,
+            recent_count > 0
+                ? "PLAY ANOTHER GAME TO BUILD RECENTS"
+                : "RECENT GAMES WILL APPEAR HERE",
+            1,
+            DIM);
+    }
+
+    static const char *nav_label[4] = {
+        "LIBRARY",
+        "SWITCHER",
+        "PLAY STATS",
+        "SETTINGS"
+    };
+
     for (int i = 0;
-         i < HOME_ITEM_COUNT;
+         i < 4;
          ++i) {
 
-        int y =
-            135 + i * 55;
+        int nav_index =
+            i + 1;
 
-        if (i == selected) {
+        int nav_x =
+            HOME_MARGIN_X +
+            i *
+                (HOME_NAV_W +
+                 HOME_NAV_GAP);
 
+        int active =
+            selected == nav_index;
+
+        if (active) {
             flip_draw_rect(
                 drm,
-                145,
-                y - 8,
-                350,
-                42,
+                nav_x,
+                HOME_NAV_Y,
+                HOME_NAV_W,
+                HOME_NAV_H,
                 PANEL);
 
             flip_draw_rect_outline(
                 drm,
-                145,
-                y - 8,
-                350,
-                42,
+                nav_x,
+                HOME_NAV_Y,
+                HOME_NAV_W,
+                HOME_NAV_H,
                 2,
                 FG);
         }
 
         flip_draw_text(
             drm,
-            centred_text_x(home_items[i], UI_SCALE_SECTION),
-            y,
-            home_items[i],
-            UI_SCALE_SECTION,
-            i == selected ? FG : DIM);
+            centred_text_x_in_rect(
+                nav_label[i],
+                UI_SCALE_BODY,
+                nav_x,
+                HOME_NAV_W),
+            HOME_NAV_Y + 9,
+            nav_label[i],
+            UI_SCALE_BODY,
+            active
+                ? FG
+                : DIM);
     }
 
     if (message &&
         message[0]) {
 
+        char visible_message[96];
+
+        fit_text_to_width(
+            message,
+            visible_message,
+            sizeof(visible_message),
+            HOME_CONTENT_W,
+            1);
+
         flip_draw_text(
             drm,
-            centred_text_x(message, UI_SCALE_BODY),
-            365,
-            message,
-            UI_SCALE_BODY,
+            centred_text_x(
+                visible_message,
+                1),
+            HOME_MESSAGE_Y,
+            visible_message,
+            1,
             FG);
     }
 
-    flip_draw_text(
-        drm,
-        centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
-            1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
-        1,
-        DIM);
+    const char *footer =
+        selected == 0
+            ? "A PLAY   DOWN MORE"
+            : "A OPEN   UP CONTINUE   LEFT RIGHT";
 
     flip_draw_text(
         drm,
         centred_text_x(
-            "UP DOWN   A SELECT",
+            footer,
             1),
-        452,
-        "UP DOWN   A SELECT",
+        HOME_FOOTER_Y,
+        footer,
         1,
         DIM);
 
@@ -3809,15 +6417,787 @@ static void draw_home(
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    /*
-     * Global FlipOS OSD is composited last so hardware
-     * feedback appears consistently over every frontend
-     * screen.
-     */
     flip_osd_draw(
         drm);
 
-    flip_drm_present(drm);
+    flip_drm_present(
+        drm);
+}
+
+static void draw_stats(
+    flip_drm_t *drm,
+    double poweroff_progress)
+{
+    flip_draw_clear(
+        drm,
+        BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "PLAY STATS",
+            UI_SCALE_BODY),
+        14,
+        "PLAY STATS",
+        UI_SCALE_BODY,
+        FG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "YOUR FLIPOS PLAY HISTORY",
+            1),
+        44,
+        "YOUR FLIPOS PLAY HISTORY",
+        1,
+        DIM);
+
+    if (play_stats_summary.games_tracked == 0) {
+
+        flip_draw_rect(
+            drm,
+            STATS_MARGIN_X,
+            112,
+            STATS_CONTENT_W,
+            210,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            STATS_MARGIN_X,
+            112,
+            STATS_CONTENT_W,
+            210,
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "NO PLAY STATS YET",
+                UI_SCALE_SECTION,
+                STATS_MARGIN_X,
+                STATS_CONTENT_W),
+            165,
+            "NO PLAY STATS YET",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "LAUNCH A GAME AND FLIPOS WILL",
+                UI_SCALE_BODY,
+                STATS_MARGIN_X,
+                STATS_CONTENT_W),
+            221,
+            "LAUNCH A GAME AND FLIPOS WILL",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "START BUILDING YOUR HISTORY.",
+                UI_SCALE_BODY,
+                STATS_MARGIN_X,
+                STATS_CONTENT_W),
+            250,
+            "START BUILDING YOUR HISTORY.",
+            UI_SCALE_BODY,
+            DIM);
+
+    } else {
+
+        char total_time[32];
+        char longest[32];
+        char average[32];
+
+        format_play_duration(
+            play_stats_summary.total_play_seconds,
+            total_time,
+            sizeof(total_time));
+
+        format_play_duration(
+            play_stats_summary.longest_session_seconds,
+            longest,
+            sizeof(longest));
+
+        unsigned long long average_seconds =
+            play_stats_summary.total_launches > 0
+                ? play_stats_summary.total_play_seconds /
+                    play_stats_summary.total_launches
+                : 0;
+
+        format_play_duration(
+            average_seconds,
+            average,
+            sizeof(average));
+
+        static const char *labels[3] = {
+            "TOTAL PLAY TIME",
+            "LAUNCHES",
+            "GAMES PLAYED"
+        };
+
+        char values[3][32];
+
+        snprintf(
+            values[0],
+            sizeof(values[0]),
+            "%s",
+            total_time);
+
+        snprintf(
+            values[1],
+            sizeof(values[1]),
+            "%llu",
+            play_stats_summary.total_launches);
+
+        snprintf(
+            values[2],
+            sizeof(values[2]),
+            "%u",
+            play_stats_summary.games_tracked);
+
+        for (int i = 0;
+             i < 3;
+             ++i) {
+
+            int x =
+                STATS_MARGIN_X +
+                i *
+                    (STATS_SUMMARY_W +
+                     STATS_SUMMARY_GAP);
+
+            flip_draw_rect(
+                drm,
+                x,
+                STATS_SUMMARY_Y,
+                STATS_SUMMARY_W,
+                STATS_SUMMARY_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                x,
+                STATS_SUMMARY_Y,
+                STATS_SUMMARY_W,
+                STATS_SUMMARY_H,
+                1,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    labels[i],
+                    1,
+                    x,
+                    STATS_SUMMARY_W),
+                STATS_SUMMARY_Y + 14,
+                labels[i],
+                1,
+                DIM);
+
+            char value_visible[32];
+
+            fit_text_to_width(
+                values[i],
+                value_visible,
+                sizeof(value_visible),
+                STATS_SUMMARY_W - 20,
+                UI_SCALE_SECTION);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    value_visible,
+                    UI_SCALE_SECTION,
+                    x,
+                    STATS_SUMMARY_W),
+                STATS_SUMMARY_Y + 40,
+                value_visible,
+                UI_SCALE_SECTION,
+                FG);
+        }
+
+        char session_line[96];
+
+        snprintf(
+            session_line,
+            sizeof(session_line),
+            "LONGEST %s   AVERAGE %s",
+            longest,
+            average);
+
+        char session_visible[96];
+
+        fit_text_to_width(
+            session_line,
+            session_visible,
+            sizeof(session_visible),
+            STATS_CONTENT_W,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x(
+                session_visible,
+                1),
+            174,
+            session_visible,
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            STATS_MARGIN_X,
+            196,
+            "MOST PLAYED",
+            1,
+            DIM);
+
+        for (size_t i = 0;
+             i < play_stats_top_count &&
+             i < PLAY_STATS_TOP_MAX;
+             ++i) {
+
+            int y =
+                STATS_LIST_Y +
+                (int)i *
+                    (STATS_ROW_H +
+                     STATS_ROW_GAP);
+
+            flip_draw_rect(
+                drm,
+                STATS_MARGIN_X,
+                y,
+                STATS_CONTENT_W,
+                STATS_ROW_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                STATS_MARGIN_X,
+                y,
+                STATS_CONTENT_W,
+                STATS_ROW_H,
+                1,
+                DIM);
+
+            char title[64];
+
+            const char *base =
+                strrchr(
+                    play_stats_top[i].rom,
+                    '/');
+
+            base =
+                base
+                    ? base + 1
+                    : play_stats_top[i].rom;
+
+            const flip_system_t *entry_system =
+                flip_system_find(
+                    play_stats_top[i].system);
+
+            make_display_name(
+                entry_system,
+                title,
+                sizeof(title),
+                base);
+
+            char visible[64];
+
+            fit_text_to_width(
+                title,
+                visible,
+                sizeof(visible),
+                332,
+                UI_SCALE_BODY);
+
+            char rank[8];
+
+            snprintf(
+                rank,
+                sizeof(rank),
+                "%u",
+                (unsigned)i + 1U);
+
+            flip_draw_text(
+                drm,
+                STATS_MARGIN_X + 16,
+                y + 15,
+                rank,
+                UI_SCALE_BODY,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                STATS_MARGIN_X + 48,
+                y + 13,
+                visible,
+                UI_SCALE_BODY,
+                FG);
+
+            char played[32];
+
+            format_play_duration(
+                play_stats_top[i].total_play_seconds,
+                played,
+                sizeof(played));
+
+            char activity[64];
+
+            snprintf(
+                activity,
+                sizeof(activity),
+                "%s   %llu LAUNCH%s",
+                played,
+                play_stats_top[i].launches,
+                play_stats_top[i].launches == 1
+                    ? ""
+                    : "ES");
+
+            char activity_visible[64];
+
+            fit_text_to_width(
+                activity,
+                activity_visible,
+                sizeof(activity_visible),
+                170,
+                1);
+
+            int activity_width =
+                ui_text_width_px(
+                    activity_visible,
+                    1);
+
+            flip_draw_text(
+                drm,
+                STATS_MARGIN_X +
+                    STATS_CONTENT_W -
+                    16 -
+                    activity_width,
+                y + 20,
+                activity_visible,
+                1,
+                DIM);
+        }
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "STATS STORED LOCALLY ON YOUR SD CARD",
+            1),
+        434,
+        "STATS STORED LOCALLY ON YOUR SD CARD",
+        1,
+        DIM);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "B BACK",
+            1),
+        STATS_FOOTER_Y,
+        "B BACK",
+        1,
+        DIM);
+
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
+}
+
+
+static void draw_game_details(
+    flip_drm_t *drm,
+    double poweroff_progress)
+{
+    flip_draw_clear(
+        drm,
+        BG);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "GAME DETAILS",
+            UI_SCALE_BODY),
+        14,
+        "GAME DETAILS",
+        UI_SCALE_BODY,
+        FG);
+
+    const char *raw_name =
+        details_rom.display[0]
+            ? details_rom.display
+            : "GAME";
+
+    int title_scale =
+        UI_SCALE_SECTION;
+
+    while (title_scale > 1 &&
+           ui_text_width_px(
+               raw_name,
+               title_scale) >
+               DETAILS_CONTENT_W) {
+
+        title_scale--;
+    }
+
+    char game_name[96];
+
+    fit_text_to_width(
+        raw_name,
+        game_name,
+        sizeof(game_name),
+        DETAILS_CONTENT_W,
+        title_scale);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            game_name,
+            title_scale),
+        48,
+        game_name,
+        title_scale,
+        FG);
+
+    const char *system_name =
+        details_rom.system &&
+        details_rom.system->display_name
+            ? details_rom.system->display_name
+            : "GAME";
+
+    int can_resume =
+        details_rom.system &&
+        flip_system_resume_available(
+            details_rom.system,
+            details_rom.path);
+
+    char system_status[96];
+
+    snprintf(
+        system_status,
+        sizeof(system_status),
+        "%s%s",
+        system_name,
+        can_resume
+            ? "   RESUME READY"
+            : "");
+
+    char system_visible[96];
+
+    fit_text_to_width(
+        system_status,
+        system_visible,
+        sizeof(system_visible),
+        DETAILS_CONTENT_W,
+        1);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            system_visible,
+            1),
+        88,
+        system_visible,
+        1,
+        can_resume
+            ? FG
+            : DIM);
+
+    flip_game_stats_t stats;
+
+    int have_stats =
+        details_rom.system &&
+        details_rom.system->id &&
+        flip_game_stats_load(
+            details_rom.system->id,
+            details_rom.path,
+            &stats) == 1;
+
+    if (!have_stats) {
+
+        flip_draw_rect(
+            drm,
+            DETAILS_MARGIN_X,
+            DETAILS_CARD_Y,
+            DETAILS_CONTENT_W,
+            210,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            DETAILS_MARGIN_X,
+            DETAILS_CARD_Y,
+            DETAILS_CONTENT_W,
+            210,
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "NO PLAY STATS YET",
+                UI_SCALE_SECTION,
+                DETAILS_MARGIN_X,
+                DETAILS_CONTENT_W),
+            168,
+            "NO PLAY STATS YET",
+            UI_SCALE_SECTION,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "PLAY THIS GAME TO START",
+                UI_SCALE_BODY,
+                DETAILS_MARGIN_X,
+                DETAILS_CONTENT_W),
+            224,
+            "PLAY THIS GAME TO START",
+            UI_SCALE_BODY,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "BUILDING ITS HISTORY.",
+                UI_SCALE_BODY,
+                DETAILS_MARGIN_X,
+                DETAILS_CONTENT_W),
+            253,
+            "BUILDING ITS HISTORY.",
+            UI_SCALE_BODY,
+            DIM);
+
+    } else {
+
+        char played[32];
+        char last_session[32];
+        char longest[32];
+        char average[32];
+        char first_played[32];
+        char last_played[32];
+
+        format_play_duration(
+            stats.total_play_seconds,
+            played,
+            sizeof(played));
+
+        format_play_duration(
+            stats.last_session_seconds,
+            last_session,
+            sizeof(last_session));
+
+        format_play_duration(
+            stats.longest_session_seconds,
+            longest,
+            sizeof(longest));
+
+        unsigned long long average_seconds =
+            stats.launches > 0
+                ? stats.total_play_seconds /
+                    stats.launches
+                : 0;
+
+        format_play_duration(
+            average_seconds,
+            average,
+            sizeof(average));
+
+        format_played_date(
+            stats.first_played_epoch,
+            first_played,
+            sizeof(first_played));
+
+        format_last_played(
+            stats.last_played_epoch,
+            last_played,
+            sizeof(last_played));
+
+        static const char *card_labels[2] = {
+            "TOTAL PLAY TIME",
+            "LAUNCHES"
+        };
+
+        char launches[32];
+
+        snprintf(
+            launches,
+            sizeof(launches),
+            "%llu",
+            stats.launches);
+
+        const char *card_values[2] = {
+            played,
+            launches
+        };
+
+        for (int i = 0;
+             i < 2;
+             ++i) {
+
+            int x =
+                DETAILS_MARGIN_X +
+                i *
+                    (DETAILS_CARD_W +
+                     DETAILS_CARD_GAP);
+
+            flip_draw_rect(
+                drm,
+                x,
+                DETAILS_CARD_Y,
+                DETAILS_CARD_W,
+                DETAILS_CARD_H,
+                PANEL);
+
+            flip_draw_rect_outline(
+                drm,
+                x,
+                DETAILS_CARD_Y,
+                DETAILS_CARD_W,
+                DETAILS_CARD_H,
+                1,
+                DIM);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    card_labels[i],
+                    1,
+                    x,
+                    DETAILS_CARD_W),
+                DETAILS_CARD_Y + 15,
+                card_labels[i],
+                1,
+                DIM);
+
+            char value_visible[32];
+
+            fit_text_to_width(
+                card_values[i],
+                value_visible,
+                sizeof(value_visible),
+                DETAILS_CARD_W - 24,
+                UI_SCALE_SECTION);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    value_visible,
+                    UI_SCALE_SECTION,
+                    x,
+                    DETAILS_CARD_W),
+                DETAILS_CARD_Y + 43,
+                value_visible,
+                UI_SCALE_SECTION,
+                FG);
+        }
+
+        static const char *labels[] = {
+            "LAST SESSION",
+            "LONGEST SESSION",
+            "AVERAGE SESSION",
+            "FIRST PLAYED",
+            "LAST PLAYED"
+        };
+
+        const char *values[] = {
+            last_session,
+            longest,
+            average,
+            first_played,
+            last_played
+        };
+
+        for (int i = 0;
+             i < 5;
+             ++i) {
+
+            int y =
+                DETAILS_ROWS_Y +
+                i *
+                    DETAILS_ROW_H;
+
+            flip_draw_text(
+                drm,
+                DETAILS_MARGIN_X + 16,
+                y,
+                labels[i],
+                UI_SCALE_BODY,
+                DIM);
+
+            char value_visible[48];
+
+            fit_text_to_width(
+                values[i],
+                value_visible,
+                sizeof(value_visible),
+                220,
+                UI_SCALE_BODY);
+
+            int value_width =
+                ui_text_width_px(
+                    value_visible,
+                    UI_SCALE_BODY);
+
+            flip_draw_text(
+                drm,
+                DETAILS_MARGIN_X +
+                    DETAILS_CONTENT_W -
+                    16 -
+                    value_width,
+                y,
+                value_visible,
+                UI_SCALE_BODY,
+                FG);
+        }
+    }
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "Y FROM LIBRARY OR GAMESWITCHER OPENS DETAILS",
+            1),
+        434,
+        "Y FROM LIBRARY OR GAMESWITCHER OPENS DETAILS",
+        1,
+        DIM);
+
+    flip_draw_text(
+        drm,
+        centred_text_x(
+            "B BACK",
+            1),
+        DETAILS_FOOTER_Y,
+        "B BACK",
+        1,
+        DIM);
+
+    draw_battery_indicator(
+        drm);
+
+    flip_osd_set_poweroff_progress(
+        poweroff_progress);
+
+    flip_osd_draw(
+        drm);
+
+    flip_drm_present(
+        drm);
 }
 
 
@@ -3826,14 +7206,18 @@ static void draw_systems(
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     flip_draw_text(
         drm,
-        centred_text_x("SYSTEMS", UI_SCALE_TITLE),
-        28,
-        "SYSTEMS",
-        UI_SCALE_TITLE,
+        centred_text_x(
+            "LIBRARY",
+            UI_SCALE_BODY),
+        14,
+        "LIBRARY",
+        UI_SCALE_BODY,
         FG);
 
     char count_text[64];
@@ -3841,86 +7225,192 @@ static void draw_systems(
     snprintf(
         count_text,
         sizeof(count_text),
-        "%d SYSTEMS",
-        available_system_count);
+        "%d SYSTEM%s",
+        available_system_count,
+        available_system_count == 1
+            ? ""
+            : "S");
 
     flip_draw_text(
         drm,
-        centred_text_x(count_text, UI_SCALE_META),
-        72,
+        centred_text_x(
+            count_text,
+            1),
+        44,
         count_text,
-        UI_SCALE_META,
+        1,
         DIM);
 
     if (available_system_count <= 0) {
 
+        flip_draw_rect(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            1,
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "NO GAMES FOUND",
-                2),
-            190,
+                UI_SCALE_SECTION,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            164,
             "NO GAMES FOUND",
-            2,
+            UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "ADD GAMES TO THE SD CARD",
-                1),
-            225,
+                UI_SCALE_BODY,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            220,
             "ADD GAMES TO THE SD CARD",
-            1,
+            UI_SCALE_BODY,
             DIM);
 
     } else {
 
-        for (int i = 0;
-             i < available_system_count;
-             ++i) {
+        int visible_rows =
+            (LIBRARY_LIST_BOTTOM -
+             LIBRARY_LIST_Y +
+             LIBRARY_SYSTEM_GAP) /
+            (LIBRARY_SYSTEM_ROW_H +
+             LIBRARY_SYSTEM_GAP);
 
-            const flip_system_t *system =
-                available_systems[i];
+        if (visible_rows < 1)
+            visible_rows = 1;
 
-            if (!system)
+        int first =
+            selected -
+            visible_rows / 2;
+
+        if (first < 0)
+            first = 0;
+
+        if (first >
+            available_system_count -
+            visible_rows) {
+
+            first =
+                available_system_count -
+                visible_rows;
+        }
+
+        if (first < 0)
+            first = 0;
+
+        for (int row = 0;
+             row < visible_rows;
+             ++row) {
+
+            int index =
+                first + row;
+
+            if (index >=
+                available_system_count)
+                break;
+
+            const flip_system_t *entry =
+                available_systems[index];
+
+            if (!entry)
                 continue;
 
             int y =
-                125 + i * 58;
+                LIBRARY_LIST_Y +
+                row *
+                    (LIBRARY_SYSTEM_ROW_H +
+                     LIBRARY_SYSTEM_GAP);
 
-            if (i == selected) {
+            int active =
+                index == selected;
 
-                flip_draw_rect(
-                    drm,
-                    115,
-                    y - 10,
-                    410,
-                    44,
-                    PANEL);
+            flip_draw_rect(
+                drm,
+                LIBRARY_MARGIN_X,
+                y,
+                LIBRARY_CONTENT_W,
+                LIBRARY_SYSTEM_ROW_H,
+                PANEL);
 
-                flip_draw_rect_outline(
-                    drm,
-                    115,
-                    y - 10,
-                    410,
-                    44,
-                    2,
-                    FG);
-            }
+            flip_draw_rect_outline(
+                drm,
+                LIBRARY_MARGIN_X,
+                y,
+                LIBRARY_CONTENT_W,
+                LIBRARY_SYSTEM_ROW_H,
+                active ? 2 : 1,
+                active
+                    ? FG
+                    : DIM);
 
             const char *name =
-                system->display_name
-                    ? system->display_name
-                    : system->id;
+                entry->display_name
+                    ? entry->display_name
+                    : entry->id;
+
+            int name_scale =
+                UI_SCALE_SECTION;
+
+            while (name_scale > 1 &&
+                   ui_text_width_px(
+                       name,
+                       name_scale) >
+                       LIBRARY_CONTENT_W - 64) {
+
+                name_scale--;
+            }
+
+            char visible[96];
+
+            fit_text_to_width(
+                name,
+                visible,
+                sizeof(visible),
+                LIBRARY_CONTENT_W - 64,
+                name_scale);
 
             flip_draw_text(
                 drm,
-                centred_text_x(name, UI_SCALE_SECTION),
-                y,
-                name,
-                UI_SCALE_SECTION,
-                i == selected
+                centred_text_x_in_rect(
+                    visible,
+                    name_scale,
+                    LIBRARY_MARGIN_X,
+                    LIBRARY_CONTENT_W),
+                y + 18,
+                visible,
+                name_scale,
+                active
+                    ? FG
+                    : DIM);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    "A OPEN",
+                    1,
+                    LIBRARY_MARGIN_X,
+                    LIBRARY_CONTENT_W),
+                y + 54,
+                "A OPEN",
+                1,
+                active
                     ? FG
                     : DIM);
         }
@@ -3929,20 +7419,10 @@ static void draw_systems(
     flip_draw_text(
         drm,
         centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
+            "A OPEN   B BACK",
             1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
-        1,
-        DIM);
-
-    flip_draw_text(
-        drm,
-        centred_text_x(
-            "A SELECT   B BACK",
-            1),
-        452,
-        "A SELECT   B BACK",
+        LIBRARY_FOOTER_Y,
+        "A OPEN   B BACK",
         1,
         DIM);
 
@@ -3955,8 +7435,10 @@ static void draw_systems(
     flip_osd_draw(
         drm);
 
-    flip_drm_present(drm);
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_games(
     flip_drm_t *drm,
@@ -3964,7 +7446,9 @@ static void draw_games(
     int selected,
     double poweroff_progress)
 {
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     const char *system_title =
         system &&
@@ -3972,14 +7456,23 @@ static void draw_games(
             ? system->display_name
             : "GAMES";
 
+    char header_title[64];
+
+    fit_text_to_width(
+        system_title,
+        header_title,
+        sizeof(header_title),
+        360,
+        UI_SCALE_BODY);
+
     flip_draw_text(
         drm,
         centred_text_x(
-            system_title,
-            4),
-        20,
-        system_title,
-        4,
+            header_title,
+            UI_SCALE_BODY),
+        14,
+        header_title,
+        UI_SCALE_BODY,
         FG);
 
     char count_text[64];
@@ -3987,60 +7480,98 @@ static void draw_games(
     snprintf(
         count_text,
         sizeof(count_text),
-        "%d GAMES",
-        rom_count);
+        "%d GAME%s",
+        rom_count,
+        rom_count == 1
+            ? ""
+            : "S");
 
     flip_draw_text(
         drm,
-        centred_text_x(count_text, UI_SCALE_META),
-        61,
+        centred_text_x(
+            count_text,
+            1),
+        44,
         count_text,
-        UI_SCALE_META,
+        1,
         DIM);
 
     if (rom_count <= 0) {
 
-        char no_games[96];
-        snprintf(
-            no_games,
-            sizeof(no_games),
-            "NO %s GAMES FOUND",
-            system_title);
+        flip_draw_rect(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            LIBRARY_MARGIN_X,
+            110,
+            LIBRARY_CONTENT_W,
+            210,
+            1,
+            DIM);
 
         flip_draw_text(
             drm,
-            centred_text_x(no_games, 2),
-            190,
-            no_games,
-            2,
+            centred_text_x_in_rect(
+                "NO GAMES FOUND",
+                UI_SCALE_SECTION,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            164,
+            "NO GAMES FOUND",
+            UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x("ADD GAMES TO THE SD CARD", UI_SCALE_BODY),
-            225,
+            centred_text_x_in_rect(
+                "ADD GAMES TO THE SD CARD",
+                UI_SCALE_BODY,
+                LIBRARY_MARGIN_X,
+                LIBRARY_CONTENT_W),
+            220,
             "ADD GAMES TO THE SD CARD",
             UI_SCALE_BODY,
             DIM);
 
     } else {
 
+        int visible_rows =
+            (LIBRARY_LIST_BOTTOM -
+             LIBRARY_LIST_Y +
+             LIBRARY_GAME_GAP) /
+            (LIBRARY_GAME_ROW_H +
+             LIBRARY_GAME_GAP);
+
+        if (visible_rows < 1)
+            visible_rows = 1;
+
         int first =
-            selected - ROWS_VISIBLE / 2;
+            selected -
+            visible_rows / 2;
 
         if (first < 0)
             first = 0;
 
         if (first >
-            rom_count - ROWS_VISIBLE)
+            rom_count -
+            visible_rows) {
+
             first =
-                rom_count - ROWS_VISIBLE;
+                rom_count -
+                visible_rows;
+        }
 
         if (first < 0)
             first = 0;
 
         for (int row = 0;
-             row < ROWS_VISIBLE;
+             row < visible_rows;
              ++row) {
 
             int index =
@@ -4050,70 +7581,78 @@ static void draw_games(
                 break;
 
             int y =
-                92 + row * 44;
+                LIBRARY_LIST_Y +
+                row *
+                    (LIBRARY_GAME_ROW_H +
+                     LIBRARY_GAME_GAP);
 
-            if (index == selected) {
+            int active =
+                index == selected;
 
+            if (active) {
                 flip_draw_rect(
                     drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
+                    LIBRARY_MARGIN_X,
+                    y,
+                    LIBRARY_CONTENT_W,
+                    LIBRARY_GAME_ROW_H,
                     PANEL);
-
-                flip_draw_rect_outline(
-                    drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
-                    2,
-                    FG);
             }
 
-            /*
-             * Primary browser rows use the shared section scale. At scale 3,
-             * 29 characters fit comfortably inside the 550px list card.
-             */
-            char visible[32];
-
-            snprintf(
-                visible,
-                sizeof(visible),
-                "%.29s",
-                roms[index].display);
-
-            flip_draw_text(
+            flip_draw_rect_outline(
                 drm,
-                58,
+                LIBRARY_MARGIN_X,
                 y,
-                visible,
-                UI_SCALE_SECTION,
-                index == selected
+                LIBRARY_CONTENT_W,
+                LIBRARY_GAME_ROW_H,
+                active ? 2 : 1,
+                active
                     ? FG
                     : DIM);
 
+            int title_scale =
+                UI_SCALE_BODY;
+
+            char visible[96];
+
+            fit_text_to_width(
+                roms[index].display,
+                visible,
+                sizeof(visible),
+                LIBRARY_CONTENT_W - 116,
+                title_scale);
+
+            flip_draw_text(
+                drm,
+                LIBRARY_MARGIN_X + 18,
+                y + 13,
+                visible,
+                title_scale,
+                active
+                    ? FG
+                    : DIM);
+
+            if (active) {
+                flip_draw_text(
+                    drm,
+                    LIBRARY_MARGIN_X +
+                        LIBRARY_CONTENT_W -
+                        78,
+                    y + 18,
+                    "PLAY",
+                    1,
+                    FG);
+            }
         }
     }
 
     flip_draw_text(
         drm,
         centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
+            "A LAUNCH   Y DETAILS   B BACK",
             1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
-        1,
-        DIM);
-
-    flip_draw_text(
-        drm,
-        centred_text_x(
-            "A LAUNCH   B BACK",
-            1),
-        452,
-        "A LAUNCH   B BACK",
+        LIBRARY_FOOTER_Y,
+        "A LAUNCH   Y DETAILS   B BACK",
         1,
         DIM);
 
@@ -4123,16 +7662,13 @@ static void draw_games(
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    /*
-     * Global FlipOS OSD is composited last so hardware
-     * feedback appears consistently over every frontend
-     * screen.
-     */
     flip_osd_draw(
         drm);
 
-    flip_drm_present(drm);
+    flip_drm_present(
+        drm);
 }
+
 
 static void draw_recent(
     flip_drm_t *drm,
@@ -4142,195 +7678,452 @@ static void draw_recent(
 {
     (void)system;
 
-    flip_draw_clear(drm, BG);
+    flip_draw_clear(
+        drm,
+        BG);
 
     load_suspended_session();
 
     flip_draw_text(
         drm,
-        centred_text_x("GAMESWITCHER", UI_SCALE_TITLE),
-        20,
+        centred_text_x(
+            "GAMESWITCHER",
+            UI_SCALE_BODY),
+        14,
         "GAMESWITCHER",
-        UI_SCALE_TITLE,
+        UI_SCALE_BODY,
         FG);
 
-    char count_text[64];
+    char count_text[32];
 
     snprintf(
         count_text,
         sizeof(count_text),
-        "%d GAMES",
-        recent_count);
+        "%d GAME%s",
+        recent_count,
+        recent_count == 1
+            ? ""
+            : "S");
 
     flip_draw_text(
         drm,
         centred_text_x(
             count_text,
-            UI_SCALE_META),
-        61,
+            1),
+        44,
         count_text,
-        UI_SCALE_META,
+        1,
         DIM);
 
     if (recent_count <= 0) {
 
+        flip_draw_rect(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            1,
+            DIM);
+
         flip_draw_text(
             drm,
-            centred_text_x(
+            centred_text_x_in_rect(
                 "NO GAMES YET",
-                2),
-            190,
+                UI_SCALE_SECTION,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            126,
             "NO GAMES YET",
-            2,
+            UI_SCALE_SECTION,
             FG);
 
         flip_draw_text(
             drm,
-            centred_text_x(
-                "LAUNCH A GAME FIRST",
-                1),
-            225,
-            "LAUNCH A GAME FIRST",
+            centred_text_x_in_rect(
+                "LAUNCH A GAME AND IT WILL APPEAR HERE",
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            188,
+            "LAUNCH A GAME AND IT WILL APPEAR HERE",
             1,
             DIM);
 
     } else {
 
+        if (selected < 0)
+            selected = 0;
+
+        if (selected >= recent_count)
+            selected = recent_count - 1;
+
+        const rom_entry_t *current =
+            &recent_roms[selected];
+
+        char session_state[32];
+
+        int have_session =
+            recent_session_registry_state(
+                current,
+                session_state,
+                sizeof(session_state)) > 0;
+
+        int is_suspended =
+            have_session &&
+            strcmp(
+                session_state,
+                "suspended") == 0;
+
+        int needs_recovery =
+            have_session &&
+            (strcmp(
+                 session_state,
+                 "interrupted") == 0 ||
+             strcmp(
+                 session_state,
+                 "signaled") == 0 ||
+             strcmp(
+                 session_state,
+                 "error") == 0);
+
+        int can_resume =
+            flip_system_resume_available(
+                current->system,
+                current->path);
+
+        const char *status =
+            is_suspended
+                ? "PAUSED"
+                : needs_recovery
+                    ? "RESTORE AVAILABLE"
+                    : can_resume
+                        ? "RESUME READY"
+                        : "READY TO PLAY";
+
+        flip_draw_rect(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            PANEL);
+
+        flip_draw_rect_outline(
+            drm,
+            SWITCHER_HERO_X,
+            SWITCHER_HERO_Y,
+            SWITCHER_HERO_W,
+            SWITCHER_HERO_H,
+            2,
+            FG);
+
+        const char *system_name =
+            current->system &&
+            current->system->display_name
+                ? current->system->display_name
+                : "GAME";
+
+        char system_visible[64];
+
+        fit_text_to_width(
+            system_name,
+            system_visible,
+            sizeof(system_visible),
+            SWITCHER_HERO_W - 48,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                system_visible,
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            89,
+            system_visible,
+            1,
+            DIM);
+
+        int title_scale =
+            UI_SCALE_SECTION;
+
+        while (title_scale > 1 &&
+               ui_text_width_px(
+                   current->display,
+                   title_scale) >
+                   SWITCHER_HERO_W - 64) {
+
+            title_scale--;
+        }
+
+        char title[96];
+
+        fit_text_to_width(
+            current->display,
+            title,
+            sizeof(title),
+            SWITCHER_HERO_W - 64,
+            title_scale);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                title,
+                title_scale,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            116,
+            title,
+            title_scale,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                status,
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            154,
+            status,
+            1,
+            is_suspended ||
+            needs_recovery ||
+            can_resume
+                ? FG
+                : DIM);
+
+        flip_game_stats_t selected_stats;
+
+        int have_stats =
+            current->system &&
+            current->system->id &&
+            flip_game_stats_load(
+                current->system->id,
+                current->path,
+                &selected_stats) == 1;
+
+        char play_time[32] = "0M";
+        char last_played[32] = "NOT YET";
+
+        if (have_stats) {
+            format_play_duration(
+                selected_stats.total_play_seconds,
+                play_time,
+                sizeof(play_time));
+
+            format_last_played(
+                selected_stats.last_played_epoch,
+                last_played,
+                sizeof(last_played));
+        }
+
+        char stats_line[96];
+
+        snprintf(
+            stats_line,
+            sizeof(stats_line),
+            "%s   %llu LAUNCH%s   %s",
+            play_time,
+            have_stats
+                ? selected_stats.launches
+                : 0ULL,
+            have_stats &&
+            selected_stats.launches == 1
+                ? ""
+                : "ES",
+            last_played);
+
+        char stats_visible[96];
+
+        fit_text_to_width(
+            stats_line,
+            stats_visible,
+            sizeof(stats_visible),
+            SWITCHER_HERO_W - 48,
+            1);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                stats_visible,
+                1,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            187,
+            stats_visible,
+            1,
+            DIM);
+
+        const char *primary =
+            can_resume
+                ? "A RESUME"
+                : "A LAUNCH";
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                primary,
+                UI_SCALE_BODY,
+                SWITCHER_HERO_X,
+                SWITCHER_HERO_W),
+            226,
+            primary,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            SWITCHER_MARGIN_X,
+            SWITCHER_STRIP_LABEL_Y,
+            "RECENT SESSIONS",
+            1,
+            DIM);
+
+        /*
+         * Keep the selected item visible in a three-card strip. Cards are
+         * fixed width, so titles must fit inside their own 168 px text area.
+         */
         int first =
-            selected - ROWS_VISIBLE / 2;
+            selected - 1;
 
         if (first < 0)
             first = 0;
 
-        if (first >
-            recent_count -
-            ROWS_VISIBLE)
-            first =
-                recent_count -
-                ROWS_VISIBLE;
+        if (first > recent_count - 3)
+            first = recent_count - 3;
 
         if (first < 0)
             first = 0;
 
-        for (int row = 0;
-             row < ROWS_VISIBLE;
-             ++row) {
+        for (int slot = 0;
+             slot < 3;
+             ++slot) {
 
             int index =
-                first + row;
+                first + slot;
 
-            if (index >=
-                recent_count)
+            if (index >= recent_count)
                 break;
 
-            int y =
-                92 + row * 44;
+            int card_x =
+                SWITCHER_MARGIN_X +
+                slot *
+                    (SWITCHER_CARD_W +
+                     SWITCHER_CARD_GAP);
 
-            if (index ==
-                selected) {
+            int active =
+                index == selected;
 
-                flip_draw_rect(
-                    drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
-                    PANEL);
+            flip_draw_rect(
+                drm,
+                card_x,
+                SWITCHER_CARD_Y,
+                SWITCHER_CARD_W,
+                SWITCHER_CARD_H,
+                PANEL);
 
-                flip_draw_rect_outline(
-                    drm,
-                    45,
-                    y - 7,
-                    550,
-                    36,
-                    2,
-                    FG);
+            flip_draw_rect_outline(
+                drm,
+                card_x,
+                SWITCHER_CARD_Y,
+                SWITCHER_CARD_W,
+                SWITCHER_CARD_H,
+                active ? 2 : 1,
+                active
+                    ? FG
+                    : DIM);
+
+            int card_title_scale =
+                UI_SCALE_BODY;
+
+            if (ui_text_width_px(
+                    recent_roms[index].display,
+                    card_title_scale) >
+                SWITCHER_CARD_W - 24) {
+
+                card_title_scale = 1;
             }
 
-            char visible[24];
+            char card_title[64];
 
-            snprintf(
-                visible,
-                sizeof(visible),
-                "%.21s",
-                recent_roms[index].display);
+            fit_text_to_width(
+                recent_roms[index].display,
+                card_title,
+                sizeof(card_title),
+                SWITCHER_CARD_W - 24,
+                card_title_scale);
 
             flip_draw_text(
                 drm,
-                58,
-                y,
-                visible,
-                UI_SCALE_SECTION,
-                index == selected
+                centred_text_x_in_rect(
+                    card_title,
+                    card_title_scale,
+                    card_x,
+                    SWITCHER_CARD_W),
+                SWITCHER_CARD_Y + 18,
+                card_title,
+                card_title_scale,
+                active
                     ? FG
                     : DIM);
+
+            const char *card_system =
+                recent_roms[index].system &&
+                recent_roms[index].system->display_name
+                    ? recent_roms[index].system->display_name
+                    : "GAME";
+
+            char card_system_visible[32];
+
+            fit_text_to_width(
+                card_system,
+                card_system_visible,
+                sizeof(card_system_visible),
+                SWITCHER_CARD_W - 24,
+                1);
+
+            flip_draw_text(
+                drm,
+                centred_text_x_in_rect(
+                    card_system_visible,
+                    1,
+                    card_x,
+                    SWITCHER_CARD_W),
+                SWITCHER_CARD_Y + 57,
+                card_system_visible,
+                1,
+                DIM);
 
             if (flip_system_resume_available(
                     recent_roms[index].system,
                     recent_roms[index].path)) {
 
-                char session_state[32];
-
-                int have_session =
-                    recent_session_registry_state(
-                        &recent_roms[index],
-                        session_state,
-                        sizeof(session_state)) > 0;
-
-                int is_suspended =
-                    have_session &&
-                    strcmp(
-                        session_state,
-                        "suspended") == 0;
-
-                int needs_recovery =
-                    have_session &&
-                    (strcmp(
-                         session_state,
-                         "interrupted") == 0 ||
-                     strcmp(
-                         session_state,
-                         "signaled") == 0 ||
-                     strcmp(
-                         session_state,
-                         "error") == 0);
-
-                const char *status =
-                    is_suspended
-                        ? "PAUSED"
-                        : needs_recovery
-                            ? "RESTORE"
-                            : "RESUME";
-
-                int status_x =
-                    is_suspended
-                        ? 490
-                        : needs_recovery
-                            ? 470
-                            : 490;
-
                 flip_draw_text(
                     drm,
-                    status_x,
-                    y + 3,
-                    status,
-                    UI_SCALE_META,
-                    index == selected
+                    centred_text_x_in_rect(
+                        "RESUME",
+                        1,
+                        card_x,
+                        SWITCHER_CARD_W),
+                    SWITCHER_CARD_Y + 76,
+                    "RESUME",
+                    1,
+                    active
                         ? FG
                         : DIM);
             }
         }
     }
-
-    flip_draw_text(
-        drm,
-        centred_text_x(
-            "HOLD MENU + SELECT TO POWER OFF",
-            1),
-        420,
-        "HOLD MENU + SELECT TO POWER OFF",
-        1,
-        DIM);
 
     const char *recent_help =
         "B BACK";
@@ -4349,29 +8142,38 @@ static void draw_recent(
         if (is_recoverable) {
 
             recent_help =
-                "A RESUME   X END   B BACK";
+                "A RESUME   X END   Y DETAILS   B BACK";
 
         } else if (
             can_resume) {
 
             recent_help =
-                "A RESUME   X REMOVE   B BACK";
+                "A RESUME   X REMOVE   Y DETAILS   B BACK";
 
         } else {
 
             recent_help =
-                "A LAUNCH   X REMOVE   B BACK";
+                "A LAUNCH   X REMOVE   Y DETAILS   B BACK";
         }
     }
+
+    char help_visible[96];
+
+    fit_text_to_width(
+        recent_help,
+        help_visible,
+        sizeof(help_visible),
+        SWITCHER_CONTENT_W,
+        1);
 
     flip_draw_text(
         drm,
         centred_text_x(
-            recent_help,
-            UI_SCALE_HINT),
-        452,
-        recent_help,
-        UI_SCALE_HINT,
+            help_visible,
+            1),
+        SWITCHER_FOOTER_Y,
+        help_visible,
+        1,
         DIM);
 
     if (gameswitcher_confirm !=
@@ -4386,17 +8188,17 @@ static void draw_recent(
         flip_draw_rect(
             drm,
             115,
-            365,
+            395,
             410,
-            76,
+            50,
             PANEL);
 
         flip_draw_rect_outline(
             drm,
             115,
-            365,
+            395,
             410,
-            76,
+            50,
             1,
             FG);
 
@@ -4404,10 +8206,10 @@ static void draw_recent(
             drm,
             centred_text_x(
                 confirm_text,
-                2),
-            382,
+                UI_SCALE_BODY),
+            404,
             confirm_text,
-            2,
+            UI_SCALE_BODY,
             FG);
 
         flip_draw_text(
@@ -4415,7 +8217,7 @@ static void draw_recent(
             centred_text_x(
                 "A CONFIRM   B CANCEL",
                 1),
-            418,
+            430,
             "A CONFIRM   B CANCEL",
             1,
             DIM);
@@ -4427,21 +8229,19 @@ static void draw_recent(
     flip_osd_set_poweroff_progress(
         poweroff_progress);
 
-    /*
-     * Global FlipOS OSD is composited last so hardware
-     * feedback appears consistently over every frontend
-     * screen.
-     */
     flip_osd_draw(
         drm);
 
-    flip_drm_present(drm);
+    flip_drm_present(
+        drm);
 }
 
 static int launch_game_once(
     flip_drm_t *drm,
     const rom_entry_t *rom,
-    int automatic_resume)
+    int automatic_resume,
+    unsigned long long *active_seconds,
+    int *launched_any)
 {
     if (!rom ||
         !rom->system ||
@@ -4491,12 +8291,52 @@ static int launch_game_once(
         "FRONTEND_RUNTIME_PROFILE applied=%d\n",
         runtime_profile_applied);
 
-    if (flip_session_launch(
+    int session_rc =
+        flip_session_launch(
             drm,
             runner,
             argv,
             &metadata,
-            &result) < 0) {
+            &result);
+
+    if (result.launched) {
+        if (active_seconds)
+            *active_seconds +=
+                result.active_seconds;
+
+        if (launched_any)
+            *launched_any = 1;
+
+        /*
+         * A lid-open automatic continuation is the same user play session,
+         * not another launch. A deliberate launch or GameSwitcher resume is
+         * counted once when the emulator child genuinely starts.
+         */
+        if (!automatic_resume) {
+            long long launch_epoch =
+                (long long)time(NULL);
+
+            if (launch_epoch > 0 &&
+                result.active_seconds <=
+                    (unsigned long long)launch_epoch) {
+                launch_epoch -=
+                    (long long)result.active_seconds;
+            }
+
+            if (flip_game_stats_record_launch(
+                    system->id,
+                    rom->path,
+                    launch_epoch) < 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_STATS launch write failed rom=%s\n",
+                    rom->path);
+            }
+        }
+    }
+
+    if (session_rc < 0) {
 
         fprintf(
             stderr,
@@ -4542,17 +8382,49 @@ static int launch_game_once(
 
     fprintf(
         stderr,
-        "FRONTEND_GAME session_action=%d\n",
-        result.action);
+        "FRONTEND_GAME session_action=%d active_seconds=%llu\n",
+        result.action,
+        result.active_seconds);
 
     return (int)result.action;
+}
+
+static void finish_game_stats(
+    const rom_entry_t *rom,
+    unsigned long long active_seconds,
+    int launched_any)
+{
+    if (!launched_any ||
+        !rom ||
+        !rom->system ||
+        !rom->system->id)
+        return;
+
+    if (flip_game_stats_record_session(
+            rom->system->id,
+            rom->path,
+            active_seconds,
+            (long long)time(NULL)) < 0) {
+
+        fprintf(
+            stderr,
+            "FRONTEND_STATS session write failed rom=%s\n",
+            rom->path);
+    }
 }
 
 static int launch_game(
     flip_drm_t *drm,
     const rom_entry_t *rom)
 {
+    if (!rom ||
+        !rom->system ||
+        !rom->system->id)
+        return -1;
+
     int automatic_resume = 0;
+    int launched_any = 0;
+    unsigned long long active_seconds = 0;
 
     for (;;) {
 
@@ -4560,13 +8432,20 @@ static int launch_game(
             launch_game_once(
                 drm,
                 rom,
-                automatic_resume);
+                automatic_resume,
+                &active_seconds,
+                &launched_any);
 
         /* The intent applies to exactly one post-wake relaunch. */
         automatic_resume = 0;
 
-        if (result != FLIP_SESSION_ACTION_SUSPEND)
+        if (result != FLIP_SESSION_ACTION_SUSPEND) {
+            finish_game_stats(
+                rom,
+                active_seconds,
+                launched_any);
             return result;
+        }
 
         /*
          * Refresh persistent hall state after the session
@@ -4589,6 +8468,10 @@ static int launch_game(
                 stderr,
                 "FRONTEND_STANDBY lid poll failed\n");
 
+            finish_game_stats(
+                rom,
+                active_seconds,
+                launched_any);
             return result;
         }
 
@@ -4602,6 +8485,10 @@ static int launch_game(
                 stderr,
                 "FRONTEND_GAMESWITCHER requested\n");
 
+            finish_game_stats(
+                rom,
+                active_seconds,
+                launched_any);
             return result;
         }
 
@@ -4616,6 +8503,10 @@ static int launch_game(
                 stderr,
                 "FRONTEND_STANDBY wait failed\n");
 
+            finish_game_stats(
+                rom,
+                active_seconds,
+                launched_any);
             return -1;
         }
 
@@ -4625,18 +8516,13 @@ static int launch_game(
             rom->path);
 
         /*
-         * This next launch is a continuation of the lid-suspended session,
-         * not a new user launch decision. Skip Game Options exactly once.
+         * This next launch is a continuation of the lid-suspended session.
+         * The session runtime reports only actual emulator child time, so the
+         * sleep interval above never inflates play-time statistics.
          */
         automatic_resume = 1;
-
-        /*
-         * Loop back through the normal session launcher.
-         * Gambatte will restore the saved per-ROM state.
-         */
     }
 }
-
 int main(void)
 {
     signal(
@@ -4697,6 +8583,10 @@ int main(void)
     int interface_selected = 0;
     int optimizer_selected = 0;
     int optimizer_confirm = 0;
+    int power_selected = 0;
+    int power_confirm = 0;
+    screen_t power_return_screen =
+        SCREEN_HOME;
 
     int prev_up = 0;
     int prev_down = 0;
@@ -4709,9 +8599,13 @@ int main(void)
     int prev_start = 0;
 
     flip_hotkeys_t global_hotkeys;
+    flip_controls_t frontend_controls;
 
     flip_hotkeys_init(
         &global_hotkeys);
+
+    flip_controls_init(
+        &frontend_controls);
 
     /*
      * Tracks the previous OSD visibility state so the
@@ -4723,8 +8617,6 @@ int main(void)
     int prev_lid_ready = 0;
     int prev_lid_closed = 0;
 
-    int poweroff_active = 0;
-    double poweroff_started = 0.0;
     double next_battery_refresh =
         monotonic_seconds() + 30.0;
 
@@ -4790,6 +8682,7 @@ int main(void)
     rom_count = 0;
 
     load_recent_history();
+    refresh_play_stats();
     load_suspended_session();
 
     memset(&wifi_status, 0, sizeof(wifi_status));
@@ -4899,6 +8792,9 @@ int main(void)
                 flip_hotkeys_init(
                     &global_hotkeys);
 
+                flip_controls_init(
+                    &frontend_controls);
+
                 prev_up = 0;
                 prev_down = 0;
                 prev_a = 0;
@@ -4907,8 +8803,6 @@ int main(void)
                 prev_left = 0;
                 prev_right = 0;
                 prev_start = 0;
-
-                poweroff_active = 0;
 
                 /*
                  * Re-prime authoritative lid state after wake.
@@ -4930,6 +8824,15 @@ int main(void)
                  * selection that was active before sleep.
                  */
                 if (screen ==
+                    SCREEN_POWER) {
+
+                    draw_power_menu(
+                        &drm,
+                        power_selected,
+                        power_confirm,
+                        0.0);
+
+                } else if (screen ==
                     SCREEN_HOME) {
 
                     draw_home(
@@ -4967,6 +8870,22 @@ int main(void)
                         &drm,
                         game_system,
                         recent_selected,
+                        0.0);
+
+                } else if (
+                    screen ==
+                        SCREEN_STATS) {
+
+                    draw_stats(
+                        &drm,
+                        0.0);
+
+                } else if (
+                    screen ==
+                        SCREEN_GAME_DETAILS) {
+
+                    draw_game_details(
+                        &drm,
                         0.0);
 
                 } else if (
@@ -5105,6 +9024,40 @@ int main(void)
 
         int redraw = 0;
 
+        flip_controls_state_t frontend_control_state;
+
+        if (flip_controls_update(
+                &frontend_controls,
+                &state,
+                &frontend_control_state) < 0) {
+
+            fprintf(
+                stderr,
+                "FRONTEND: control recognition failed\n");
+
+        } else if (
+            frontend_control_state.system.power_menu_requested) {
+
+            if (screen == SCREEN_POWER &&
+                power_confirm == 0) {
+
+                screen =
+                    power_return_screen;
+
+            } else if (
+                screen != SCREEN_POWER) {
+
+                power_return_screen =
+                    screen;
+
+                power_selected = 0;
+                power_confirm = 0;
+                screen = SCREEN_POWER;
+            }
+
+            redraw = 1;
+        }
+
         double power_now = monotonic_seconds();
         if (power_now >= next_low_battery_check) {
             flip_battery_snapshot_t battery;
@@ -5174,13 +9127,19 @@ int main(void)
         if (up &&
             !prev_up) {
 
-            if (screen == SCREEN_HOME) {
+            if (screen == SCREEN_POWER) {
 
-                home_selected--;
+                if (power_confirm == 0) {
+                    power_selected--;
 
-                if (home_selected < 0)
-                    home_selected =
-                        HOME_ITEM_COUNT - 1;
+                    if (power_selected < 0)
+                        power_selected = 2;
+                }
+
+            } else if (screen == SCREEN_HOME) {
+
+                if (home_selected != 0)
+                    home_selected = 0;
 
             } else if (
                 screen ==
@@ -5289,13 +9248,19 @@ int main(void)
         if (down &&
             !prev_down) {
 
-            if (screen == SCREEN_HOME) {
+            if (screen == SCREEN_POWER) {
 
-                home_selected++;
+                if (power_confirm == 0) {
+                    power_selected++;
 
-                if (home_selected >=
-                    HOME_ITEM_COUNT)
-                    home_selected = 0;
+                    if (power_selected > 2)
+                        power_selected = 0;
+                }
+
+            } else if (screen == SCREEN_HOME) {
+
+                if (home_selected == 0)
+                    home_selected = 1;
 
             } else if (
                 screen ==
@@ -5409,9 +9374,106 @@ int main(void)
             redraw = 1;
         }
 
+        if (y_button &&
+            !prev_y &&
+            gameswitcher_confirm ==
+                GAMESWITCHER_CONFIRM_NONE &&
+            screen == SCREEN_GAMES &&
+            rom_count > 0) {
+
+            details_rom =
+                roms[game_selected];
+
+            details_return_screen =
+                SCREEN_GAMES;
+
+            screen =
+                SCREEN_GAME_DETAILS;
+
+            redraw = 1;
+        }
+
+        if (y_button &&
+            !prev_y &&
+            gameswitcher_confirm ==
+                GAMESWITCHER_CONFIRM_NONE &&
+            screen == SCREEN_RECENT &&
+            recent_count > 0) {
+
+            details_rom =
+                recent_roms[recent_selected];
+
+            details_return_screen =
+                SCREEN_RECENT;
+
+            screen =
+                SCREEN_GAME_DETAILS;
+
+            redraw = 1;
+        }
+
         if (screen == SCREEN_WIFI_PASSWORD &&
             x && !prev_x) {
             flip_keyboard_toggle_reveal(&wifi_keyboard);
+            redraw = 1;
+        }
+
+        if (screen == SCREEN_RECENT &&
+            recent_count > 0 &&
+            left && !prev_left) {
+
+            recent_selected--;
+
+            if (recent_selected < 0)
+                recent_selected =
+                    recent_count - 1;
+
+            redraw = 1;
+        }
+
+        if (screen == SCREEN_HOME &&
+            left && !prev_left) {
+
+            if (home_selected == 0) {
+                home_selected =
+                    HOME_ITEM_COUNT - 1;
+            } else {
+                home_selected--;
+
+                if (home_selected < 1)
+                    home_selected =
+                        HOME_ITEM_COUNT - 1;
+            }
+
+            redraw = 1;
+        }
+
+        if (screen == SCREEN_RECENT &&
+            recent_count > 0 &&
+            right && !prev_right) {
+
+            recent_selected++;
+
+            if (recent_selected >=
+                recent_count)
+                recent_selected = 0;
+
+            redraw = 1;
+        }
+
+        if (screen == SCREEN_HOME &&
+            right && !prev_right) {
+
+            if (home_selected == 0) {
+                home_selected = 1;
+            } else {
+                home_selected++;
+
+                if (home_selected >=
+                    HOME_ITEM_COUNT)
+                    home_selected = 1;
+            }
+
             redraw = 1;
         }
 
@@ -5533,6 +9595,23 @@ int main(void)
             }
         }
 
+        int power_b_handled = 0;
+
+        if (b &&
+            !prev_b &&
+            screen == SCREEN_POWER) {
+
+            if (power_confirm != 0) {
+                power_confirm = 0;
+            } else {
+                screen =
+                    power_return_screen;
+            }
+
+            power_b_handled = 1;
+            redraw = 1;
+        }
+
         if (b &&
             !prev_b &&
             screen == SCREEN_OPTIMIZER &&
@@ -5561,7 +9640,8 @@ int main(void)
             optimizer_confirm == 0 &&
             !optimizer_validation_selecting &&
             !optimizer_validation_b_handled &&
-            !wifi_password_b_handled) {
+            !wifi_password_b_handled &&
+            !power_b_handled) {
 
             if (screen ==
                 SCREEN_GAMES) {
@@ -5577,7 +9657,9 @@ int main(void)
                 screen ==
                     SCREEN_SYSTEMS ||
                 screen ==
-                    SCREEN_RECENT) {
+                    SCREEN_RECENT ||
+                screen ==
+                    SCREEN_STATS) {
 
                 screen =
                     SCREEN_HOME;
@@ -5616,6 +9698,13 @@ int main(void)
             } else if (screen == SCREEN_FIRST_BOOT_READY) {
 
                 screen = SCREEN_FIRST_BOOT_BIOS;
+                redraw = 1;
+
+            } else if (screen == SCREEN_GAME_DETAILS) {
+
+                screen =
+                    details_return_screen;
+
                 redraw = 1;
 
             } else if (screen == SCREEN_UPDATE) {
@@ -5687,6 +9776,118 @@ int main(void)
         }
 
         int confirm_handled = 0;
+
+        if (screen == SCREEN_POWER &&
+            a &&
+            !prev_a) {
+
+            confirm_handled = 1;
+
+            if (power_confirm == 1) {
+
+                draw_power_menu(
+                    &drm,
+                    power_selected,
+                    power_confirm,
+                    0.0);
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_POWER restart confirmed\n");
+
+                fflush(stderr);
+                sync();
+                reboot(RB_AUTOBOOT);
+
+                flip_osd_show_status(
+                    "RESTART FAILED");
+
+                power_confirm = 0;
+                redraw = 1;
+
+            } else if (
+                power_confirm == 2) {
+
+                draw_power_menu(
+                    &drm,
+                    power_selected,
+                    power_confirm,
+                    0.0);
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_POWER poweroff confirmed\n");
+
+                power_off_now();
+
+                flip_osd_show_status(
+                    "POWER OFF FAILED");
+
+                power_confirm = 0;
+                redraw = 1;
+
+            } else if (
+                power_selected == 0) {
+
+                fprintf(
+                    stderr,
+                    "FRONTEND_POWER sleep requested\n");
+
+                if (flip_power_sleep_once() < 0) {
+
+                    flip_osd_show_status(
+                        "SLEEP FAILED");
+
+                } else {
+
+                    screen =
+                        power_return_screen;
+                }
+
+                memset(
+                    &state,
+                    0,
+                    sizeof(state));
+
+                flip_hotkeys_init(
+                    &global_hotkeys);
+
+                flip_controls_init(
+                    &frontend_controls);
+
+                prev_up = 0;
+                prev_down = 0;
+                prev_a = 0;
+                prev_b = 0;
+                prev_x = 0;
+                prev_y = 0;
+                prev_left = 0;
+                prev_right = 0;
+                prev_start = 0;
+
+                /*
+                 * Prime the newly woken input state without treating the
+                 * release that woke the device as another Power Menu tap.
+                 */
+                (void)flip_input_poll(
+                    &state,
+                    0);
+
+                flip_controls_init(
+                    &frontend_controls);
+
+                redraw = 1;
+
+            } else {
+
+                power_confirm =
+                    power_selected == 1
+                        ? 1
+                        : 2;
+
+                redraw = 1;
+            }
+        }
 
         if (screen == SCREEN_OPTIMIZER &&
             optimizer_confirm != 0 &&
@@ -6059,6 +10260,7 @@ int main(void)
 
                 load_suspended_session();
                 load_recent_history();
+                refresh_play_stats();
 
                 if (recent_selected >=
                     recent_count) {
@@ -6157,6 +10359,150 @@ int main(void)
 
                 if (home_selected == 0) {
 
+                    if (recent_count <= 0) {
+                        refresh_available_systems();
+
+                        if (system_selected >=
+                            available_system_count) {
+
+                            system_selected = 0;
+                        }
+
+                        screen =
+                            SCREEN_SYSTEMS;
+
+                        redraw = 1;
+
+                    } else {
+
+                        flip_draw_clear(
+                            &drm,
+                            BG);
+
+                        int can_resume =
+                            flip_system_resume_available(
+                                recent_roms[0].system,
+                                recent_roms[0].path);
+
+                        const char *launch_text =
+                            can_resume
+                                ? "RESUMING"
+                                : "LAUNCHING";
+
+                        flip_draw_text(
+                            &drm,
+                            centred_text_x(
+                                launch_text,
+                                UI_SCALE_SECTION),
+                            185,
+                            launch_text,
+                            UI_SCALE_SECTION,
+                            FG);
+
+                        char launch_name[64];
+                        fit_text_to_width(
+                            recent_roms[0].display,
+                            launch_name,
+                            sizeof(launch_name),
+                            560,
+                            UI_SCALE_BODY);
+
+                        flip_draw_text(
+                            &drm,
+                            centred_text_x(
+                                launch_name,
+                                UI_SCALE_BODY),
+                            230,
+                            launch_name,
+                            UI_SCALE_BODY,
+                            DIM);
+
+                        flip_drm_present(
+                            &drm);
+
+                        int home_game_result =
+                            launch_game(
+                                &drm,
+                                &recent_roms[0]);
+
+                        if (home_game_result < 0) {
+                            fprintf(
+                                stderr,
+                                "FRONTEND_HOME lifecycle failed\n");
+                            return 3;
+                        }
+
+                        if (home_game_result ==
+                            FLIP_SESSION_ACTION_LOW_BATTERY) {
+
+                            power_off_low_battery(
+                                &drm);
+                            break;
+                        }
+
+                        memset(
+                            &state,
+                            0,
+                            sizeof(state));
+
+                        flip_hotkeys_init(
+                            &global_hotkeys);
+
+                        prev_up = 0;
+                        prev_down = 0;
+                        prev_a = 0;
+                        prev_b = 0;
+                        prev_x = 0;
+                        prev_y = 0;
+                        prev_left = 0;
+                        prev_right = 0;
+                        prev_start = 0;
+
+                        load_recent_history();
+                        refresh_play_stats();
+
+                        if (home_game_result ==
+                            FLIP_SESSION_ACTION_SUSPEND) {
+
+                            recent_selected = 0;
+
+                            select_suspended_recent(
+                                &recent_selected);
+
+                            screen =
+                                SCREEN_RECENT;
+
+                            fprintf(
+                                stderr,
+                                "FRONTEND_GAMESWITCHER entered_from_home\n");
+
+                            draw_recent(
+                                &drm,
+                                game_system,
+                                recent_selected,
+                                0.0);
+
+                            continue;
+                        }
+
+                        screen =
+                            SCREEN_HOME;
+
+                        home_selected = 0;
+                        message[0] = '\0';
+
+                        draw_home(
+                            &drm,
+                            home_selected,
+                            message,
+                            0.0);
+
+                        continue;
+                    }
+
+                } else if (
+                    home_selected == 1) {
+
                     refresh_available_systems();
 
                     if (system_selected >=
@@ -6171,9 +10517,10 @@ int main(void)
                     redraw = 1;
 
                 } else if (
-                    home_selected == 1) {
+                    home_selected == 2) {
 
                     load_recent_history();
+                    refresh_play_stats();
 
                     screen =
                         SCREEN_RECENT;
@@ -6181,18 +10528,29 @@ int main(void)
                     redraw = 1;
 
                 } else if (
-                    home_selected == 2) {
+                    home_selected == 3) {
+
+                    refresh_play_stats();
+
+                    screen =
+                        SCREEN_STATS;
+
+                    redraw = 1;
+
+                } else if (
+                    home_selected == 4) {
 
                     screen =
                         SCREEN_SETTINGS;
 
                     settings_selected = 0;
                     message[0] = '\0';
+
                     fprintf(
                         stderr,
                         "FRONTEND_SETTINGS entered\n");
-                    redraw = 1;
 
+                    redraw = 1;
                 }
 
             } else if (
@@ -6566,9 +10924,35 @@ int main(void)
                 prev_right = 0;
                 prev_start = 0;
 
-                poweroff_active = 0;
-
                 load_recent_history();
+                refresh_play_stats();
+
+                /*
+                 * "Quit Game" is a deliberate end to the current session.
+                 * GameSwitcher is reserved for suspended games, so a normal
+                 * emulator exit always returns to Home.
+                 */
+                if (recent_game_result ==
+                    FLIP_SESSION_ACTION_EXIT) {
+
+                    screen =
+                        SCREEN_HOME;
+
+                    home_selected = 0;
+                    message[0] = '\0';
+
+                    fprintf(
+                        stderr,
+                        "FRONTEND_GAME quit_to_home\n");
+
+                    draw_home(
+                        &drm,
+                        home_selected,
+                        message,
+                        0.0);
+
+                    continue;
+                }
 
                 if (recent_selected >=
                     recent_count)
@@ -6626,6 +11010,9 @@ int main(void)
                             game_selected
                         ]);
 
+                load_recent_history();
+                refresh_play_stats();
+
                 if (game_result < 0) {
 
                     fprintf(
@@ -6656,8 +11043,6 @@ int main(void)
                 prev_right = 0;
                 prev_start = 0;
 
-                poweroff_active = 0;
-
                 /*
                  * Rescan in case SD library changed.
                  */
@@ -6668,6 +11053,7 @@ int main(void)
                 if (game_result == FLIP_SESSION_ACTION_SUSPEND) {
 
                     load_recent_history();
+                    refresh_play_stats();
 
                     recent_selected = 0;
 
@@ -6685,6 +11071,28 @@ int main(void)
                         &drm,
                         game_system,
                         recent_selected,
+                        0.0);
+
+                    continue;
+                }
+
+                if (game_result ==
+                    FLIP_SESSION_ACTION_EXIT) {
+
+                    screen =
+                        SCREEN_HOME;
+
+                    home_selected = 0;
+                    message[0] = '\0';
+
+                    fprintf(
+                        stderr,
+                        "FRONTEND_GAME quit_to_home\n");
+
+                    draw_home(
+                        &drm,
+                        home_selected,
+                        message,
                         0.0);
 
                     continue;
@@ -6718,165 +11126,21 @@ int main(void)
         prev_start = start;
 
         /*
-         * Existing FlipOS clean shutdown gesture.
+         * MENU+SELECT is intentionally game-owned and has no frontend action.
+         * Device power controls are moving to the physical POWER button menu.
          */
-        if (state.down[
-                FLIP_BTN_MENU] &&
-            state.down[
-                FLIP_BTN_SELECT]) {
-
-            double now =
-                monotonic_seconds();
-
-            if (!poweroff_active) {
-
-                poweroff_active = 1;
-
-                poweroff_started =
-                    now;
-
-                fprintf(
-                    stderr,
-                    "FRONTEND: poweroff hold started\n");
-            }
-
-            double held =
-                now -
-                poweroff_started;
-
-            double progress =
-                held /
-                POWEROFF_HOLD_SECONDS;
+        if (redraw) {
 
             if (screen ==
-                SCREEN_HOME) {
+                SCREEN_POWER) {
 
-                draw_home(
+                draw_power_menu(
                     &drm,
-                    home_selected,
-                    message,
-                    progress);
+                    power_selected,
+                    power_confirm,
+                    0.0);
 
-            } else if (
-                screen ==
-                    SCREEN_SYSTEMS) {
-
-                draw_systems(
-                    &drm,
-                    system_selected,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_GAMES) {
-
-                draw_games(
-                    &drm,
-                    game_system,
-                    game_selected,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_RECENT) {
-
-                draw_recent(
-                    &drm,
-                    game_system,
-                    recent_selected,
-                    progress);
-
-            } else if (
-                screen ==
-                    SCREEN_SETTINGS) {
-
-                draw_settings(
-                    &drm,
-                    settings_selected,
-                    progress);
-
-            } else if (screen == SCREEN_SETTINGS_CONNECTIVITY) {
-
-                draw_settings_menu(
-                    &drm, "CONNECTIVITY", connectivity_items,
-                    CONNECTIVITY_ITEM_COUNT, connectivity_selected, 0, progress);
-
-            } else if (screen == SCREEN_SETTINGS_SYSTEM) {
-
-                draw_settings_menu(
-                    &drm, "SYSTEM", system_settings_items,
-                    SYSTEM_SETTINGS_ITEM_COUNT, system_settings_selected, 0, progress);
-
-            } else if (screen == SCREEN_SETTINGS_TIME) {
-
-                draw_time_settings(&drm, progress);
-
-            } else if (screen == SCREEN_SETTINGS_BIOS) {
-
-                draw_bios_verifier(&drm, progress);
-
-            } else if (screen == SCREEN_SETTINGS_INTERFACE) {
-
-                draw_settings_menu(
-                    &drm, "INTERFACE", interface_items,
-                    INTERFACE_ITEM_COUNT, interface_selected, 1, progress);
-
-            } else if (screen == SCREEN_WIFI_PASSWORD) {
-
-                draw_wifi_password(&drm, progress);
-
-            } else if (screen == SCREEN_WIFI) {
-
-                draw_wifi(&drm, wifi_selected, progress);
-
-            } else if (first_boot_screen(screen)) {
-
-                draw_first_boot(&drm, screen, progress);
-
-            } else if (screen == SCREEN_UPDATE) {
-
-                draw_update(&drm, progress);
-
-            } else if (
-                screen == SCREEN_OPTIMIZER_RESULTS) {
-
-                draw_optimizer_results(&drm, progress);
-
-            } else {
-
-                draw_optimizer(
-                    &drm,
-                    optimizer_selected,
-                    optimizer_confirm,
-                    optimizer_message,
-                    progress);
-            }
-
-            if (held >=
-                POWEROFF_HOLD_SECONDS) {
-
-                power_off_now();
-                break;
-            }
-
-        } else {
-
-            if (poweroff_active) {
-
-                fprintf(
-                    stderr,
-                    "FRONTEND: poweroff hold cancelled\n");
-
-                redraw = 1;
-            }
-
-            poweroff_active = 0;
-        }
-
-        if (redraw &&
-            !poweroff_active) {
-
-            if (screen ==
+            } else if (screen ==
                 SCREEN_HOME) {
 
                 draw_home(
@@ -6912,6 +11176,22 @@ int main(void)
                     &drm,
                     game_system,
                     recent_selected,
+                    0.0);
+
+            } else if (
+                screen ==
+                    SCREEN_STATS) {
+
+                draw_stats(
+                    &drm,
+                    0.0);
+
+            } else if (
+                screen ==
+                    SCREEN_GAME_DETAILS) {
+
+                draw_game_details(
+                    &drm,
                     0.0);
 
             } else if (

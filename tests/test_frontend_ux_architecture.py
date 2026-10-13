@@ -13,7 +13,18 @@ assert '"VOLUME %d%%   BRIGHTNESS %d%%"' in SOURCE
 assert '? "PAUSED"' in SOURCE
 assert 'centred_text_x("LAUNCHING", 3)' in SOURCE
 
-assert '"HOLD MENU + SELECT TO POWER OFF"' in SOURCE
+assert '"HOLD MENU + SELECT TO POWER OFF"' not in SOURCE
+assert "POWEROFF_HOLD_SECONDS" not in SOURCE
+assert '"YOUR GAMES. YOUR TIME."' in SOURCE
+assert '"LAST PLAYED"' in SOURCE
+assert '"PLAY STATS"' in SOURCE
+assert '"PLAY TIME"' in SOURCE
+assert '"LAUNCHES"' in SOURCE
+assert 'SCREEN_STATS' in SOURCE
+assert 'draw_stats(' in SOURCE
+assert 'SCREEN_GAME_DETAILS' in SOURCE
+assert 'draw_game_details(' in SOURCE
+assert '"A LAUNCH   Y DETAILS   B BACK"' in SOURCE
 assert '"END PAUSED GAME?"' in SOURCE
 assert '"REMOVE FROM LIST?"' in SOURCE
 assert '"RUN STABILITY TEST"' in SOURCE
@@ -47,10 +58,11 @@ assert 'clear_wifi_password()' in SOURCE
 
 assert 'Y %s   X %s PASSWORD' in SOURCE
 
-assert 'int x = 66 + col * 52' in SOURCE
 assert 'FLIP_KEYBOARD_COLUMNS' in SOURCE
 assert 'flip_keyboard_key_count()' in SOURCE
-assert 'int y = 132 + row * 39' in SOURCE
+assert 'WIFI_KEYBOARD_Y' in SOURCE
+assert 'WIFI_KEYBOARD_ROW_GAP' in SOURCE
+assert 'col * 52' in SOURCE
 
 assert 'CONNECTED - NO NETWORK ADDRESS' in SOURCE
 
@@ -80,7 +92,7 @@ assert 'SCREEN_UPDATE' in SOURCE
 assert 'run_update_installer()' in SOURCE
 assert 'UPDATE FAILED - CURRENT VERSION KEPT' in SOURCE
 assert 'UPDATE VERIFIED AND INSTALLED' in SOURCE
-assert 'DOWNLOAD FROM THE FLIPOS GITHUB RELEASE' in SOURCE
+assert 'CHECK GITHUB FOR THE LATEST FLIPOS RELEASE' in SOURCE
 
 assert 'wifi_signal_level(' in SOURCE
 assert 'draw_wifi_signal_icon(' not in SOURCE
@@ -150,6 +162,6 @@ assert 'X CHECK GITHUB' in SOURCE
 assert 'UPDATE DOWNLOADED - READY TO INSTALL' in SOURCE
 assert "YOU'RE ON THE LATEST RELEASE" in SOURCE
 assert 'access(FLIP_UPDATE_AVAILABLE, F_OK) != 0' in SOURCE
-assert 'DOWNLOAD FROM THE FLIPOS GITHUB RELEASE' in SOURCE
+assert 'CHECK GITHUB FOR THE LATEST FLIPOS RELEASE' in SOURCE
 
 print("frontend UX architecture tests passed")

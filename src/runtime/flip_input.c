@@ -60,6 +60,13 @@ static int code_to_button(unsigned code)
         case 97:  return FLIP_BTN_SELECT;
         case 1:   return FLIP_BTN_MENU;
 
+        /*
+         * Linux KEY_POWER on the digital keypad device. The hall sensor also
+         * reports code 116, but it is read from HALL_DEVICE separately and
+         * never passes through this digital mapping.
+         */
+        case 116: return FLIP_BTN_POWER;
+
         case 100: return FLIP_BTN_L3;
         case 54:  return FLIP_BTN_R3;
 
@@ -81,6 +88,7 @@ static int dev_button_name_to_button(const char *name)
         {"A", FLIP_BTN_A}, {"B", FLIP_BTN_B}, {"X", FLIP_BTN_X}, {"Y", FLIP_BTN_Y},
         {"L1", FLIP_BTN_L1}, {"R1", FLIP_BTN_R1}, {"L2", FLIP_BTN_L2}, {"R2", FLIP_BTN_R2},
         {"START", FLIP_BTN_START}, {"SELECT", FLIP_BTN_SELECT}, {"MENU", FLIP_BTN_MENU},
+        {"POWER", FLIP_BTN_POWER},
         {"L3", FLIP_BTN_L3}, {"R3", FLIP_BTN_R3},
         {"VOL+", FLIP_BTN_VOL_UP}, {"VOL-", FLIP_BTN_VOL_DOWN},
     };
@@ -158,6 +166,7 @@ const char *flip_button_name(flip_button_t button)
         "START",
         "SELECT",
         "MENU",
+        "POWER",
 
         "L3",
         "R3",
