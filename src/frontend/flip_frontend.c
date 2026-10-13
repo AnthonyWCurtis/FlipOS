@@ -2916,8 +2916,7 @@ static void draw_wifi_password(
             key >= 'a' &&
             key <= 'z') {
 
-            label[0] =
-                (char)(key - 'a' + 'A');
+            label[0] = (char)(key - 'a' + 'A');
 
         } else {
             label[0] = key;
