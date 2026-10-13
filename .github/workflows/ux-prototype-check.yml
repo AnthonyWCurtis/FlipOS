@@ -24,28 +24,8 @@ jobs:
       - name: Focused unit tests
         run: make test-game-stats test-controls test-power test-cpu-dynamic
 
-      - name: UX architecture checks
-        run: |
-          python3 tests/test_play_stats_architecture.py
-          python3 tests/test_frontend_ux_architecture.py
-          python3 tests/test_home_layout_architecture.py
-          python3 tests/test_gameswitcher_layout_architecture.py
-          python3 tests/test_library_layout_architecture.py
-          python3 tests/test_stats_details_layout_architecture.py
-          python3 tests/test_settings_layout_architecture.py
-          python3 tests/test_wifi_layout_architecture.py
-          python3 tests/test_utility_layout_architecture.py
-          python3 tests/test_time_layout_architecture.py
-          python3 tests/test_first_boot_layout_architecture.py
-          python3 tests/test_optimizer_layout_architecture.py
-          python3 tests/test_quick_menu_layout_architecture.py
-          python3 tests/test_play_options_layout_architecture.py
-          python3 tests/test_power_menu_architecture.py
-          python3 tests/test_power_architecture.py
-          python3 tests/test_ui_scale_architecture.py
-          python3 tests/test_settings_navigation_architecture.py
-          python3 tests/test_session_adapter_architecture.py
-          python3 tests/test_session_persistence_architecture.py
+      - name: Full architecture checks
+        run: make test-architecture
 
       - name: Build frontend and game hosts
         run: make frontend gb gba
