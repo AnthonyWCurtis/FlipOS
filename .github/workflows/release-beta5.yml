@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - release/BETA5_VERSION
+      - release/BETA5_NOTES.md
+      - .github/workflows/release-beta5.yml
 
 permissions:
   contents: write
@@ -45,7 +47,7 @@ jobs:
       - name: Run release gates
         run: |
           set -euo pipefail
-          make test-game-stats test-controls test-power
+          make test-game-stats test-controls test-power test-cpu-dynamic
           make test-architecture
           git diff --check
 
