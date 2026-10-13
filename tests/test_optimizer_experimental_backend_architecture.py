@@ -8,6 +8,7 @@ cand = (root / "src/hwtest/flip_optimizer_candidate_tool.c").read_text()
 front = (root / "src/frontend/flip_frontend.c").read_text()
 mk = (root / "Makefile").read_text()
 updater = (root / "tools/device/updater-playtest").read_text()
+opp_module = (root / "tools/kernel/flip_opp_voltage/flip_opp_voltage.c").read_text()
 
 assert "FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV 812500U" in hdr
 assert "FLIP_OPTIMIZER_CALIBRATION_RK3566_FLOOR_UV" in hdr
@@ -19,6 +20,10 @@ assert "first_frequency_khz=408000" in cal
 assert "first_candidate_uv=800000" in cal
 assert "FLIP_OPTIMIZER_CALIBRATION_RK3566_SAFE_MIN_UV" in cal
 
+assert "#ifndef FLIP_OPP_SAFE_MIN_UV" in opp_module
+assert "#define FLIP_OPP_SAFE_MIN_UV 812500UL" in opp_module
+assert "safe_min_uv=%lu" in opp_module
+
 for token in [
     "cpu-calibration-experimental",
     "cpu-result-experimental",
@@ -26,6 +31,9 @@ for token in [
     "FLIP_OPTIMIZER_CALIBRATION_RK3566_FLOOR_UV=750000U",
     "flip-optimizer-calibration-experimental",
     "flip-optimizer-candidate-experimental",
+    "flip_opp_voltage_experimental.ko",
+    "EXTRA_CFLAGS=\"-DFLIP_OPP_SAFE_MIN_UV=750000UL\"",
+    "FLIP_OPTIMIZER_MODULE_PATH",
 ]:
     assert token in mk, token
 
