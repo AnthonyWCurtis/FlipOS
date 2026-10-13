@@ -75,6 +75,35 @@ static void test_scan_parser(void)
     assert(strcmp(networks[3].ssid, "Other") == 0);
 }
 
+static void test_ssid_display_formatting(void)
+{
+    char out[128];
+
+    flip_wifi_format_ssid_for_display(
+        "Anthony" "\xE2\x80\x99" "s iPhone",
+        out,
+        sizeof(out));
+    assert(strcmp(out, "Anthony's iPhone") == 0);
+
+    flip_wifi_format_ssid_for_display(
+        "Anthony\\xe2\\x80\\x99s iPhone",
+        out,
+        sizeof(out));
+    assert(strcmp(out, "Anthony's iPhone") == 0);
+
+    flip_wifi_format_ssid_for_display(
+        "Cafe" "\xE2\x80\x94" "Guest",
+        out,
+        sizeof(out));
+    assert(strcmp(out, "Cafe-Guest") == 0);
+
+    flip_wifi_format_ssid_for_display(
+        "Home " "\xF0\x9F\x93\xA1",
+        out,
+        sizeof(out));
+    assert(strcmp(out, "Home ?") == 0);
+}
+
 static void test_multiple_saved_networks(void)
 {
     reset_store();
@@ -204,6 +233,7 @@ int main(void)
 {
     assert(forget_api != NULL);
     test_scan_parser();
+    test_ssid_display_formatting();
     test_multiple_saved_networks();
     test_legacy_migration_and_validation();
     test_storage_limit();

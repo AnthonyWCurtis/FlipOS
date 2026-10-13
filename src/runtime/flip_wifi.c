@@ -385,6 +385,111 @@ static int decode_scan_ssid(
     return 0;
 }
 
+void flip_wifi_format_ssid_for_display(
+    const char *ssid,
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return;
+
+    out[0] = '\0';
+    if (!ssid)
+        return;
+
+    size_t in = 0;
+    size_t used = 0;
+
+    while (ssid[in] != '\0' && used + 1 < out_size) {
+        const unsigned char *p =
+            (const unsigned char *)ssid + in;
+        size_t remaining = strlen(ssid + in);
+        char replacement = '\0';
+        size_t consumed = 1;
+
+        /*
+         * wpa_cli normally gives runtime code real UTF-8 bytes after
+         * decode_scan_ssid(). Keep a display-only fallback for its printable
+         * \\xNN representation too, since some control-interface paths expose
+         * that form directly.
+         */
+        if (strncmp(ssid + in, "\\xe2\\x80\\x98", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x98", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x99", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x99", 12) == 0) {
+            replacement = '\'';
+            consumed = 12;
+        } else if (
+            strncmp(ssid + in, "\\xe2\\x80\\x9c", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x9C", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x9d", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x9D", 12) == 0) {
+            replacement = '"';
+            consumed = 12;
+        } else if (
+            strncmp(ssid + in, "\\xe2\\x80\\x90", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x90", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x91", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x91", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x92", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x92", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x93", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x93", 12) == 0 ||
+            strncmp(ssid + in, "\\xe2\\x80\\x94", 12) == 0 ||
+            strncmp(ssid + in, "\\xE2\\x80\\x94", 12) == 0) {
+            replacement = '-';
+            consumed = 12;
+        } else if (
+            remaining >= 3 &&
+            p[0] == 0xe2 && p[1] == 0x80 &&
+            (p[2] == 0x98 || p[2] == 0x99)) {
+            replacement = '\'';
+            consumed = 3;
+        } else if (
+            remaining >= 3 &&
+            p[0] == 0xe2 && p[1] == 0x80 &&
+            (p[2] == 0x9c || p[2] == 0x9d)) {
+            replacement = '"';
+            consumed = 3;
+        } else if (
+            remaining >= 3 &&
+            p[0] == 0xe2 && p[1] == 0x80 &&
+            p[2] >= 0x90 && p[2] <= 0x94) {
+            replacement = '-';
+            consumed = 3;
+        } else if (
+            remaining >= 2 &&
+            p[0] == 0xc2 && p[1] == 0xa0) {
+            replacement = ' ';
+            consumed = 2;
+        } else if (p[0] < 0x80) {
+            replacement =
+                (p[0] >= 0x20 && p[0] != 0x7f)
+                    ? (char)p[0]
+                    : '?';
+        } else {
+            /*
+             * Unsupported Unicode remains one visible placeholder per code
+             * point rather than one placeholder per UTF-8 byte.
+             */
+            replacement = '?';
+            if ((p[0] & 0xe0) == 0xc0 && remaining >= 2)
+                consumed = 2;
+            else if ((p[0] & 0xf0) == 0xe0 &&
+                     remaining >= 3)
+                consumed = 3;
+            else if ((p[0] & 0xf8) == 0xf0 &&
+                     remaining >= 4)
+                consumed = 4;
+        }
+
+        out[used++] = replacement;
+        in += consumed;
+    }
+
+    out[used] = '\0';
+}
+
 static int parse_tab_line(
     char *line,
     flip_wifi_network_t *network)

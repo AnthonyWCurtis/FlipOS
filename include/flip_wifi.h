@@ -100,4 +100,14 @@ int flip_wifi_forget_network(const char *ssid);
 int flip_wifi_get_status(
     flip_wifi_status_t *status);
 
+/*
+ * Convert an SSID to the ASCII-only text that FlipOS's built-in UI font can
+ * render. This is display-only: callers must keep using the original SSID for
+ * WPA selection, PSK derivation and saved-profile matching.
+ */
+void flip_wifi_format_ssid_for_display(
+    const char *ssid,
+    char *out,
+    size_t out_size);
+
 #endif

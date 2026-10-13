@@ -2268,13 +2268,19 @@ static void draw_first_boot(
         if (wifi_status.connected) {
 
             char wifi_line[160];
+            char wifi_ssid_display[FLIP_WIFI_SSID_MAX];
+
+            flip_wifi_format_ssid_for_display(
+                wifi_status.ssid,
+                wifi_ssid_display,
+                sizeof(wifi_ssid_display));
 
             snprintf(
                 wifi_line,
                 sizeof(wifi_line),
                 "%s%s%s",
-                wifi_status.ssid[0]
-                    ? wifi_status.ssid
+                wifi_ssid_display[0]
+                    ? wifi_ssid_display
                     : "NETWORK",
                 wifi_status.usable_ip
                     ? "   IP "
@@ -2733,12 +2739,18 @@ static void draw_wifi(
         wifi_status.connected &&
         wifi_status.usable_ip) {
 
+        char wifi_ssid_display[FLIP_WIFI_SSID_MAX];
+        flip_wifi_format_ssid_for_display(
+            wifi_status.ssid,
+            wifi_ssid_display,
+            sizeof(wifi_ssid_display));
+
         snprintf(
             status_text,
             sizeof(status_text),
             "CONNECTED: %s",
-            wifi_status.ssid[0]
-                ? wifi_status.ssid
+            wifi_ssid_display[0]
+                ? wifi_ssid_display
                 : "NETWORK");
 
     } else if (
@@ -2877,10 +2889,16 @@ static void draw_wifi(
                 ? FG
                 : DIM;
 
+        char ssid_display[FLIP_WIFI_SSID_MAX];
         char ssid_visible[64];
 
-        fit_text_to_width(
+        flip_wifi_format_ssid_for_display(
             network->ssid,
+            ssid_display,
+            sizeof(ssid_display));
+
+        fit_text_to_width(
+            ssid_display,
             ssid_visible,
             sizeof(ssid_visible),
             WIFI_CONTENT_W - 142,
