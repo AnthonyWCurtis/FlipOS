@@ -73,6 +73,7 @@ int main(void)
         &input,
         &out);
 
+    assert(out.system.quick_menu_requested == 0);
     assert(out.system.gameswitcher_requested == 0);
 
     clear_input(
@@ -83,7 +84,52 @@ int main(void)
         &input,
         &out);
 
+    assert(out.system.quick_menu_requested == 1);
+    assert(out.system.gameswitcher_requested == 0);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.quick_menu_requested == 0);
+    assert(out.system.gameswitcher_requested == 0);
+
+    /*
+     * Holding MENU is a separate deliberate GameSwitcher gesture.
+     */
+    flip_controls_init(
+        &controls);
+
+    clear_input(
+        &input);
+
+    input.down[FLIP_BTN_MENU] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    struct timespec menu_hold = {
+        .tv_sec = 0,
+        .tv_nsec = 750000000L
+    };
+
+    nanosleep(
+        &menu_hold,
+        NULL);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
     assert(out.system.gameswitcher_requested == 1);
+    assert(out.system.quick_menu_requested == 0);
+
+    clear_input(
+        &input);
 
     update(
         &controls,
@@ -91,6 +137,7 @@ int main(void)
         &out);
 
     assert(out.system.gameswitcher_requested == 0);
+    assert(out.system.quick_menu_requested == 0);
 
     clear_input(
         &input);
@@ -122,6 +169,34 @@ int main(void)
         &input,
         &out);
 
+    assert(out.system.gameswitcher_requested == 0);
+
+    /*
+     * MENU+SELECT is intentionally not a FlipOS chord.
+     */
+    clear_input(
+        &input);
+
+    flip_controls_init(
+        &controls);
+
+    input.down[FLIP_BTN_MENU] = 1;
+    input.down[FLIP_BTN_SELECT] = 1;
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    clear_input(
+        &input);
+
+    update(
+        &controls,
+        &input,
+        &out);
+
+    assert(out.system.quick_menu_requested == 0);
     assert(out.system.gameswitcher_requested == 0);
 
     /*
