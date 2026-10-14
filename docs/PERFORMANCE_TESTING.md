@@ -76,6 +76,29 @@ Capture these workloads:
 Emulator FPS/audio/GPU-host diagnostics remain available in
 `flipos-dev/logs/frontend.log` and should be checked alongside the CSV.
 
+### GPU presentation timing diagnostic (source-instrumented; requires device acceptance)
+
+The shared GPU service emits `FLIP_GPU_SERVICE_PERF` about once a second after
+receiving game frames. `render_avg_us` and `render_max_us` retain their original
+meaning: total wall-clock time of `flip_gpu_context_render`, **including**
+swap, page-flip and DRM event wait, not raw GPU computation time.
+
+Additional fields split the successful rendering call into two wall-clock
+phases without changing submission or page-flip ordering:
+
+- `draw_cpu_avg_us`: user-space time to prepare, upload and submit GL drawing
+  commands before swap. This **does not** measure how long the GPU was busy.
+- `swap_present_avg_us` and `swap_present_max_us`: time spent in
+  `eglSwapBuffers` and KMS/DRM scanout presentation (or `glFinish` in offscreen
+  mode), including waiting for the display's page-flip event. Initial CRTC
+  setup and intermittent driver waits can affect the maximum.
+
+Compare these with emulator FPS, audio underruns and `flip-perf-capture` power
+and temperature captures. A slow swap wait alone does **not** prove a rendering
+bottleneck or tearing; no new frame-pacing policy should be deployed until
+real-Miyoo captures establish the cause. The new counters have CI/source
+coverage but have **not yet been measured on physical hardware**.
+
 ## Standard unplugged power baseline
 
 True battery tests must run with USB power disconnected.
