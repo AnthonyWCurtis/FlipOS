@@ -67,3 +67,11 @@ assert 'WNOHANG' in frontend
 assert '"FLIPOS UPDATE AVAILABLE"' in frontend
 assert '"UPDATE ONLINE: %.80s"' in frontend
 assert '"A DOWNLOAD   X REFRESH"' in frontend
+
+
+# The top-left download arrow must appear as soon as the lightweight
+# background check finds a newer online release, not only after download.
+assert 'access(FLIP_UPDATE_ONLINE_AVAILABLE, F_OK) == 0 ||' in frontend
+assert 'access(FLIP_UPDATE_AVAILABLE, F_OK) == 0' in frontend
+assert 'ONLINE_AVAILABLE="$STATE/online-available"' in installer
+assert 'rm -f "$AVAILABLE" "$ONLINE_AVAILABLE"' in installer
