@@ -181,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
                         item.size = 0
                     tf.addfile(item)
             write_sidecar()
-            expect_rejected(label, "UNSAFE UPDATE ARCHIVE")
+            expect_rejected(label, "DUPLICATE UPDATE ARCHIVE ENTRY" if label == "duplicate-entry" else "UNSAFE UPDATE ARCHIVE")
 
         for label, entries in (
             ("parent-traversal", [
