@@ -133,7 +133,7 @@ UMTP_SOURCES := \
 HOST_TEST_TARGETS := \
 	test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths \
 	test-log test-battery test-power-policy test-charger test-wifi test-keyboard \
-	test-setup test-update-installer test-update-fetch test-performance test-cpu-policy test-cpu-profile \
+	test-setup test-update-installer test-update-fetch test-release-module-inputs test-performance test-cpu-policy test-cpu-profile \
 	test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard \
 	test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd \
 	test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host \
@@ -143,7 +143,7 @@ HOST_TEST_TARGETS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: test-host verify-package all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: test-host verify-package all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-module-inputs test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba mtp-responder
 
@@ -279,6 +279,9 @@ test-update-installer:
 
 test-update-fetch:
 	python3 tests/test_update_fetch.py
+
+test-release-module-inputs:
+	python3 tests/test_release_module_inputs.py
 
 test-release-package:
 	python3 tests/test_release_package.py
