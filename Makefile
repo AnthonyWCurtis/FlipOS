@@ -128,9 +128,22 @@ UMTP_SOURCES := \
 	$(wildcard external/uMTP-Responder/src/*.c) \
 	$(wildcard external/uMTP-Responder/src/mtp_operations/*.c)
 
+# Host-only regression targets. Keep this list as the source of truth for
+# local and pull-request host tests; none of these requires device access.
+HOST_TEST_TARGETS := \
+	test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths \
+	test-log test-battery test-power-policy test-charger test-wifi test-keyboard \
+	test-setup test-update-installer test-update-fetch test-performance test-cpu-policy test-cpu-profile \
+	test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard \
+	test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd \
+	test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host \
+	test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health \
+	test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter \
+	test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools
+
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: test-host verify-package all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba mtp-responder
 
@@ -180,80 +193,47 @@ tsadc-recovery-module: $(BUILD)/flip_tsadc_recovery.ko
 
 rk817-charger-module: $(BUILD)/flip_rk817_charger.ko
 
+# Host-only verification and cross-compile. No release .ko files are needed.
+test-host:
+	$(MAKE) $(HOST_TEST_TARGETS)
+
 verify:
 	@log=/tmp/flipos-verify.log; \
 	if ( \
-		$(MAKE) test-controls && \
-		$(MAKE) test-timing && \
-		$(MAKE) test-audio && \
-		$(MAKE) test-audio-queue && \
-		$(MAKE) test-audio-resampler && \
-		$(MAKE) test-paths && \
-		$(MAKE) test-log && \
-		$(MAKE) test-battery && \
-		$(MAKE) test-power-policy && \
-		$(MAKE) test-charger && \
-		$(MAKE) test-wifi && \
-		$(MAKE) test-keyboard && \
-		$(MAKE) test-setup && \
-		$(MAKE) test-update-installer && \
-		$(MAKE) test-update-fetch && \
-		$(MAKE) test-release-package && \
-		$(MAKE) test-performance && \
-		$(MAKE) test-cpu-policy && \
-		$(MAKE) test-cpu-profile && \
-		$(MAKE) test-cpu-dynamic && \
-		$(MAKE) test-optimizer && \
-		$(MAKE) test-optimizer-pmu-token && \
-		$(MAKE) test-optimizer-quiesce && \
-		$(MAKE) test-optimizer-panic-policy && \
+		$(MAKE) test-host && \
 		$(MAKE) test-playtest-deploy && \
-		$(MAKE) test-optimizer-guard && \
-		$(MAKE) test-optimizer-supervisor && \
-		$(MAKE) test-optimizer-calibration && \
-		$(MAKE) test-optimizer-calibration-session && \
-		$(MAKE) optimizer-candidate-tool && \
-		$(MAKE) optimizer-session-tool && \
-		$(MAKE) optimizer-validation-progress-tool && \
-		$(MAKE) optimizer-deadman-tool && \
-		$(MAKE) test-bios && \
-		$(MAKE) test-settings && \
-		$(MAKE) test-osd && \
-		$(MAKE) test-power && \
-		$(MAKE) test-library-cache && \
-		$(MAKE) test-exit-protocol && \
-		$(MAKE) test-lifecycle && \
-		$(MAKE) test-core && \
-		$(MAKE) test-core-host && \
-		$(MAKE) test-video-layout && \
-		$(MAKE) test-gpu-protocol && \
-		$(MAKE) test-gpu-client && \
-		$(MAKE) test-state && \
-		$(MAKE) test-state-manager && \
-		$(MAKE) test-state-recovery-health && \
-		$(MAKE) test-save && \
-		$(MAKE) test-save-manager && \
-		$(MAKE) test-recovery && \
-		$(MAKE) test-session-persistence && \
-		$(MAKE) test-session-registry && \
-		$(MAKE) test-session-adapter && \
-		$(MAKE) test-game-stats && \
-		$(MAKE) test-system-registry && \
-		$(MAKE) test-session-save-safety && \
-		$(MAKE) test-perf-diag && \
-		$(MAKE) test-telemetry && \
-		$(MAKE) test-perf-capture-tools && \
 		$(MAKE) test-architecture && \
+		$(MAKE) optimizer-candidate-tool optimizer-session-tool \
+			optimizer-validation-progress-tool optimizer-deadman-tool && \
 		$(MAKE) gpu-service && \
 		$(MAKE) all && \
 		git diff --check \
-	) >$$log 2>&1; then \
+	) >$log 2>&1; then \
 		echo "VERIFY: PASS"; \
 	else \
 		echo "VERIFY: FAIL"; \
-		tail -40 $$log; \
+		tail -40 $log; \
 		exit 1; \
 	fi
+
+# Separate release-package check: the four kernel modules must come from
+# a trusted, kernel-ABI-matched build or explicitly verified release artifact.
+# Never use dummy .ko files merely to make package tests pass.
+verify-package:
+	@for module in flip_opp_voltage.ko flip_opp_runtime_profile.ko \
+		flip_tsadc_recovery.ko flip_rk817_charger.ko; do \
+		if [ ! -s "$(BUILD)/$module" ]; then \
+			echo "VERIFY-PACKAGE: missing trusted $(BUILD)/$module" >&2; \
+			echo "Provide verified kernel-ABI-matched modules before packaging." >&2; \
+			exit 1; \
+		fi; \
+	done
+	$(MAKE) frontend gb gba gpu-service charge-service mtp-responder \
+		optimizer-supervisor-tool optimizer-deadman-tool optimizer-guard-tool \
+		optimizer-calibration-tool optimizer-candidate-tool \
+		optimizer-session-tool optimizer-progress-tool \
+		optimizer-validation-progress-tool optimizer-runtime-tool
+	$(MAKE) test-release-package
 
 test-controls: $(BUILD)/test-flip-controls
 	$(BUILD)/test-flip-controls
