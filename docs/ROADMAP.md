@@ -2,6 +2,33 @@
 
 This file is the canonical implementation checklist for FlipOS. Milestones are checked off only after the required build and real-Miyoo-Flip hardware validation pass.
 
+
+## Current release and execution priorities — 14 October 2026
+
+**Published prerelease:** [v0.1.0-beta.6.1](https://github.com/AnthonyWCurtis/FlipOS/releases/tag/v0.1.0-beta.6.1). Native GB/GBC/GBA is implemented, but FlipOS remains **beta**. Keep earlier milestone evidence below rather than silently discarding or re-checking it. Host CI passing is not real-device acceptance.
+
+**Statuses:** *implemented* = in committed code/release; *hardware-verified* = specifically tested device/scenario; *needs acceptance* = scenario or wider soak remains open; *deferred* = not authorised during current stabilisation.
+
+| Priority | Deliverable | Acceptance |
+| --- | --- | --- |
+| **P0 — CI and release integrity** | Full host tests, clean-checkout verification, modern package smoke tests, module SHA/ABI pinning, branch protection | Trusted reproducible inputs, green checks, no unchecked firmware downloads |
+| **P1 — Device stability/data safety** | GB/GBC/GBA and shared GPU cold starts; saves/states, lid/Power Menu, Wi-Fi, RTC, charger/battery, update rollback | Exact package hashes plus physical hardware evidence; interruption and long-soak gaps stay open |
+| **P2 — Native OS polish** | BIOS/Save Safety interface, diagnostics export, setup/installer clarity, library/GameSwitcher/battery polish | Controller-first 640×480 usability without save regression |
+| **P3 — Artwork and optional services** | Automatic illustrated artwork/metadata lookup with bounded SD cache; offline fallback; opt-in sync/log-sharing research | Legal sourcing, privacy, optional services, no huge bundled image database |
+| **P4 — Additional native systems (deferred)** | Assess NES then other systems, eventually PS1, one adapter at a time | Do not start until GB/GBC/GBA stability and explicit go-ahead |
+| **P5 — Future editions/research (deferred)** | Optional separate RetroArch edition, themes, mainline kernel/device-tree investigation | Preserve SD-card boot and stock recovery; no NAND/MTD changes absent separate approval |
+
+The [Linear Master Engineering Roadmap](https://linear.app/flipos/project/flipos-master-engineering-roadmap-cdbc51e071d8) is the execution tracker; this document remains the canonical engineering plan. Earlier `docs/superpowers/` plans and `docs/BETA_READINESS.md` are historical implementation/acceptance and Beta 1 release-decision evidence.
+
+### Current-versus-historical reconciliation
+
+- **Controller contract:** current `src/runtime/flip_controls.c` and tests pass **START+SELECT** to the game, use **MENU tap** for Quick Menu and **MENU hold (~700 ms)** for GameSwitcher. The historical Phase 4 global START+SELECT exit was superseded. The Beta 6.1 release note still describes an earlier START+SELECT GameSwitcher action; verify the deployed build before changing either source or documentation further.
+- **CPU optimisation:** Beta 6 documents guarded **8-OPP Standard** calibration with a **25 mV guardband** and **812.5 mV** floor. The separate, deeper Phase 10C1/C2 experimental voltage research below retains unfinished hard-hang/soak gates. Do not conflate production policy with below-spec silicon-boundary experiments.
+- **GPU/UX:** Beta 5 delivered console-style UI, Quick Menu and Power Menu; Beta 6 added shared GPU hosting; Beta 6.1 added guarded cold GPU warm-up and update discovery. Wider device coverage and error/crash handling remain acceptance work.
+- **Updater, Wi-Fi and charging:** installation archives, rollback staging, remembered networks and charging policy exist. Deliberate interruption/rollback, extended standby/thermal and multi-network/RTC matrices are not automatically closed by these implementations.
+- **Release inputs:** publishing still reuses four legacy kernel modules. Verify expected SHA-256, provenance and matching kernel ABI/vermagic before calling builds reproducible.
+
+
 ## Core project rules
 
 - SD-card-first development.
@@ -79,7 +106,7 @@ Known-good baseline after 4A2A: `04653d7`.
 - [x] Pure logical-controls transformation layer
 - [x] Normalized game-control state
 - [x] Shared logical system actions
-- [x] START+SELECT global exit action
+- [x] Historical START+SELECT global exit action (superseded by MENU-driven UX)
 - [x] Flip_GB no longer interprets Miyoo-specific system buttons directly
 - [x] Host unit tests pass
 - [x] Full WSL build passes
@@ -273,6 +300,9 @@ Architecture rule: if adding GBA requires copying Miyoo-specific video/audio/inp
 
 ## Phase 9 — Emulator Ecosystem
 
+**Deferred.** No additional emulator cores or RetroArch are included in the current native-only stabilisation cycle.
+
+
 - [ ] NES
 - [ ] SNES
 - [ ] Mega Drive / Genesis
@@ -372,6 +402,9 @@ GBC now use the same upward-rescue controller so a future heavier Gambatte
 workload can automatically request more CPU headroom.
 
 ### Phase 10C — CPU Optimizer / Voltage Calibration
+
+**Release-versus-research distinction:** the guarded Beta 6 production optimizer is shipped; unchecked, deeper voltage-boundary and hard-hang recovery work below is not proof of general unattended undervolt safety.
+
 
 - [x] Native optimizer result/state foundation
 - [x] RK3566 voltage/OPP reconnaissance
@@ -499,6 +532,9 @@ manual power-cycle.
 
 ### Phase 10D — Thermal / Charging / Runtime Efficiency
 
+Charging helper/low-battery protections already exist. Items left unchecked here reflect whole-device efficiency and longer real-hardware acceptance, not necessarily missing source code.
+
+
 - [ ] Smart charge-while-playing policy
 - [ ] Suspend optimization
 - [ ] Battery drain investigation
@@ -508,6 +544,9 @@ manual power-cycle.
 - [ ] Idle behavior
 
 ## Phase 11 — UX Refinement
+
+The Beta 5 console UX and later hotfixes implemented substantial UI functionality. Unchecked boxes now indicate remaining polish or acceptance, not absence of every screen.
+
 
 - [ ] Fast boot-to-library
 - [ ] Instant-feeling resume
@@ -526,6 +565,9 @@ manual power-cycle.
 - [ ] Library validation/rebuild tools
 
 ## Phase 12 — Distribution / Update / Recovery
+
+Versioned SD installs, GitHub updates and rollback staging have shipped in beta. Unchecked boxes indicate stable-grade release/recovery acceptance and diagnostic work still outstanding.
+
 
 - [ ] Clean runtime-only SD installation
 - [ ] Versioning
