@@ -29,8 +29,8 @@ if not host_targets:
     errors.append("missing shared HOST_TEST_TARGETS list")
 else:
     listed = re.findall(r"\btest-[a-z][a-z0-9-]*\b", host_targets.group(1))
-    if len(listed) != 54 or len(listed) != len(set(listed)):
-        errors.append("HOST_TEST_TARGETS must list all 54 unique host checks")
+    if len(listed) != 55 or len(listed) != len(set(listed)):
+        errors.append("HOST_TEST_TARGETS must list all 55 unique host checks")
     for required in (
         "test-controls",
         "test-save",
@@ -41,6 +41,7 @@ else:
         "test-gpu-client",
         "test-update-installer",
         "test-update-fetch",
+        "test-release-module-inputs",
     ):
         if required not in listed:
             errors.append(f"HOST_TEST_TARGETS missing {required}")

@@ -37,7 +37,7 @@ jobs:
 
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
-      - name: Verify clean checkout (54 host checks and ARM64 builds)
+      - name: Verify clean checkout (55 host checks and ARM64 builds)
         run: |
           set -euo pipefail
           test ! -e build/flip_opp_voltage.ko
@@ -67,20 +67,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/flipos-beta4 build
+          ARCHIVE=/tmp/flipos-beta4/update.tar.gz
+          LOCK=tools/kernel/legacy-module-lock.json
           curl -fL --retry 3 \
             "https://github.com/AnthonyWCurtis/FlipOS/releases/download/v0.1.0-beta.4/FlipOS-Update.tar.gz" \
-            -o /tmp/flipos-beta4/update.tar.gz
-          tar -xzf /tmp/flipos-beta4/update.tar.gz -C /tmp/flipos-beta4
-          cd /tmp/flipos-beta4/FlipOSUpdate/payload/lib
-          # Exact module bytes observed in the successful Beta 6.1 publish job.
-          printf '%s\n' \
-            'bceb39b3ece552a2fc81170a9f15bc5e1e181044e8b1a517318c61a5e2f2cf0a  flip_opp_voltage.ko' \
-            'da6b696925b5f1eb7eef6335d7459ecde1286568b921ca1672e2e71ab438e79b  flip_opp_runtime_profile.ko' \
-            '9dc4bb1965cd8eee8aeee0bceedb5d824a6e42d371c63e51131bb14e0f3a2d90  flip_tsadc_recovery.ko' \
-            'ee2b58290d49a62602435086c39d28bbd9c4fb0145fa81034dab413780050bb4  flip_rk817_charger.ko' \
-            | sha256sum --check --strict
-          cp flip_opp_voltage.ko flip_opp_runtime_profile.ko \
-            flip_tsadc_recovery.ko flip_rk817_charger.ko "$GITHUB_WORKSPACE/build/"
+            -o "$ARCHIVE"
+          # Pin the *complete* old release archive before giving it to tar.
+          python3 tools/kernel/verify_release_module_inputs.py --lock "$LOCK" --archive "$ARCHIVE"
+          # Extract only four known paths (never a whole untrusted release tree).
+          for module in \
+            flip_opp_voltage.ko \
+            flip_opp_runtime_profile.ko \
+            flip_tsadc_recovery.ko \
+            flip_rk817_charger.ko; do
+            tar -xOzf "$ARCHIVE" "FlipOSUpdate/payload/lib/$module" > "build/$module"
+          done
+          python3 tools/kernel/verify_release_module_inputs.py --lock "$LOCK" --modules build
 
       - name: Dry-run current version packaging
         run: |

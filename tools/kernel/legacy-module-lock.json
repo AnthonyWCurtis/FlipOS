@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "source_release": "v0.1.0-beta.4",
+  "archive_name": "FlipOS-Update.tar.gz",
+  "archive_sha256": "0a77452b41737c489244a29e4502506908d07497c2c3a0d75c10b681128cd68f",
+  "expected_kernel_base": "5.10.160",
+  "modules": {
+    "flip_opp_voltage.ko": "bceb39b3ece552a2fc81170a9f15bc5e1e181044e8b1a517318c61a5e2f2cf0a",
+    "flip_opp_runtime_profile.ko": "da6b696925b5f1eb7eef6335d7459ecde1286568b921ca1672e2e71ab438e79b",
+    "flip_tsadc_recovery.ko": "9dc4bb1965cd8eee8aeee0bceedb5d824a6e42d371c63e51131bb14e0f3a2d90",
+    "flip_rk817_charger.ko": "ee2b58290d49a62602435086c39d28bbd9c4fb0145fa81034dab413780050bb4"
+  },
+  "expected_vermagic": "5.10.160 SMP mod_unload aarch64"
+}
