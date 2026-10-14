@@ -440,6 +440,7 @@ test-architecture:
 	python3 tests/test_settings_architecture.py
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
+	python3 tests/test_video_present_diagnostics_architecture.py
 	python3 tests/test_frontend_ux_architecture.py
 	python3 tests/test_home_layout_architecture.py
 	python3 tests/test_gameswitcher_layout_architecture.py
@@ -483,6 +484,7 @@ test-architecture:
 	python3 tests/test_optimizer_runtime_architecture.py
 	python3 tests/test_tsadc_recovery_module_architecture.py
 	python3 tests/test_optimizer_hw_watchdog_architecture.py
+	python3 tests/test_optimizer_deadman_architecture.py
 	python3 tests/test_optimizer_session_architecture.py
 	python3 tests/test_optimizer_ui_architecture.py
 	python3 tests/test_play_stats_architecture.py
