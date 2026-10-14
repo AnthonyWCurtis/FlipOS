@@ -498,6 +498,22 @@ if [ -n "$OPTIMIZER_PROGRESS_PID" ]; then
     OPTIMIZER_PROGRESS_PID=""
 fi
 
+# Pre-initialize Mali/GBM/EGL before the interactive frontend starts. The
+# warm-up service uses an off-screen pbuffer only, creates no game socket and
+# exits immediately after the GPU context/shaders are ready. This moves the
+# expensive first-driver initialization into boot instead of showing a long
+# black screen on the first game launch.
+GPU_SERVICE="$ROOT/bin/flip-gpu-service"
+if [ -x "$GPU_SERVICE" ]; then
+    echo "FLIP_GPU_WARMUP: starting before frontend" >> "$LOG_TARGET"
+    if "$GPU_SERVICE" --warmup >> "$LOG_TARGET" 2>&1; then
+        echo "FLIP_GPU_WARMUP: complete" >> "$LOG_TARGET"
+    else
+        WARMUP_RC=$?
+        echo "FLIP_GPU_WARMUP: failed rc=$WARMUP_RC; gameplay will use normal guarded startup" >> "$LOG_TARGET"
+    fi
+fi
+
 if [ "$SD_WRITABLE" -eq 1 ] && \
    [ -x "$ROOT/bin/flip-playtest-logger.sh" ] && \
    [ -x "$ROOT/bin/flip-perf-capture" ]; then

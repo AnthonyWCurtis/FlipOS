@@ -1,0 +1,103 @@
+name: Build Beta 6 GPU Warmup Hotfix RC
+
+on:
+  push:
+    branches:
+      - hotfix/beta6-gpu-warmup
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-hotfix-rc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hotfix
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install AArch64 build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            linux-libc-dev-arm64-cross \
+            cmake curl unzip
+
+      - name: Run hotfix gates
+        run: |
+          set -euo pipefail
+          make \
+            test-game-stats \
+            test-controls \
+            test-power \
+            test-cpu-dynamic \
+            test-wifi \
+            test-update-fetch \
+            test-update-installer \
+            test-optimizer-calibration \
+            test-gpu-client
+          python3 tests/test_video_beta_startup_architecture.py
+          make test-architecture
+          git diff --check
+
+      - name: Build hotfix userspace
+        run: |
+          set -euo pipefail
+          make \
+            frontend gb gba gpu-service \
+            charge-service mtp-responder \
+            optimizer-supervisor-tool \
+            optimizer-deadman-tool \
+            optimizer-guard-tool \
+            optimizer-calibration-tool \
+            optimizer-candidate-tool \
+            optimizer-session-tool \
+            optimizer-progress-tool \
+            optimizer-validation-progress-tool \
+            optimizer-runtime-tool
+
+      - name: Restore unchanged kernel modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/flipos-beta4 build
+          curl -fL --retry 3 \
+            "https://github.com/AnthonyWCurtis/FlipOS/releases/download/v0.1.0-beta.4/FlipOS-Update.tar.gz" \
+            -o /tmp/flipos-beta4/update.tar.gz
+          tar -xzf /tmp/flipos-beta4/update.tar.gz -C /tmp/flipos-beta4
+          for module in \
+            flip_opp_voltage.ko \
+            flip_opp_runtime_profile.ko \
+            flip_tsadc_recovery.ko \
+            flip_rk817_charger.ko; do
+            cp "/tmp/flipos-beta4/FlipOSUpdate/payload/lib/$module" "build/$module"
+          done
+
+      - name: Build test update
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          tools/update/build-release-package "0.1.0-beta.6.1-rc.1" dist
+          test -s dist/FlipOS-Update.tar.gz
+          test -s dist/FlipOS-Update.tar.gz.sha256
+          tar -tzf dist/FlipOS-Update.tar.gz > /tmp/hotfix-archive.list
+          grep -q 'FlipOSUpdate/payload/bin/flip-gpu-service' /tmp/hotfix-archive.list
+          tar -xOf dist/FlipOS-Update.tar.gz FlipOSUpdate/payload/updater-playtest > /tmp/hotfix-updater
+          grep -q 'FLIP_GPU_WARMUP: starting before frontend' /tmp/hotfix-updater
+          sha256sum dist/FlipOS-Update.tar.gz
+
+      - name: Upload hardware-test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlipOS-Beta6.1-GPU-Warmup-RC1
+          path: |
+            dist/FlipOS-Update.tar.gz
+            dist/FlipOS-Update.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7

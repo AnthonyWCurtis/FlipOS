@@ -8,6 +8,7 @@ SUMS="$PACKAGE/SHA256SUMS"
 PAYLOAD="$PACKAGE/payload"
 STATE="$ROOT/state/update"
 AVAILABLE="$STATE/available"
+ONLINE_AVAILABLE="$STATE/online-available"
 LOCK="$STATE/lock"
 STAGE="$ROOT/.update-stage"
 ROLLBACK="$ROOT/.update-rollback/current"
@@ -217,7 +218,7 @@ build_id=$build_id
 EOF
 mv -f "$STATE/last-good.tmp" "$STATE/last-good"
 mv -f "$ROLLBACK/manifest.new" "$ROLLBACK/installed-manifest"
-rm -f "$AVAILABLE"
+rm -f "$AVAILABLE" "$ONLINE_AVAILABLE"
 sync
 
 rm -f "$FILES"

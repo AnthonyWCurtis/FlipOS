@@ -53,6 +53,10 @@ with tempfile.TemporaryDirectory(prefix="flipos-update-") as tmp:
     (install / "bin/flip-frontend").write_bytes(b"old-frontend")
     (install / "state/settings").mkdir(parents=True)
     (install / "state/settings/global").write_text("volume=45\n")
+    update_state = install / "state/update"
+    update_state.mkdir(parents=True)
+    (update_state / "available").write_text("0.1-test\n")
+    (update_state / "online-available").write_text("0.1-test\n")
 
     package = make_package(base, {
         "bin/flip-frontend": b"new-frontend",
@@ -64,6 +68,8 @@ with tempfile.TemporaryDirectory(prefix="flipos-update-") as tmp:
     assert (install / "state/settings/global").read_text() == "volume=45\n"
     assert "phase=complete" in (install / "progress").read_text()
     assert (install / "state/update/last-good").exists()
+    assert not (install / "state/update/available").exists()
+    assert not (install / "state/update/online-available").exists()
     assert (install / ".update-rollback/current/files/bin/flip-frontend").read_bytes() == b"old-frontend"
 
 with tempfile.TemporaryDirectory(prefix="flipos-update-bad-") as tmp:

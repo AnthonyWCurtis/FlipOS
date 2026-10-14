@@ -78,12 +78,45 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
         assert "phase=ready" in (base / "progress").read_text()
         assert "FLIP_UPDATE_FETCH_OK" in result.stdout
 
+        # Background checks must fetch release metadata only: no archive,
+        # extraction or staged install package is created.
+        shutil.rmtree(dest, ignore_errors=True)
+        install.mkdir(parents=True, exist_ok=True)
+        (install / "VERSION").write_text("0.1.0-beta.0\n")
+        check_only = subprocess.run(
+            [str(FETCH), "--check-only"],
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+        assert check_only.returncode == 0, check_only.stderr
+        assert "FLIP_UPDATE_CHECK_AVAILABLE" in check_only.stdout
+        assert not dest.exists()
+        online_available = install / "state/update/online-available"
+        assert online_available.read_text().strip() == "0.1.0-beta.1"
+
+        # A metadata-only check also clears its online marker when current,
+        # without mutating the downloaded-package marker.
+        (install / "VERSION").write_text("0.1.0-beta.1\n")
+        available = install / "state/update/available"
+        available.parent.mkdir(parents=True, exist_ok=True)
+        available.write_text("staged-package\n")
+        latest_check = subprocess.run(
+            [str(FETCH), "--check-only"],
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+        assert latest_check.returncode == 0, latest_check.stderr
+        assert "FLIP_UPDATE_FETCH_LATEST" in latest_check.stdout
+        assert not online_available.exists()
+        assert available.exists()
+        assert not dest.exists()
+
         # When the installed version already matches the latest release tag,
         # report success without presenting the staged package as an update.
         install.mkdir(parents=True, exist_ok=True)
         (install / "VERSION").write_text("0.1.0-beta.1\n")
-        available = install / "state/update/available"
-        available.parent.mkdir(parents=True, exist_ok=True)
         available.write_text("stale\n")
         latest = subprocess.run(
             [str(FETCH)], env=env, text=True, capture_output=True
