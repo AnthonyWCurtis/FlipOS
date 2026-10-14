@@ -5,6 +5,7 @@
 #include "flip_gpu_protocol.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct flip_gpu_context flip_gpu_context_t;
 
@@ -17,6 +18,12 @@ typedef struct {
     const char *gl_renderer;
     const char *gl_version;
 } flip_gpu_context_info_t;
+
+/* Wall-clock diagnostics only: CPU submission and swap/present wait; not GPU busy time. */
+typedef struct {
+    uint64_t draw_cpu_us;
+    uint64_t present_us;
+} flip_gpu_render_timing_t;
 
 flip_gpu_context_t *flip_gpu_context_create(
     unsigned display_width,
@@ -46,6 +53,11 @@ int flip_gpu_context_set_overlay(
 int flip_gpu_context_clear_overlay(
     flip_gpu_context_t *context,
     flip_gpu_overlay_slot_t slot);
+
+/* Retrieve timings from the most recent successfully rendered frame. */
+int flip_gpu_context_last_render_timing(
+    const flip_gpu_context_t *context,
+    flip_gpu_render_timing_t *timing);
 
 int flip_gpu_context_render(
     flip_gpu_context_t *context,
