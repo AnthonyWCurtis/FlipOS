@@ -37,6 +37,7 @@ jobs:
             test-power \
             test-cpu-dynamic \
             test-wifi \
+            test-update-fetch \
             test-optimizer-calibration \
             test-gpu-client
           python3 tests/test_video_beta_startup_architecture.py
