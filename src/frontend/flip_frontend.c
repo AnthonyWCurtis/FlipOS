@@ -1944,10 +1944,11 @@ static void draw_topbar_version_indicator(flip_drm_t *drm)
 
     /*
      * Keep the top-left quiet during normal use: show the installed version.
-     * Once a checked GitHub release is staged and differs from the installed
-     * version, replace it with a simple download arrow.
+     * As soon as either the metadata-only background check or the full
+     * downloader confirms a newer release, replace it with a download arrow.
      */
-    if (access(FLIP_UPDATE_AVAILABLE, F_OK) == 0) {
+    if (access(FLIP_UPDATE_ONLINE_AVAILABLE, F_OK) == 0 ||
+        access(FLIP_UPDATE_AVAILABLE, F_OK) == 0) {
         flip_draw_rect(drm, x + 5, y, 3, 10, FG);
         flip_draw_rect(drm, x + 1, y + 7, 11, 3, FG);
         flip_draw_rect(drm, x + 3, y + 10, 7, 3, FG);
