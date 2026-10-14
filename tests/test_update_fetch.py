@@ -28,8 +28,7 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
     )
     serve.mkdir()
     archive = serve / "FlipOS-Update.tar.gz"
-    with tarfile.open(archive, "w:gz") as tf:
-        tf.add(package, arcname="FlipOSUpdate")
+    # Production release uses ordinary short-name TAR headers, not Python\'s\n    # default PAX timestamp-extension records.\n    with tarfile.open(archive, "w:gz", format=tarfile.USTAR_FORMAT) as tf:\n        tf.add(package, arcname="FlipOSUpdate")
     sidecar = serve / "FlipOS-Update.tar.gz.sha256"
 
     def write_sidecar():
