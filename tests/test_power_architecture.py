@@ -33,7 +33,9 @@ assert 'DEV_BUTTON_INJECT "/tmp/flipos-dev-button"' in input_source
 assert 'apply_dev_button_injection(state)' in input_source
 assert 'MENU VOL-' in input_source
 assert '#define POWER_DEVICE   "/dev/input/event2"' in input_source
+assert 'static int power_fd = -1;' in input_source
 assert 'open(POWER_DEVICE, O_RDONLY | O_NONBLOCK)' in input_source
+assert 'fds[2].fd = power_fd;' in input_source
 assert 'ev.code != KEY_POWER' in input_source
 assert 'state->down[FLIP_BTN_POWER]' in input_source
 assert '{"POWER", FLIP_BTN_POWER}' in input_source
