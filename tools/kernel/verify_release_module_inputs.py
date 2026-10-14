@@ -115,6 +115,9 @@ def verify(locked, archive, directory):
     expected_kernel = locked['expected_kernel_base']
     if not isinstance(expected_kernel, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', expected_kernel):
         raise AuditError('invalid expected kernel base')
+    expected_vermagic = locked['expected_vermagic']
+    if not isinstance(expected_vermagic, str) or not expected_vermagic.startswith(expected_kernel + ' '):
+        raise AuditError('invalid pinned module vermagic')
     vermagics = set()
     for filename, expected_sha in sorted(locked['modules'].items()):
         if not re.fullmatch(r'flip_[a-z0-9_]+\.ko', filename):
@@ -132,6 +135,8 @@ def verify(locked, archive, directory):
             raise AuditError(f'not AArch64 vermagic: {filename}')
         if modinfo['license'] not in {'GPL', 'GPL v2', 'Dual BSD/GPL', 'Dual MIT/GPL'}:
             raise AuditError(f'unexpected module license: {filename}')
+        if vermagic != expected_vermagic:
+            raise AuditError(f'unexpected module vermagic: {filename}: {vermagic}')
         vermagics.add(vermagic)
         print(f'MODULE_ABI_PRECHECK_OK {filename} sha256={sha} '
               f'vermagic={vermagic!r} depends={modinfo.get("depends", "")!r} '
