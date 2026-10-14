@@ -48,7 +48,7 @@ disarm_pos = live.find("disarm_deadman(")
 confirm_pos = live.find("flip_optimizer_calibration_session_confirm_stable")
 
 if min(arm_pos, enter_pos, disarm_pos, confirm_pos) < 0:
-    pass
+    errors.append("deadman lifecycle ordering checks require every expected operation")
 elif not (arm_pos < enter_pos < disarm_pos < confirm_pos):
     errors.append("deadman must arm before voltage entry and disarm before durable confirmation")
 
