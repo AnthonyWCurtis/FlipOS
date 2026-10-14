@@ -231,6 +231,15 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
             "UNSAFE UPDATE ARCHIVE" in result.stderr
         )
 
+        # A compact gzip bomb must not be extracted or staged even when
+        # its release sidecar matches. 129 MiB exceeds the 128 MiB TAR cap.
+        with gzip.open(archive, "wb", compresslevel=9) as zipped:
+            chunk = bytes(1024 * 1024)
+            for _ in range(129):
+                zipped.write(chunk)
+        write_sidecar()
+        expect_rejected("oversized-tar", "INVALID OR OVERSIZED UPDATE ARCHIVE")
+
         archive.write_bytes(original)
         write_sidecar()
     finally:
