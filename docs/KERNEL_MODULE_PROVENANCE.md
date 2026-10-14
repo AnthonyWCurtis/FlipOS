@@ -14,9 +14,32 @@ printed SHA-256 digests **after copying those modules** into `build/`:
 | `flip_tsadc_recovery.ko` | `9dc4bb1965cd8eee8aeee0bceedb5d824a6e42d371c63e51131bb14e0f3a2d90` |
 | `flip_rk817_charger.ko` | `ee2b58290d49a62602435086c39d28bbd9c4fb0145fa81034dab413780050bb4` |
 
-The standard PR package smoke test checks these four hashes **before** copying
-modules to `build/` and rejects mismatches. This closes the *unchecked content*
-risk of that specific test workflow, **not** full release reproducibility.
+The PR package smoke test now pins the **entire Beta 4 update archive** by
+SHA-256, verified *before* passing it to tar:
+
+- `FlipOS-Update.tar.gz`: `0a77452b41737c489244a29e4502506908d07497c2c3a0d75c10b681128cd68f` (GitHub's published release asset digest)
+- The single-source lock is `tools/kernel/legacy-module-lock.json`; the
+  verifier is `tools/kernel/verify_release_module_inputs.py`.
+- The CI job extracts **only** the four known module members, then verifies
+  every copied module's SHA-256, AArch64/ELF64 relocatable format, module name,
+  GPL-compatible license, embedded 5.10.160-based `vermagic`, and consistent
+  `vermagic` across all four modules.
+- `make verify` independently runs eleven synthetic offline tests, including
+  archive mismatch, changed modules, wrong architecture, wrong kernel version,
+  malformed ELF and differing module metadata.
+
+**Proof boundary:** Kernel `vermagic` and byte hashes are **necessary but not
+sufficient** to prove the modules are safe to load. A module compiled with the
+same release string may still reference incompatible kernel symbols or disagree
+with kernel configuration/ABI. Also the lock records existing Beta 4 release
+**bytes**, not the reproducible source/toolchain used to generate them.
+Physical-device verification requires separately collected `uname -r`,
+`/proc/version`, kernel config, module dependency / symbol CRC evidence and
+safe no-load checks. Do not load/reload any module merely to prove compatibility.
+
+The archive is downloaded from GitHub Releases; pinning a hash taken from that
+release prevents accidental content drift but does not independently authenticate
+a compromised publisher. Keep release supply-chain trust as a separate gate.
 
 ## Still required for an independent, trusted release
 
