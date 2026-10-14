@@ -30,6 +30,14 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
     archive = serve / "FlipOS-Update.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
         tf.add(package, arcname="FlipOSUpdate")
+    sidecar = serve / "FlipOS-Update.tar.gz.sha256"
+
+    def write_sidecar():
+        sidecar.write_text(
+            f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n"
+        )
+
+    write_sidecar()
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
@@ -125,6 +133,104 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
         assert "FLIP_UPDATE_FETCH_LATEST" in latest.stdout
         assert not available.exists()
         assert "YOU'RE ON THE LATEST RELEASE" in (base / "progress").read_text()
+
+        # Full downloads must reject altered bytes, even when the internal
+        # tar member SHA256SUMS would otherwise look self-consistent.
+        install.joinpath("VERSION").write_text("0.1.0-beta.0\n")
+        original = archive.read_bytes()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        (dest / "sentinel").parent.mkdir(parents=True, exist_ok=True)
+        (dest / "sentinel").write_text("prior-staged-update\n")
+
+        def expect_rejected(label, expected_error):
+            result = subprocess.run(
+                [str(FETCH)], env=env, text=True, capture_output=True
+            )
+            assert result.returncode != 0, (label, result.stdout, result.stderr)
+            assert expected_error in result.stderr, (label, result.stderr)
+            assert (dest / "sentinel").read_text() == "prior-staged-update\n", (
+                label, "rejected archive altered previously staged update"
+            )
+            assert not (base / "escaped").exists(), label
+            assert not (base / "outside").exists(), label
+
+        archive.write_bytes(original + b"tampered")
+        expect_rejected("mismatched-sidecar", "UPDATE ARCHIVE CHECKSUM FAILED")
+        archive.write_bytes(original)
+        sidecar.write_text("invalid checksum sidecar\n")
+        expect_rejected("invalid-sidecar", "INVALID UPDATE CHECKSUM FILE")
+        write_sidecar()
+
+        def make_bad_tar(label, entries):
+            with tarfile.open(archive, "w:gz", format=tarfile.USTAR_FORMAT) as tf:
+                for name, kind, link in entries:
+                    item = tarfile.TarInfo(name)
+                    if kind == "dir":
+                        item.type = tarfile.DIRTYPE
+                    elif kind == "symlink":
+                        item.type = tarfile.SYMTYPE
+                        item.linkname = link
+                    elif kind == "hardlink":
+                        item.type = tarfile.LNKTYPE
+                        item.linkname = link
+                    else:
+                        item.size = 0
+                    tf.addfile(item)
+            write_sidecar()
+            expect_rejected(label, "UNSAFE UPDATE ARCHIVE")
+
+        for label, entries in (
+            ("parent-traversal", [
+                ("FlipOSUpdate/../escaped", "file", ""),
+            ]),
+            ("absolute-path", [
+                ("/outside", "file", ""),
+            ]),
+            ("symlink", [
+                ("FlipOSUpdate/payload/bin", "symlink", "../../../outside"),
+            ]),
+            ("hardlink", [
+                ("FlipOSUpdate/payload/bin/flip-frontend", "hardlink", "/outside"),
+            ]),
+            ("device-entry", [
+                ("FlipOSUpdate/payload/bin/device", "file", ""),
+                ("FlipOSUpdate/payload/bin/char-device", "device", ""),
+            ]),
+            ("unapproved-content", [
+                ("FlipOSUpdate/payload/malicious.sh", "file", ""),
+            ]),
+            ("duplicate-entry", [
+                ("FlipOSUpdate/manifest", "file", ""),
+                ("FlipOSUpdate/manifest", "file", ""),
+            ]),
+        ):
+            if label == "device-entry":
+                with tarfile.open(archive, "w:gz", format=tarfile.USTAR_FORMAT) as tf:
+                    item = tarfile.TarInfo("FlipOSUpdate/payload/bin/device")
+                    item.type = tarfile.CHRTYPE
+                    item.devmajor = 1
+                    item.devminor = 3
+                    tf.addfile(item)
+                write_sidecar()
+                expect_rejected(label, "UNSAFE UPDATE ARCHIVE")
+            else:
+                make_bad_tar(label, entries)
+
+        # A matching sidecar must not permit malformed TAR headers.
+        import gzip
+        with gzip.open(archive, "wb") as zipped:
+            zipped.write(b"not-a-tar-header" + b"\x00" * 1024)
+        write_sidecar()
+        result = subprocess.run([str(FETCH)], env=env, text=True, capture_output=True)
+        assert result.returncode != 0
+        assert "INVALID UPDATE TAR ALIGNMENT" in result.stderr or (
+            "UNSAFE UPDATE ARCHIVE" in result.stderr
+        )
+
+        archive.write_bytes(original)
+        write_sidecar()
     finally:
         server.shutdown()
         server.server_close()
