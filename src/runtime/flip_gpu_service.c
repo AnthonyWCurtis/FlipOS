@@ -172,6 +172,9 @@ int main(int argc, char **argv)
     uint64_t invalid = 0;
     uint64_t upload_total_us = 0;
     uint64_t upload_max_us = 0;
+    uint64_t draw_total_us = 0;
+    uint64_t present_total_us = 0;
+    uint64_t present_max_us = 0;
     uint64_t interval_start_us = monotonic_us();
 
     while (!stop_requested) {
@@ -388,6 +391,14 @@ int main(int argc, char **argv)
                 upload_us;
         }
 
+        flip_gpu_render_timing_t stage_timing;
+        if (flip_gpu_context_last_render_timing(gpu, &stage_timing) == 0) {
+            draw_total_us += stage_timing.draw_cpu_us;
+            present_total_us += stage_timing.present_us;
+            if (stage_timing.present_us > present_max_us)
+                present_max_us = stage_timing.present_us;
+        }
+
         frames++;
 
         uint64_t now_us =
@@ -399,7 +410,7 @@ int main(int argc, char **argv)
 
             fprintf(
                 stderr,
-                "FLIP_GPU_SERVICE_PERF: frames=%llu overlays=%llu render_avg_us=%llu render_max_us=%llu invalid=%llu\n",
+                "FLIP_GPU_SERVICE_PERF: frames=%llu overlays=%llu render_avg_us=%llu render_max_us=%llu draw_cpu_avg_us=%llu swap_present_avg_us=%llu swap_present_max_us=%llu invalid=%llu\n",
                 (unsigned long long)
                     frames,
                 (unsigned long long)
@@ -412,6 +423,12 @@ int main(int argc, char **argv)
                 (unsigned long long)
                     upload_max_us,
                 (unsigned long long)
+                    (frames ? draw_total_us / frames : 0),
+                (unsigned long long)
+                    (frames ? present_total_us / frames : 0),
+                (unsigned long long)
+                    present_max_us,
+                (unsigned long long)
                     invalid);
 
             frames = 0;
@@ -419,6 +436,9 @@ int main(int argc, char **argv)
             invalid = 0;
             upload_total_us = 0;
             upload_max_us = 0;
+            draw_total_us = 0;
+            present_total_us = 0;
+            present_max_us = 0;
             interval_start_us =
                 now_us;
         }
