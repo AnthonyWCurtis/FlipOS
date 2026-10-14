@@ -21,6 +21,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
 
+      - name: Shell and Python syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' path; do
+            IFS= read -r shebang < "$path" || :
+            case "$shebang" in
+              '#!/bin/sh') sh -n "$path" ;;
+              '#!/usr/bin/env bash'|'#!/bin/bash') bash -n "$path" ;;
+            esac
+          done < <(find tools -type f -print0)
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/flipos-pycache" \
+            python3 -m compileall -q tests tools
+
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
       - name: Verify clean checkout (54 host checks and ARM64 builds)
