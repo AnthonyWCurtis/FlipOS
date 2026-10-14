@@ -47,7 +47,8 @@ for token in [
 
 for token in [
     "$(BUILD)/flip_bios.o",
-    "$(MAKE) test-bios",
+    "test-bios",
+    "HOST_TEST_TARGETS",
     "python3 tests/test_bios_architecture.py",
     "$(BUILD)/test-flip-bios",
 ]:
