@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef void *EGLDisplay;
@@ -282,7 +283,16 @@ struct flip_gpu_context {
     size_t packed_capacity;
 
     flip_gpu_context_info_t info;
+    flip_gpu_render_timing_t last_render_timing;
 };
+
+static uint64_t gpu_monotonic_us(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+    return (uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_nsec / 1000ULL;
+}
 
 static void *load_symbol(void *library, const char *name)
 {
@@ -1100,6 +1110,16 @@ const flip_gpu_context_info_t *flip_gpu_context_info(
         : NULL;
 }
 
+int flip_gpu_context_last_render_timing(
+    const flip_gpu_context_t *context,
+    flip_gpu_render_timing_t *timing)
+{
+    if (!context || !timing)
+        return -1;
+    *timing = context->last_render_timing;
+    return 0;
+}
+
 int flip_gpu_context_set_overlay(
     flip_gpu_context_t *context,
     flip_gpu_overlay_slot_t slot,
@@ -1229,6 +1249,9 @@ int flip_gpu_context_render(
 
         return -1;
     }
+
+    context->last_render_timing = (flip_gpu_render_timing_t){0};
+    const uint64_t draw_started_us = gpu_monotonic_us();
 
     unsigned bpp = 0;
     GLenum gl_format = 0;
@@ -1454,6 +1477,8 @@ int flip_gpu_context_render(
             4);
     }
 
+    const uint64_t draw_finished_us = gpu_monotonic_us();
+
     if (context->scanout) {
         if (!context->eglSwapBuffers(
                 context->display,
@@ -1469,6 +1494,12 @@ int flip_gpu_context_render(
     } else {
         context->glFinish();
     }
+
+    const uint64_t present_finished_us = gpu_monotonic_us();
+    if (draw_started_us && draw_finished_us >= draw_started_us)
+        context->last_render_timing.draw_cpu_us = draw_finished_us - draw_started_us;
+    if (draw_finished_us && present_finished_us >= draw_finished_us)
+        context->last_render_timing.present_us = present_finished_us - draw_finished_us;
 
     return 0;
 }
