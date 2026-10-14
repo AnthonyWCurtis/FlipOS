@@ -1,8 +1,14 @@
 # FlipOS Beta Readiness
 
-Status date: 2026-10-11
+**Historical release gate:** the checklist below documents the original Beta 1 decision on 2026-10-11. It is preserved for auditability, **not** a complete Beta 6.1 sign-off.
+
+**Current published prerelease:** [FlipOS v0.1.0-beta.6.1](https://github.com/AnthonyWCurtis/FlipOS/releases/tag/v0.1.0-beta.6.1), 14 October 2026. That public GitHub release confirms publication/asset availability; it does not automatically close the unchecked RTC, Wi-Fi, interrupted-update, deep-suspend, crash/recovery or full game-regression acceptance items. They remain in the P1 device-stability phase of [the canonical roadmap](ROADMAP.md).
+
+Status date: 2026-10-11 (Beta 1 decision)
 
 ## Must finish before public beta
+
+The statuses immediately below are a **historical Beta 1 readiness snapshot**. Later Beta 5/6.1 shipped additional features; do not use these boxes alone as the current stable-release gate.
 
 - [x] Core GB/GBC/GBA gameplay stability
 - [x] Save and resume-state integrity baseline
