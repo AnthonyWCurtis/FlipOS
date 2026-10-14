@@ -75,6 +75,15 @@ trap 'cleanup' EXIT HUP INT TERM
 [ -f "$SUMS" ] || fail "UPDATE CHECKSUMS MISSING"
 [ -d "$PAYLOAD" ] || fail "UPDATE PAYLOAD MISSING"
 
+# Never resolve package inputs or writable update work areas through symlinks.
+# The physical Miyoo SD card is normally FAT, but this also protects host-side
+# installs and unexpected filesystem layouts from redirected writes/removals.
+for path in "$PACKAGE" "$PAYLOAD" "$META" "$SUMS" \
+            "$ROOT/state" "$STATE" "$ROOT/.update-stage" \
+            "$ROOT/.update-rollback"; do
+    [ ! -L "$path" ] || fail "UNSAFE UPDATE SYMLINK"
+done
+
 format=$(sed -n 's/^format=//p' "$META" | head -n 1)
 target=$(sed -n 's/^target=//p' "$META" | head -n 1)
 version=$(sed -n 's/^version=//p' "$META" | head -n 1)
@@ -109,6 +118,22 @@ while IFS= read -r line; do
     esac
     [ -f "$PAYLOAD/$rel" ] || { rm -f "$FILES"; fail "UPDATE FILE MISSING"; }
     [ ! -L "$PAYLOAD/$rel" ] || { rm -f "$FILES"; fail "SYMLINKS ARE NOT ALLOWED"; }
+
+    # Checking only the final file misses symlinked parent directories,
+    # e.g. payload/bin -> somewhere-else or an existing root/bin link.
+    # Check each path component before any staging, backup or installation.
+    dir=${rel%/*}
+    if [ "$dir" != "$rel" ]; then
+        while :; do
+            [ ! -L "$PAYLOAD/$dir" ] || { rm -f "$FILES"; fail "UNSAFE UPDATE SOURCE DIRECTORY"; }
+            [ ! -L "$ROOT/$dir" ] || { rm -f "$FILES"; fail "UNSAFE UPDATE TARGET DIRECTORY"; }
+            case "$dir" in
+                */*) dir=${dir%/*} ;;
+                *) break ;;
+            esac
+        done
+    fi
+    [ ! -L "$ROOT/$rel" ] || { rm -f "$FILES"; fail "UNSAFE UPDATE TARGET SYMLINK"; }
     printf '%s\n' "$rel" >> "$FILES"
     count=$((count + 1))
     [ "$count" -le 128 ] || { rm -f "$FILES"; fail "UPDATE HAS TOO MANY FILES"; }
