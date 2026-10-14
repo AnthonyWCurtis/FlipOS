@@ -3,6 +3,7 @@
 #include "flip_osd.h"
 #include "flip_log.h"
 #include "flip_video.h"
+#include "flip_power.h"
 
 #include <string.h>
 
@@ -75,5 +76,57 @@ int flip_log_write(
     (void)level;
     (void)subsystem;
     (void)format;
+    return 0;
+}
+
+/*
+ * Core Host tests exercise frame ordering and save/state lifecycle, not
+ * interactive menu rendering or physical suspend. Keep the newer UI/power
+ * entry points linked to harmless host-only implementations.
+ */
+int flip_video_quick_menu_begin(void)
+{
+    return 0;
+}
+
+int flip_video_quick_menu_present(
+    const flip_video_quick_menu_view_t *view)
+{
+    (void)view;
+    return 0;
+}
+
+void flip_video_quick_menu_end(void)
+{
+}
+
+int flip_video_power_menu_begin(void)
+{
+    return 0;
+}
+
+int flip_video_power_menu_present(
+    const flip_video_power_menu_view_t *view)
+{
+    (void)view;
+    return 0;
+}
+
+void flip_video_power_menu_end(void)
+{
+}
+
+int flip_settings_get_brightness(void)
+{
+    return 128;
+}
+
+int flip_power_brightness_to_percent(int brightness)
+{
+    return brightness * 100 / 255;
+}
+
+int flip_power_sleep_once(void)
+{
     return 0;
 }

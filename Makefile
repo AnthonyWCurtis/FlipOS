@@ -707,7 +707,7 @@ $(BUILD)/test-flip-core: tests/test_flip_core.c src/runtime/flip_core.c include/
 		-o $@
 
 $(BUILD)/test-flip-core-host: tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c src/runtime/flip_battery.c src/runtime/flip_power_policy.c include/flip_core_host.h include/flip_perf_diag.h include/flip_cpu_dynamic.h include/flip_cpu_policy.h include/flip_battery.h include/flip_power_policy.h | $(BUILD)
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -Iinclude \
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -Iinclude \
 		tests/test_flip_core_host.c tests/test_flip_core_host_telemetry_stubs.c \
 		src/runtime/flip_core.c src/runtime/flip_core_host.c src/runtime/flip_perf_diag.c \
 		src/runtime/flip_cpu_dynamic.c src/runtime/flip_cpu_policy.c \
