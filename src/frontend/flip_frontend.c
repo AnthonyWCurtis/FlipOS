@@ -68,6 +68,7 @@
 #define FLIP_UPDATE_FETCHER FLIP_BIN_ROOT "/flip-update-fetch"
 #define FLIP_VERSION_FILE FLIP_STORAGE_ROOT "/VERSION"
 #define FLIP_UPDATE_AVAILABLE FLIP_STATE_DATA_ROOT "/update/available"
+#define FLIP_UPDATE_ONLINE_AVAILABLE FLIP_STATE_DATA_ROOT "/update/online-available"
 
 typedef enum {
     SCREEN_HOME = 0,
@@ -3354,6 +3355,40 @@ static int read_update_version(char *out, size_t out_size)
     return -1;
 }
 
+static int read_online_update_version(
+    char *out,
+    size_t out_size)
+{
+    if (!out || out_size == 0)
+        return -1;
+
+    out[0] = '\0';
+
+    FILE *f =
+        fopen(
+            FLIP_UPDATE_ONLINE_AVAILABLE,
+            "r");
+
+    if (!f)
+        return -1;
+
+    if (!fgets(
+            out,
+            (int)out_size,
+            f)) {
+        fclose(f);
+        out[0] = '\0';
+        return -1;
+    }
+
+    fclose(f);
+
+    out[strcspn(out, "\r\n")] =
+        '\0';
+
+    return out[0] ? 0 : -1;
+}
+
 static int run_update_installer(void)
 {
     pid_t pid = fork();
@@ -3438,6 +3473,31 @@ static int run_update_fetcher(void)
     return WEXITSTATUS(status) == 0 ? 0 : -1;
 }
 
+static pid_t start_background_update_check(void)
+{
+    pid_t pid =
+        fork();
+
+    if (pid < 0)
+        return -1;
+
+    if (pid == 0) {
+        char *argv[] = {
+            (char *)FLIP_UPDATE_FETCHER,
+            (char *)"--check-only",
+            NULL
+        };
+
+        execv(
+            argv[0],
+            argv);
+
+        _exit(127);
+    }
+
+    return pid;
+}
+
 static void draw_update(
     flip_drm_t *drm,
     double poweroff_progress)
@@ -3463,13 +3523,21 @@ static void draw_update(
             version,
             sizeof(version)) == 0;
 
+    char online_version[96];
+
+    int online_available =
+        read_online_update_version(
+            online_version,
+            sizeof(online_version)) == 0;
+
     const char *state_label =
         update_complete
             ? "READY TO RESTART"
             : update_confirm &&
               package_ready
                 ? "CONFIRM INSTALL"
-                : package_ready
+                : package_ready ||
+                  online_available
                     ? "UPDATE AVAILABLE"
                     : "CHECK FOR UPDATES";
 
@@ -3649,6 +3717,62 @@ static void draw_update(
             286,
             "A INSTALL   X CHECK GITHUB   Y DELETE",
             1,
+            FG);
+
+    } else if (
+        online_available) {
+
+        char online_text[128];
+
+        snprintf(
+            online_text,
+            sizeof(online_text),
+            "UPDATE ONLINE: %.80s",
+            online_version);
+
+        char online_visible[96];
+
+        fit_text_to_width(
+            online_text,
+            online_visible,
+            sizeof(online_visible),
+            UTILITY_CONTENT_W - 48,
+            UI_SCALE_BODY);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                online_visible,
+                UI_SCALE_BODY,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            136,
+            online_visible,
+            UI_SCALE_BODY,
+            FG);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "READY TO DOWNLOAD FROM GITHUB",
+                1,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            206,
+            "READY TO DOWNLOAD FROM GITHUB",
+            1,
+            DIM);
+
+        flip_draw_text(
+            drm,
+            centred_text_x_in_rect(
+                "A DOWNLOAD   X REFRESH",
+                UI_SCALE_HINT,
+                UTILITY_MARGIN_X,
+                UTILITY_CONTENT_W),
+            286,
+            "A DOWNLOAD   X REFRESH",
+            UI_SCALE_HINT,
             FG);
 
     } else {
@@ -8662,6 +8786,15 @@ int main(void)
     double next_battery_refresh =
         monotonic_seconds() + 30.0;
 
+    pid_t background_update_pid =
+        -1;
+
+    int background_update_checked =
+        0;
+
+    double next_background_update_attempt =
+        monotonic_seconds() + 8.0;
+
     flip_low_battery_guard_t low_battery_guard;
     flip_low_battery_guard_init(&low_battery_guard);
     double next_low_battery_check = monotonic_seconds();
@@ -9065,6 +9198,105 @@ int main(void)
         }
 
         int redraw = 0;
+
+        /*
+         * Once the frontend is settled and Wi-Fi has a usable address, make
+         * one metadata-only update check for this boot. This never downloads
+         * an update package and never blocks the UI.
+         */
+        if (background_update_pid > 0) {
+            int update_status = 0;
+
+            pid_t finished =
+                waitpid(
+                    background_update_pid,
+                    &update_status,
+                    WNOHANG);
+
+            if (finished ==
+                background_update_pid) {
+
+                background_update_pid =
+                    -1;
+
+                background_update_checked =
+                    1;
+
+                if (WIFEXITED(update_status) &&
+                    WEXITSTATUS(update_status) == 0) {
+
+                    if (access(
+                            FLIP_UPDATE_ONLINE_AVAILABLE,
+                            F_OK) == 0) {
+
+                        flip_osd_show_status(
+                            "FLIPOS UPDATE AVAILABLE");
+
+                        redraw = 1;
+
+                        fprintf(
+                            stderr,
+                            "FRONTEND_UPDATE background available\n");
+
+                    } else {
+
+                        fprintf(
+                            stderr,
+                            "FRONTEND_UPDATE background latest\n");
+                    }
+
+                } else {
+
+                    fprintf(
+                        stderr,
+                        "FRONTEND_UPDATE background check failed\n");
+                }
+            }
+        }
+
+        double update_now =
+            monotonic_seconds();
+
+        if (!background_update_checked &&
+            background_update_pid < 0 &&
+            update_now >=
+                next_background_update_attempt &&
+            screen != SCREEN_UPDATE &&
+            flip_setup_is_complete()) {
+
+            (void)flip_wifi_get_status(
+                &wifi_status);
+
+            if (wifi_status.connected &&
+                wifi_status.usable_ip) {
+
+                background_update_pid =
+                    start_background_update_check();
+
+                if (background_update_pid > 0) {
+
+                    fprintf(
+                        stderr,
+                        "FRONTEND_UPDATE background check started pid=%ld\n",
+                        (long)background_update_pid);
+
+                } else {
+
+                    next_background_update_attempt =
+                        update_now + 30.0;
+                }
+
+            } else {
+
+                /*
+                 * Wi-Fi may still be associating at startup or may be enabled
+                 * later from Settings. Keep retrying quietly until one check
+                 * succeeds for this frontend boot.
+                 */
+                next_background_update_attempt =
+                    update_now + 10.0;
+            }
+        }
 
         flip_controls_state_t frontend_control_state;
 
