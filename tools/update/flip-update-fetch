@@ -5,13 +5,34 @@ ROOT=${FLIP_UPDATE_ROOT:-/mnt/SDCARD/flipos-dev}
 DEST=${FLIP_UPDATE_DEST:-/mnt/SDCARD/FlipOSUpdate}
 STATE="$ROOT/state/update"
 AVAILABLE="$STATE/available"
+ONLINE_AVAILABLE="$STATE/online-available"
 INSTALLED_VERSION="$ROOT/VERSION"
-WORK="$STATE/download"
+CHECK_ONLY=0
+
+case "${1:-}" in
+    "") ;;
+    --check-only) CHECK_ONLY=1 ;;
+    *)
+        echo "usage: $0 [--check-only]" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+    WORK="$STATE/check"
+else
+    WORK="$STATE/download"
+fi
+
 PROGRESS=${FLIP_UPDATE_PROGRESS:-/tmp/flipos-update-progress}
 API_URL=${FLIP_UPDATE_API_URL:-https://api.github.com/repos/AnthonyWCurtis/FlipOS/releases?per_page=10}
 ASSET_NAME=${FLIP_UPDATE_ASSET_NAME:-FlipOS-Update.tar.gz}
 
 progress() {
+    if [ "$CHECK_ONLY" -eq 1 ]; then
+        return 0
+    fi
+
     phase=$1
     percent=$2
     message=$3
@@ -85,12 +106,29 @@ release_version=${TAG#v}
 if [ -n "$installed_version" ] &&
    [ -n "$release_version" ] &&
    [ "$release_version" = "$installed_version" ]; then
-    rm -f "$AVAILABLE"
-    progress ready 100 "YOU'RE ON THE LATEST RELEASE"
-    echo "FLIP_UPDATE_FETCH_LATEST version=$installed_version tag=${TAG:-unknown}"
+    rm -f "$ONLINE_AVAILABLE"
+    if [ "$CHECK_ONLY" -eq 0 ]; then
+        rm -f "$AVAILABLE"
+        progress ready 100 "YOU'RE ON THE LATEST RELEASE"
+    fi
+    echo "FLIP_UPDATE_FETCH_LATEST version=$installed_version tag=${TAG:-unknown} check_only=$CHECK_ONLY"
     cleanup
     exit 0
 fi
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+    printf '%s\n' "$release_version" > "${ONLINE_AVAILABLE}.tmp"
+    mv -f "${ONLINE_AVAILABLE}.tmp" "$ONLINE_AVAILABLE"
+    echo "FLIP_UPDATE_CHECK_AVAILABLE version=$release_version tag=${TAG:-unknown}"
+    cleanup
+    exit 0
+fi
+
+# Keep the lightweight availability marker after a full fetch too. If the
+# user later deletes the downloaded package, System Update can still say that
+# a release exists online without another network request.
+printf '%s\n' "$release_version" > "${ONLINE_AVAILABLE}.tmp"
+mv -f "${ONLINE_AVAILABLE}.tmp" "$ONLINE_AVAILABLE"
 
 progress download 15 "DOWNLOADING UPDATE FROM GITHUB"
 ARCHIVE="$WORK/$ASSET_NAME"
