@@ -240,6 +240,20 @@ with tempfile.TemporaryDirectory(prefix="flipos-fetch-") as td:
         write_sidecar()
         expect_rejected("oversized-tar", "INVALID OR OVERSIZED UPDATE ARCHIVE")
 
+        # The actual production package builder uses GNU tar, so verify
+        # that its simple header format passes this deliberately strict gate.
+        subprocess.run(
+            ["tar", "-czf", str(archive), "-C", str(base / "make"), "FlipOSUpdate"],
+            check=True,
+        )
+        write_sidecar()
+        shutil.rmtree(dest)
+        production = subprocess.run(
+            [str(FETCH)], env=env, text=True, capture_output=True
+        )
+        assert production.returncode == 0, production.stderr
+        assert (dest / "payload/VERSION").read_text() == "beta-test\n"
+
         archive.write_bytes(original)
         write_sidecar()
     finally:
