@@ -20,7 +20,7 @@ def align(value, n=8):
     return (value + n - 1) // n * n
 
 
-def make_module(name, vermagic='5.10.160 SMP preempt mod_unload aarch64', machine=183,
+def make_module(name, vermagic='5.10.160 SMP mod_unload aarch64', machine=183,
                 license_name='GPL'):
     """Generate a minimal little-endian AArch64 ELF relocatable, not executable."""
     names = b'\0.shstrtab\0.modinfo\0'
@@ -51,6 +51,7 @@ class ReleaseModuleInputTests(unittest.TestCase):
         self.archive = self.dir / 'download.tar.gz'
         self.archive.write_bytes(b'not-extracted-until-checksum')
         self.lock = {'format': 1, 'expected_kernel_base': '5.10.160',
+                     'expected_vermagic': '5.10.160 SMP mod_unload aarch64',
                      'archive_sha256': hashlib.sha256(self.archive.read_bytes()).hexdigest(),
                      'modules': {}}
         for name in NAMES:
@@ -101,8 +102,8 @@ class ReleaseModuleInputTests(unittest.TestCase):
         self.assertIn('unexpected kernel version', self.run_audit().stderr)
 
     def test_reject_inconsistent_vermagic(self):
-        self.replace_module(NAMES[0], make_module(NAMES[0][:-3], vermagic='5.10.160 SMP mod_unload aarch64'))
-        self.assertIn('disagree on their kernel vermagic', self.run_audit().stderr)
+        self.replace_module(NAMES[0], make_module(NAMES[0][:-3], vermagic='5.10.160 SMP preempt mod_unload aarch64'))
+        self.assertIn('unexpected module vermagic', self.run_audit().stderr)
 
     def test_reject_malformed_section_offsets(self):
         data = bytearray(make_module(NAMES[0][:-3]))
