@@ -424,6 +424,7 @@ test-architecture:
 	python3 tests/test_osd_architecture.py
 	python3 tests/test_power_architecture.py
 	python3 tests/test_video_present_diagnostics_architecture.py
+	python3 tests/test_gpu_presentation_diagnostics_architecture.py
 	python3 tests/test_frontend_ux_architecture.py
 	python3 tests/test_home_layout_architecture.py
 	python3 tests/test_gameswitcher_layout_architecture.py
