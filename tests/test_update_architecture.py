@@ -35,7 +35,15 @@ assert 'run_update_fetcher()' in frontend
 
 assert 'FLIPOS RELEASES ARE NOT PUBLIC YET' in fetcher
 assert 'grep "/$ASSET_NAME$"' in fetcher
-assert 'gzip -dc "$ARCHIVE" | tar -xf -' in fetcher
+# The archive must be authenticated and its headers validated before tar
+# is ever allowed to extract an entry.
+assert '"$ASSET_URL.sha256"' in fetcher
+assert 'actual_hash=$(sha256sum "$ARCHIVE"' in fetcher
+assert 'MAX_TAR_BYTES=' in fetcher
+assert 'tar_header()' in fetcher
+assert 'grep -Fqx "$name" "$seen"' in fetcher
+assert 'tar -xf "$TARFILE" -C "$WORK/extract"' in fetcher
+assert fetcher.index('tar_header()') < fetcher.index('tar -xf "$TARFILE"')
 assert "tr ',' '\\n' < \"$RELEASES\"" in fetcher
 assert 'trap cleanup EXIT' not in fetcher
 assert "trap 'cleanup; exit 1' HUP INT TERM" in fetcher
