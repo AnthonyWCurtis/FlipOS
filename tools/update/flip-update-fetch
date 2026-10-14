@@ -27,6 +27,11 @@ fi
 PROGRESS=${FLIP_UPDATE_PROGRESS:-/tmp/flipos-update-progress}
 API_URL=${FLIP_UPDATE_API_URL:-https://api.github.com/repos/AnthonyWCurtis/FlipOS/releases?per_page=10}
 ASSET_NAME=${FLIP_UPDATE_ASSET_NAME:-FlipOS-Update.tar.gz}
+MAX_ARCHIVE_BYTES=67108864
+MAX_TAR_BYTES=134217728
+case "$ASSET_NAME" in
+    *[!A-Za-z0-9._-]*|*..*|"") echo "invalid update asset name" >&2; exit 1 ;;
+esac
 
 progress() {
     if [ "$CHECK_ONLY" -eq 1 ]; then
@@ -138,10 +143,46 @@ if ! curl -fL --connect-timeout 10 --max-time 300 \
     fail "UPDATE DOWNLOAD FAILED"
 fi
 
+# Verify archive bytes against the GitHub release SHA-256 sidecar *before*
+# any decompression or extraction. Sidecar hashing detects corruption and
+# mismatched archives, but it does not prove publisher identity/signatures.
+SIDECAR="$WORK/$ASSET_NAME.sha256"
+if ! curl -fL --connect-timeout 10 --max-time 30 --max-filesize 4096 \
+        -H 'User-Agent: FlipOS-Updater' \
+        "$ASSET_URL.sha256" -o "$SIDECAR"; then
+    fail "UPDATE CHECKSUM FILE MISSING"
+fi
+[ "$(wc -l < "$SIDECAR")" -eq 1 ] || fail "INVALID UPDATE CHECKSUM FILE"
+set -f
+set -- $(cat "$SIDECAR")
+set +f
+[ "$#" -eq 2 ] || fail "INVALID UPDATE CHECKSUM FILE"
+expected_hash=$1
+expected_name=${2##*/}
+[ "$expected_name" = "$ASSET_NAME" ] || fail "UPDATE CHECKSUM FILE MISMATCH"
+[ "${#expected_hash}" -eq 64 ] || fail "INVALID UPDATE CHECKSUM FILE"
+case "$expected_hash" in *[!0-9a-fA-F]*) fail "INVALID UPDATE CHECKSUM FILE" ;; esac
+[ "$(wc -c < "$ARCHIVE")" -le "$MAX_ARCHIVE_BYTES" ] ||
+    fail "UPDATE ARCHIVE TOO LARGE"
+actual_hash=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+[ "$(printf '%s' "$expected_hash" | tr 'A-F' 'a-f')" = "$actual_hash" ] ||
+    fail "UPDATE ARCHIVE CHECKSUM FAILED"
+
+# The stock Miyoo environment provides BusyBox ash, gzip, dd, od and awk.
+# The file-size limit prevents compression bombs filling the SD card.
+TARFILE="$WORK/update.tar"
+if ! (ulimit -f 262144; gzip -dc "$ARCHIVE" > "$TARFILE") 2>/dev/null; then
+    fail "INVALID OR OVERSIZED UPDATE ARCHIVE"
+fi
+tar_bytes=$(wc -c < "$TARFILE")
+[ "$tar_bytes" -ge 1024 ] && [ "$tar_bytes" -le "$MAX_TAR_BYTES" ] ||
+    fail "INVALID OR OVERSIZED UPDATE ARCHIVE"
+[ $((tar_bytes % 512)) -eq 0 ] || fail "INVALID UPDATE TAR ALIGNMENT"
+
+# TAR PREFLIGHT INSERTION POINT
+
 progress unpack 55 "UNPACKING UPDATE"
-# The Miyoo Flip ships BusyBox tar, which does not support GNU tar's -z
-# flag. Decompress explicitly with BusyBox gzip and pipe the tar stream.
-if ! gzip -dc "$ARCHIVE" | tar -xf - -C "$WORK/extract"; then
+if ! tar -xf "$TARFILE" -C "$WORK/extract"; then
     fail "UPDATE ARCHIVE IS INVALID"
 fi
 
