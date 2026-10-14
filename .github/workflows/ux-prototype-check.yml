@@ -37,7 +37,7 @@ jobs:
 
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
-      - name: Verify clean checkout (54 host checks and ARM64 builds)
+      - name: Verify clean checkout (55 host checks and ARM64 builds)
         run: |
           set -euo pipefail
           test ! -e build/flip_opp_voltage.ko
