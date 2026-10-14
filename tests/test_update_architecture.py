@@ -52,3 +52,18 @@ assert 'unlink(FLIP_UPDATE_AVAILABLE)' in frontend
 assert '"A RESTART NOW   B LATER"' in frontend
 assert 'if (update_complete)' in frontend
 assert 'reboot(RB_AUTOBOOT)' in frontend
+
+
+# Startup update discovery is metadata-only and asynchronous. It must not
+# silently download/install packages merely because Wi-Fi is connected.
+assert 'ONLINE_AVAILABLE="$STATE/online-available"' in fetcher
+assert '--check-only' in fetcher
+assert 'CHECK_ONLY=1' in fetcher
+assert 'FLIP_UPDATE_CHECK_AVAILABLE' in fetcher
+assert 'FLIP_UPDATE_ONLINE_AVAILABLE' in frontend
+assert 'start_background_update_check()' in frontend
+assert '(char *)"--check-only"' in frontend
+assert 'WNOHANG' in frontend
+assert '"FLIPOS UPDATE AVAILABLE"' in frontend
+assert '"UPDATE ONLINE: %.80s"' in frontend
+assert '"A DOWNLOAD   X REFRESH"' in frontend
