@@ -58,3 +58,20 @@ a compromised publisher. Keep release supply-chain trust as a separate gate.
   acceptance independently; never load an unknown `.ko` just to test it.
 
 Never change internal NAND/MTD while validating these modules.
+
+## Observed ELF metadata — CI audit on 14 October 2026
+
+[PR #41 CI run](https://github.com/AnthonyWCurtis/FlipOS/actions/runs/38555466137)
+read the four pinned Beta 4 binaries and reported the same literal metadata
+for every module:
+
+```text
+vermagic=5.10.160 SMP mod_unload aarch64
+depends=(empty)
+license=GPL
+```
+
+This exact `vermagic` is pinned in the lock for future package smoke checks.
+A declared empty `depends` field does **not** imply the module has no unresolved
+kernel symbol references. The device's actual `uname -r`, kernel configuration,
+`Module.symvers`/symbol CRCs and rebuild provenance remain unverified.
