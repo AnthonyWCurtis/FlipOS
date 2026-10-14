@@ -27,8 +27,8 @@ jobs:
       - name: Full architecture checks
         run: make test-architecture
 
-      - name: Build frontend and game hosts
-        run: make frontend gb gba
+      - name: Build frontend, game hosts and shared GPU service
+        run: make frontend gb gba gpu-service
 
       - name: Build release userspace
         run: |
