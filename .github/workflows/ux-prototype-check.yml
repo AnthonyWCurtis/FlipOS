@@ -35,6 +35,12 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/flipos-pycache" \
             python3 -m compileall -q tests tools
 
+      - name: Check manual read-only RK817 charging inventory (synthetic host roots only)
+        run: |
+          set -euo pipefail
+          sh -n tools/device/flip-charge-readonly-inventory.sh
+          python3 -m unittest discover -s tests -p 'test_charge_readonly_inventory.py' -v
+
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
       - name: Verify clean checkout (55 host checks and ARM64 builds)
