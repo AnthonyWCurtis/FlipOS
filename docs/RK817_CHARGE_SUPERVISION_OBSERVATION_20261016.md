@@ -13,6 +13,24 @@ Newer upstream Linux \`drivers/power/supply/rk817_charger.c\` uses the parent RK
 - https://codebrowser.dev/linux/linux/drivers/power/supply/rk817_charger.c.html
 - https://cateee.net/lkddb/web-lkddb/CHARGER_RK817.html
 
+## Additional vendor-driver comparison (outside evidence, not device identification)
+
+A public Rockchip-era `drivers/power/rk817_charger.c` implementation uses
+`regmap_field_write(..., CHRG_CUR_SEL, ...)` to set the charge-current
+selector and registers separate `ac` and `usb` power supplies. Those names
+and interfaces resemble FlipOS's published sysfs assumptions more closely
+than the modern upstream `rk817-charger` device, but this is only a
+**lead for inspecting the exact 5.10.160 kernel**. It is not proof that the
+Miyoo Flip ships this source or configuration.
+
+- https://github.com/54shady/qop_kernel/blob/master/drivers/power/rk817_charger.c
+
+The vendor example reinforces a concrete collision hypothesis: a stock-driver
+`regmap_field_write` and FlipOS's direct SMBus whole-register write are not
+serialized through the same regmap. Do **not** transplant symbols or register
+writes from that example into the live module before matching the actual
+deployed code and board device tree.
+
 ## Added read-only utility (NOT packaged/deployed)
 
 \`tools/diagnostics/flip_charge_observe.py\` is a manually invoked **developer-side/physical-test preparation** utility. It reads only fixed fields from:
