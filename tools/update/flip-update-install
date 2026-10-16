@@ -166,7 +166,6 @@ progress backup 40 "PREPARING ROLLBACK"
 rm -rf "$ROLLBACK"
 mkdir -p "$ROLLBACK/files"
 cp "$META" "$ROLLBACK/manifest.new"
-: > "$ROLLBACK/installed.list"
 
 if [ -f "$BOOT_UPDATER" ]; then
     cp "$BOOT_UPDATER" "$ROLLBACK/boot-updater"
@@ -181,6 +180,13 @@ while IFS= read -r rel; do
         cp "$dest" "$ROLLBACK/files/$rel"
     fi
 done < "$FILES"
+
+# Publish the full rollback ledger before replacing the first installed file.
+# Some entries may not yet have changed when rollback runs; restoring their
+# backed-up originals (or removing still-absent files) is safe and idempotent.
+# Writing the ledger after each rename leaves a crash window where a new file
+# exists but is missing from the list of files to restore.
+cp "$FILES" "$ROLLBACK/installed.list"
 sync
 
 progress install 60 "INSTALLING UPDATE"
@@ -206,7 +212,6 @@ while IFS= read -r rel; do
         fail "UPDATE INSTALL FAILED"
     fi
 
-    printf '%s\n' "$rel" >> "$ROLLBACK/installed.list"
     installed=$((installed + 1))
     percent=$((60 + (installed * 25 / count)))
     progress install "$percent" "INSTALLING UPDATE"
