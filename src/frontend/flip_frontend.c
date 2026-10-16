@@ -10877,7 +10877,7 @@ int main(void)
                      */
                     pid_t usb_child = fork();
                     if (usb_child == 0) {
-                        execl("/mnt/SDCARD/flipos-dev/bin/flip-usb-mtp",
+                        execl(FLIP_BIN_ROOT "/flip-usb-mtp",
                               "flip-usb-mtp", "mtp", (char *)NULL);
                         _exit(127);
                     }
