@@ -35,6 +35,13 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/flipos-pycache" \
             python3 -m compileall -q tests tools
 
+      - name: Verify optional USB modes using fake gadget sysfs only
+        run: |
+          set -euo pipefail
+          sh -n tools/device/flip-usb-mode
+          python3 -m unittest discover -s tests -p 'test_usb_mode.py' -v
+          python3 tests/test_usb_mode_architecture.py
+
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
       - name: Verify clean checkout (55 host checks and ARM64 builds)

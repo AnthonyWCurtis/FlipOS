@@ -103,6 +103,7 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     [ ! -f "$ROOT/bin/flip-playtest-logger.sh" ] || chmod 755 "$ROOT/bin/flip-playtest-logger.sh"
     [ ! -f "$ROOT/bin/flip-charge-service" ] || chmod 755 "$ROOT/bin/flip-charge-service"
     [ ! -f "$ROOT/bin/flip-usb-mtp" ] || chmod 755 "$ROOT/bin/flip-usb-mtp"
+    [ ! -f "$ROOT/bin/flip-usb-mode" ] || chmod 755 "$ROOT/bin/flip-usb-mode"
     [ ! -f "$ROOT/bin/umtprd" ] || chmod 755 "$ROOT/bin/umtprd"
     [ ! -f "$ROOT/bin/flip-optimizer-supervisor" ] || chmod 755 "$ROOT/bin/flip-optimizer-supervisor"
     [ ! -f "$ROOT/bin/flip-optimizer-deadman" ] || chmod 755 "$ROOT/bin/flip-optimizer-deadman"
@@ -112,16 +113,16 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     [ ! -f "$ROOT/bin/flip-optimizer-progress" ] || chmod 755 "$ROOT/bin/flip-optimizer-progress"
 fi
 
-# Replace the stock ADB-only USB gadget with FlipOS' composite MTP + ADB
-# presentation. The helper exposes only ROMs, BIOS and Saves to the host.
-USB_MTP_SERVICE="$ROOT/bin/flip-usb-mtp"
-if [ -x "$USB_MTP_SERVICE" ] && [ -x "$ROOT/bin/umtprd" ] &&
-   [ -r "$ROOT/etc/umtprd.conf" ]; then
-    if "$USB_MTP_SERVICE" >> "$LOG_TARGET" 2>&1; then
-        echo "FLIP_MTP: startup complete" >> "$LOG_TARGET"
-    else
-        echo "FLIP_MTP: startup failed; continuing without MTP" >> "$LOG_TARGET"
+# Stock Rockchip ADB is the default. Do not stop its owner, create MTP
+# endpoints or rebind a healthy USB gadget during boot. File Transfer is an
+# explicit Settings action only. If the new helper is missing, leave USB alone.
+USB_MODE_SERVICE="$ROOT/bin/flip-usb-mode"
+if [ -x "$USB_MODE_SERVICE" ]; then
+    if ! "$USB_MODE_SERVICE" boot >> "$LOG_TARGET" 2>&1; then
+        echo "FLIP_USB_MODE: boot status unexpected; no USB transition attempted" >> "$LOG_TARGET"
     fi
+else
+    echo "FLIP_USB_MODE: boot default stock ADB (no mode helper)" >> "$LOG_TARGET"
 fi
 
 # Durable rollback bookkeeping is secondary to the RAM safety decision.
