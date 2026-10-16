@@ -49,7 +49,7 @@ record() {
 }
 busy_runtime() {
     if [ -n "$TEST_ROOT" ]; then
-        [ ! -f "$TEST_ROOT/busy-runtime" ]
+        [ -f "$TEST_ROOT/busy-runtime" ]
         return $?
     fi
     for name in flip-gba flip-gb flip-update-install flip-optimizer-candidate flip-optimizer-runtime; do
