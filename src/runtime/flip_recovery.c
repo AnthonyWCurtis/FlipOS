@@ -232,6 +232,17 @@ flip_recovery_result_t flip_recovery_restore_previous(
         return FLIP_RECOVERY_NO_PREVIOUS;
     }
 
+    /*
+     * Persist the resume block before changing *any* save or state generation.
+     * Failure is fail-closed: never activate a previous SRAM timeline while
+     * the old savestate can still be resumed. Leave the block in place on
+     * subsequent failures so a partial restore cannot auto-resume.
+     */
+    if (flip_recovery_block_resume(recovery_context) < 0) {
+        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=block-resume\n");
+        return FLIP_RECOVERY_ERROR;
+    }
+
     /* Preserve the current state generation before switching cartridge save. */
     if (flip_state_preserve_recovery(state_context) < 0) {
         fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=state-preserve\n");
@@ -241,12 +252,6 @@ flip_recovery_result_t flip_recovery_restore_previous(
     /* Preserve current cartridge save and activate protected previous save. */
     if (flip_save_restore_previous(core, save_context) < 0) {
         fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=save-promote\n");
-        return FLIP_RECOVERY_ERROR;
-    }
-
-    /* Once the timeline changes, resume must remain blocked until a fresh pair exists. */
-    if (flip_recovery_block_resume(recovery_context) < 0) {
-        fprintf(stderr, "FLIP_RECOVERY: RESTORE_PREVIOUS failed stage=block-resume\n");
         return FLIP_RECOVERY_ERROR;
     }
 
