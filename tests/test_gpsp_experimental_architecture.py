@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Guard the experimental gpSP ARM64 path and stock mGBA isolation."""
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,8 +56,9 @@ class GpSPExperimentalArchitecture(unittest.TestCase):
         m = read("Makefile")
         self.assertIn("$(BUILD)/flip-gba-gpsp-test: $(GPSP_OBJS) $(BUILD)/gpsp_libretro.a", m)
         self.assertIn("$(BUILD)/flip-gba: $(GBA_OBJS) $(BUILD)/mgba_libretro.a", m)
-        self.assertNotIn("flip_mgba_core.o", re.search(
-            r"GPSP_OBJS := \\\n(?:.*\\\n)+\s*\$\(EMULATOR_OBJS\)", m).group(0))
+        gpsp_objs = m.split("GPSP_OBJS :=", 1)[1].split("GPSP_REF :=", 1)[0]
+        self.assertNotIn("flip_mgba_core.o", gpsp_objs)
+
 
     def test_no_retroarch_dependency_added(self):
         files = ("src/emulators/flip_gba_gpsp.c", "src/emulators/flip_gpsp_core.c",
