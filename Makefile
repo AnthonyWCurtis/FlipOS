@@ -1245,8 +1245,8 @@ $(BUILD)/gpsp_libretro.a: tools/gpsp/UPSTREAM_PIN.txt | $(BUILD)
 	fi
 	@git -C "$(GPSP_SOURCE)" fetch --depth=1 origin "$(GPSP_REF)"
 	@git -C "$(GPSP_SOURCE)" checkout --detach "$(GPSP_REF)"
-	@test "$(git -C "$(GPSP_SOURCE)" rev-parse HEAD)" = "$(GPSP_REF)"
-	$(MAKE) -C "$(GPSP_SOURCE)" -j$(nproc) \
+	@git -C "$(GPSP_SOURCE)" rev-parse HEAD | grep -Fx "$(GPSP_REF)"
+	$(MAKE) -C "$(GPSP_SOURCE)" -j4 \
 		platform=arm64 STATIC_LINKING=1 TARGET="$(abspath $@)" \
 		CC=$(CC) CXX=$(CXX) AR=$(CROSS)ar
 	@test -s "$@"
