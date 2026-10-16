@@ -3,7 +3,9 @@
 # Run manually; stdout is a local report and is never uploaded.
 set -eu
 
-ROOT=$(printenv FLIP_CHARGE_PROBE_ROOT 2>/dev/null || :)
+set +u
+ROOT=$FLIP_CHARGE_PROBE_ROOT
+set -u
 case "$ROOT" in
     "") ;;
     /*) ;;
