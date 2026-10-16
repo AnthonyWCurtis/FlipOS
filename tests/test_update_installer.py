@@ -86,13 +86,13 @@ with tempfile.TemporaryDirectory(prefix="flipos-update-post-rename-") as tmp:
     shim_dir.mkdir()
     shim = shim_dir / "mv"
     shim.write_text(
-        "#!/bin/sh\\n"
-        "case \"$2:$3\" in\\n"
-        "  */bin/flip-frontend.new:*/bin/flip-frontend)\\n"
-        "    /bin/mv \"$@\"\\n"
-        "    exit 1;;\\n"
-        "esac\\n"
-        "exec /bin/mv \"$@\"\\n"
+        "#!/bin/sh\n"
+        "case \"$2:$3\" in\n"
+        "  */bin/flip-frontend.new:*/bin/flip-frontend)\n"
+        "    /bin/mv \"$@\"\n"
+        "    exit 1;;\n"
+        "esac\n"
+        "exec /bin/mv \"$@\"\n"
     )
     shim.chmod(0o755)
 
