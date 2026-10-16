@@ -35,6 +35,9 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/flipos-pycache" \
             python3 -m compileall -q tests tools
 
+      - name: Reproduce RK817 selector audit counterexamples (host model only)
+        run: python3 -m unittest discover -s tests/charger_audit -p 'test_*.py' -v
+
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
       - name: Verify clean checkout (55 host checks and ARM64 builds)
