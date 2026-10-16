@@ -51,6 +51,22 @@ if [ ! -x "$MTP_BIN" ] || [ ! -r "$MTP_CONF" ]; then
     exit 0
 fi
 
+# Only ever take ownership of the expected ADB/MTP function set. An
+# unfamiliar interface may belong to the kernel, USB networking or another
+# user process; removing it would be unsafe and can strand remote access.
+for link in "$CONFIG"/f-*; do
+    [ -e "$link" ] || [ -L "$link" ] || continue
+    case "$link" in
+        "$ADB_LINK"|"$MTP_LINK")
+            [ -L "$link" ] || { log "refused non-symlink function $link"; exit 1; }
+            ;;
+        *)
+            log "refused unknown USB function $link"
+            exit 1
+            ;;
+    esac
+done
+
 # Rockchip's stock usbdevice helper reacts to USB state changes by rebuilding
 # its ADB-only gadget. Disable that owner before installing the FlipOS composite
 # gadget, otherwise it races our MTP function back out of the configuration.
@@ -157,7 +173,8 @@ if [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
     sleep 0.4
 fi
 
-rm -f "$CONFIG"/f-*
+# Remove just the expected links after unbinding; never sweep configfs.
+rm -f "$ADB_LINK" "$MTP_LINK"
 ln -s "$ADB_FUNC" "$ADB_LINK"
 ln -s "$MTP_FUNC" "$MTP_LINK"
 printf '%s\n' "0x2207" > "$GADGET/idVendor"
