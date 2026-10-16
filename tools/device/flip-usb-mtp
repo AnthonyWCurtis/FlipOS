@@ -61,7 +61,7 @@ bind_dir()
 mkdir -p "$ROOT/logs" "$ROOT/etc" "$MTP_ROOT" "$FFS_DIR"
 touch "$MTP_LOG"
 
-if [ ! -x "$MTP_BIN" ] || [ ! -r "$MTP_CONF" ]; then
+if [ "$MODE" = mtp ] && { [ ! -x "$MTP_BIN" ] || [ ! -r "$MTP_CONF" ]; }; then
     log "disabled missing binary/config"
     exit 0
 fi
@@ -177,3 +177,53 @@ fi
 
 fi
 
+
+UDC=$(cat "$GADGET/UDC" 2>/dev/null || true)
+if [ -z "$UDC" ]; then
+    UDC=$(ls /sys/class/udc 2>/dev/null | head -n 1)
+fi
+
+if [ -z "$UDC" ]; then
+    log "no USB device controller"
+    exit 1
+fi
+
+# Install the complete FlipOS composite while unbound. usbdevice stop above
+# normally leaves UDC empty; handle a pre-existing binding defensively.
+if [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
+    printf '\n' > "$GADGET/UDC"
+    sleep 0.4
+fi
+
+# Refuse to dismantle a gadget containing any non-FlipOS function.
+for link in "$CONFIG"/f-*; do
+    [ -e "$link" ] || [ -L "$link" ] || continue
+    case "$link" in
+        "$ADB_LINK"|"$MTP_LINK") ;;
+        *) log "unexpected gadget function $link"; exit 4 ;;
+    esac
+done
+
+[ ! -L "$ADB_LINK" ] || rm -f "$ADB_LINK"
+[ ! -L "$MTP_LINK" ] || rm -f "$MTP_LINK"
+ln -s "$ADB_FUNC" "$ADB_LINK"
+if [ "$MODE" = mtp ]; then
+    ln -s "$MTP_FUNC" "$MTP_LINK"
+fi
+printf '%s\n' "0x2207" > "$GADGET/idVendor"
+# Keep the development PID so the existing ADB driver remains usable while
+# adding the standards-based MTP interface.
+printf '%s\n' "0x0006" > "$GADGET/idProduct"
+printf '%s\n' "FlipOS" > "$GADGET/strings/0x409/product"
+printf '%s\n' "FlipOS Project" > "$GADGET/strings/0x409/manufacturer"
+if [ "$MODE" = mtp ]; then
+    printf '%s\n' "FlipOS MTP + ADB" > "$CONFIG/strings/0x409/configuration"
+else
+    printf '%s\n' "FlipOS ADB" > "$CONFIG/strings/0x409/configuration"
+fi
+printf '%s\n' "0x0311" > "$GADGET/bcdDevice"
+
+touch "$OWNER_MARKER"
+printf '%s\n' "$UDC" > "$GADGET/UDC"
+log "ready mode=$MODE udc=$UDC"
+exit 0
