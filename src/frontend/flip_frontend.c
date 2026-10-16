@@ -354,7 +354,8 @@ static const char *settings_items[] = {
     ((int)(sizeof(settings_items) / sizeof(settings_items[0])))
 
 static const char *connectivity_items[] = {
-    "WI-FI"
+    "WI-FI",
+    "USB FILE TRANSFER"
 };
 #define CONNECTIVITY_ITEM_COUNT \
     ((int)(sizeof(connectivity_items) / sizeof(connectivity_items[0])))
@@ -10858,15 +10859,33 @@ int main(void)
 
             } else if (screen == SCREEN_SETTINGS_CONNECTIVITY) {
 
-                wifi_message[0] = '\0';
-                wifi_selected = 0;
-                wifi_return_screen = SCREEN_SETTINGS_CONNECTIVITY;
-                screen = SCREEN_WIFI;
-                draw_wifi(&drm, wifi_selected, 0.0);
-                flip_osd_show_status("SCANNING WI-FI...");
-                flip_osd_draw(&drm);
-                flip_drm_present(&drm);
-                (void)refresh_wifi_networks();
+                if (connectivity_selected == 0) {
+                    wifi_message[0] = '\0';
+                    wifi_selected = 0;
+                    wifi_return_screen = SCREEN_SETTINGS_CONNECTIVITY;
+                    screen = SCREEN_WIFI;
+                    draw_wifi(&drm, wifi_selected, 0.0);
+                    flip_osd_show_status("SCANNING WI-FI...");
+                    flip_osd_draw(&drm);
+                    flip_drm_present(&drm);
+                    (void)refresh_wifi_networks();
+                } else {
+                    /*
+                     * On-demand USB mode switch. Do not wait on a child that
+                     * rebinds ADB; settings UI must stay alive when host
+                     * enumeration resets. Never touch game saves.
+                     */
+                    pid_t usb_child = fork();
+                    if (usb_child == 0) {
+                        execl(FLIP_BIN_ROOT "/flip-usb-mtp",
+                              "flip-usb-mtp", "mtp", (char *)NULL);
+                        _exit(127);
+                    }
+                    if (usb_child > 0)
+                        flip_osd_show_status("FILE TRANSFER STARTING");
+                    else
+                        flip_osd_show_status("USB MODE UNAVAILABLE");
+                }
                 redraw = 1;
 
             } else if (screen == SCREEN_SETTINGS_SYSTEM) {

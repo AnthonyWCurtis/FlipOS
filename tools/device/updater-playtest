@@ -112,15 +112,14 @@ if [ "$SD_WRITABLE" -eq 1 ]; then
     [ ! -f "$ROOT/bin/flip-optimizer-progress" ] || chmod 755 "$ROOT/bin/flip-optimizer-progress"
 fi
 
-# Replace the stock ADB-only USB gadget with FlipOS' composite MTP + ADB
-# presentation. The helper exposes only ROMs, BIOS and Saves to the host.
-USB_MTP_SERVICE="$ROOT/bin/flip-usb-mtp"
-if [ -x "$USB_MTP_SERVICE" ] && [ -x "$ROOT/bin/umtprd" ] &&
-   [ -r "$ROOT/etc/umtprd.conf" ]; then
-    if "$USB_MTP_SERVICE" >> "$LOG_TARGET" 2>&1; then
-        echo "FLIP_MTP: startup complete" >> "$LOG_TARGET"
+# ADB is the boot default. MTP is enabled only through Connectivity
+# Settings and never restored automatically after reboot.
+USB_MODE_SERVICE="$ROOT/bin/flip-usb-mtp"
+if [ -x "$USB_MODE_SERVICE" ]; then
+    if "$USB_MODE_SERVICE" adb >> "$LOG_TARGET" 2>&1; then
+        echo "FLIP_USB: startup ADB-only complete" >> "$LOG_TARGET"
     else
-        echo "FLIP_MTP: startup failed; continuing without MTP" >> "$LOG_TARGET"
+        echo "FLIP_USB: startup ADB-only failed" >> "$LOG_TARGET"
     fi
 fi
 

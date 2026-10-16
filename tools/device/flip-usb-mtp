@@ -1,6 +1,21 @@
 #!/bin/sh
 set -eu
 
+# Default is ADB-only. MTP can only be activated explicitly from Settings.
+MODE=${1:-adb}
+case "$MODE" in
+    adb|mtp) ;;
+    status)
+        if [ -L /sys/kernel/config/usb_gadget/rockchip/configs/b.1/f-ffs.mtp ]; then
+            printf 'mtp\n'
+        else
+            printf 'adb\n'
+        fi
+        exit 0
+        ;;
+    *) echo "Usage: $0 [adb|mtp|status]" >&2; exit 2 ;;
+esac
+
 ROOT=/mnt/SDCARD/flipos-dev
 MTP_BIN="$ROOT/bin/umtprd"
 MTP_CONF="$ROOT/etc/umtprd.conf"
@@ -46,7 +61,7 @@ bind_dir()
 mkdir -p "$ROOT/logs" "$ROOT/etc" "$MTP_ROOT" "$FFS_DIR"
 touch "$MTP_LOG"
 
-if [ ! -x "$MTP_BIN" ] || [ ! -r "$MTP_CONF" ]; then
+if [ "$MODE" = mtp ] && { [ ! -x "$MTP_BIN" ] || [ ! -r "$MTP_CONF" ]; }; then
     log "disabled missing binary/config"
     exit 0
 fi
@@ -60,11 +75,12 @@ if [ ! -f "$OWNER_MARKER" ] && [ -x /usr/bin/usbdevice ]; then
     log "stock usbdevice stopped"
 fi
 
-# Expose only user-owned content. Internal state, updater files, logs and
-# calibration data never become part of the MTP filesystem.
-bind_dir /mnt/SDCARD/Roms "$MTP_ROOT/ROMs"
-bind_dir "$ROOT/system" "$MTP_ROOT/BIOS"
-bind_dir "$ROOT/saves" "$MTP_ROOT/Saves"
+# Do not expose user files unless File Transfer is intentionally selected.
+if [ "$MODE" = mtp ]; then
+    bind_dir /mnt/SDCARD/Roms "$MTP_ROOT/ROMs"
+    bind_dir "$ROOT/system" "$MTP_ROOT/BIOS"
+    bind_dir "$ROOT/saves" "$MTP_ROOT/Saves"
+fi
 
 # Preserve ADB on development/playtest units. The stock helper has been
 # stopped, so FlipOS now owns this FunctionFS instance and the composite.
@@ -89,6 +105,24 @@ if [ ! -e "$ADB_FFS/ep1" ]; then
     exit 1
 fi
 
+# Do not disturb an already-bound ADB-only gadget on normal boot.
+if [ "$MODE" = adb ] && [ ! -L "$MTP_LINK" ] &&
+   [ -L "$ADB_LINK" ] &&
+   [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
+    touch "$OWNER_MARKER"
+    log "adb-only already configured"
+    exit 0
+fi
+
+# Never force a live MTP session offline. Reboot (default ADB-only) after
+# completing transfers, rather than tearing down active MTP endpoints.
+if [ "$MODE" = adb ] && [ -L "$MTP_LINK" ] &&
+   [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
+    log "adb-only refused while MTP active; reboot after transfers"
+    exit 3
+fi
+
+if [ "$MODE" = mtp ]; then
 # The FunctionFS instance must exist in configfs before this kernel accepts
 # a mount using the matching "mtp" instance name.
 if [ ! -d "$MTP_FUNC" ]; then
@@ -133,12 +167,16 @@ if [ ! -e "$FFS_DIR/ep1" ]; then
     exit 1
 fi
 
-if [ -L "$MTP_LINK" ] && [ -L "$ADB_LINK" ] &&
+if [ "$MODE" = mtp ] && [ -L "$MTP_LINK" ] &&
+   [ -L "$ADB_LINK" ] &&
    [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
     touch "$OWNER_MARKER"
     log "already configured"
     exit 0
 fi
+
+fi
+
 
 UDC=$(cat "$GADGET/UDC" 2>/dev/null || true)
 if [ -z "$UDC" ]; then
@@ -157,19 +195,35 @@ if [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ]; then
     sleep 0.4
 fi
 
-rm -f "$CONFIG"/f-*
+# Refuse to dismantle a gadget containing any non-FlipOS function.
+for link in "$CONFIG"/f-*; do
+    [ -e "$link" ] || [ -L "$link" ] || continue
+    case "$link" in
+        "$ADB_LINK"|"$MTP_LINK") ;;
+        *) log "unexpected gadget function $link"; exit 4 ;;
+    esac
+done
+
+[ ! -L "$ADB_LINK" ] || rm -f "$ADB_LINK"
+[ ! -L "$MTP_LINK" ] || rm -f "$MTP_LINK"
 ln -s "$ADB_FUNC" "$ADB_LINK"
-ln -s "$MTP_FUNC" "$MTP_LINK"
+if [ "$MODE" = mtp ]; then
+    ln -s "$MTP_FUNC" "$MTP_LINK"
+fi
 printf '%s\n' "0x2207" > "$GADGET/idVendor"
 # Keep the development PID so the existing ADB driver remains usable while
 # adding the standards-based MTP interface.
 printf '%s\n' "0x0006" > "$GADGET/idProduct"
 printf '%s\n' "FlipOS" > "$GADGET/strings/0x409/product"
 printf '%s\n' "FlipOS Project" > "$GADGET/strings/0x409/manufacturer"
-printf '%s\n' "FlipOS MTP + ADB" > "$CONFIG/strings/0x409/configuration"
+if [ "$MODE" = mtp ]; then
+    printf '%s\n' "FlipOS MTP + ADB" > "$CONFIG/strings/0x409/configuration"
+else
+    printf '%s\n' "FlipOS ADB" > "$CONFIG/strings/0x409/configuration"
+fi
 printf '%s\n' "0x0311" > "$GADGET/bcdDevice"
 
 touch "$OWNER_MARKER"
 printf '%s\n' "$UDC" > "$GADGET/UDC"
-log "ready udc=$UDC storage=$MTP_ROOT"
+log "ready mode=$MODE udc=$UDC"
 exit 0
