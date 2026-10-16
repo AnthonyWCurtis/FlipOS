@@ -87,7 +87,10 @@ def service_health(root: Path) -> str:
     try:
         proc = os.stat(process_exe)
     except FileNotFoundError:
-        return "pid_not_running"
+        # A present /proc/<pid> with an unreadable or absent exe is not
+        # proof that the daemon stopped (zombie/permissions/races).
+        proc_dir = path_at(root, "/proc/" + str(pid))
+        return "identity_unavailable" if proc_dir.exists() else "pid_not_running"
     except OSError:
         return "identity_unavailable"
     try:
@@ -124,8 +127,10 @@ def validate(count: int, interval: float, fixture_root: Path | None) -> None:
         raise ValueError("interval must be 0..60 seconds")
     if fixture_root is None and interval < 5 and count > 1:
         raise ValueError("live multiple-sample reads require at least 5 seconds spacing")
-    if fixture_root is not None and not fixture_root.is_absolute():
-        raise ValueError("synthetic fixture root must be absolute")
+    if fixture_root is not None and (
+        not fixture_root.is_absolute() or fixture_root.resolve() == Path("/")
+    ):
+        raise ValueError("synthetic fixture root must be a distinct absolute test directory")
 
 
 def run(count: int, interval: float, fixture_root: Path | None, output) -> None:
