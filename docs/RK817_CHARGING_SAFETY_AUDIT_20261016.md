@@ -53,6 +53,10 @@ In `flip_charge_service.c`, a failed `flip_charger_update` logs an error then ca
 - Startup's PID-file check uses `kill -0`, which can match a reused/unrelated process and skip the service; there is no supervision/restart policy in the reviewed boot script.
 - Existing tests check pure temperature hysteresis and mocked sysfs writes; architecture tests are string checks only. They do not mock concurrent vendor writes, I²C errors, missing temperature with an existing cap, extreme-temperature actual charge cutoff, charger driver unload/restore, or repeated suspend/hotplug. No PMIC kernel-unit stress or physical temperature-range acceptance is shown in the public sources reviewed.
 
+## Current release's charger module identity
+
+The existing release packaging still sources `flip_rk817_charger.ko` from the **v0.1.0-beta.4** legacy update archive, instead of compiling the module from the current checked-out C source. `tools/kernel/legacy-module-lock.json` pins module SHA-256 `ee2b58290d49a62602435086c39d28bbd9c4fb0145fa81034dab413780050bb4`, base kernel `5.10.160`, and vermagic `5.10.160 SMP mod_unload aarch64`. The release CI validates these inputs, but hash and vermagic are not proof of real board/driver equivalence. **Our code observations apply to the published helper C source; whether the shipped Beta 4 binary has identical semantics needs source provenance/disassembly or documented matching-build evidence.** Never silently replace that prebuilt `.ko` with a speculative new kernel module. The existing lock and device-side ABI checks must be reconciled first.
+
 ## Recommended implementation sequence
 
 1. **Non-invasive physical inventory (read only):** identify exact PMIC, Rockchip charger driver and `regmap` ownership, device-tree TS battery thermistor connection/configuration, effective PMIC charging/status register vs sysfs, kernel ABI and installed module provenance. No testing at hazardous battery temperature. Do not disconnect thermal protection or modify CHRG_EN during this inventory.
