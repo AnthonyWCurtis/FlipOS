@@ -167,7 +167,8 @@ static flip_battery_capacity_level_t parse_capacity_level(
 }
 
 static void read_external_power(
-    flip_battery_snapshot_t *snapshot)
+    flip_battery_snapshot_t *snapshot,
+    int allow_dev_override)
 {
     long ac_online = 0;
     long usb_online = 0;
@@ -185,6 +186,9 @@ static void read_external_power(
     snapshot->external_power_online =
         (ac_valid && ac_online == 1) ||
         (usb_valid && usb_online == 1);
+
+    if (!allow_dev_override)
+        return;
 
     FILE *override = fopen(FLIP_EXTERNAL_POWER_OVERRIDE, "r");
     if (override) {
@@ -223,8 +227,9 @@ static int read_dev_override_long(
     return 1;
 }
 
-int flip_battery_read(
-    flip_battery_snapshot_t *snapshot)
+static int read_battery_snapshot(
+    flip_battery_snapshot_t *snapshot,
+    int allow_dev_overrides)
 {
     if (!snapshot)
         return -1;
@@ -302,20 +307,20 @@ int flip_battery_read(
 
     /* Development-only RAM overrides for real-hardware policy validation. */
     long override_value = 0;
-    if (read_dev_override_long(
+    if (allow_dev_overrides && read_dev_override_long(
             FLIP_BATTERY_PERCENT_OVERRIDE, 0, 100, &override_value)) {
         snapshot->percent = (int)override_value;
         snapshot->percent_valid = 1;
     }
 
-    if (read_dev_override_long(
+    if (allow_dev_overrides && read_dev_override_long(
             FLIP_BATTERY_VOLTAGE_OVERRIDE, 2500000L, 5000000L,
             &override_value)) {
         snapshot->voltage_uv = override_value;
         snapshot->voltage_valid = 1;
     }
 
-    if (read_dev_override_long(
+    if (allow_dev_overrides && read_dev_override_long(
             FLIP_BATTERY_TEMP_OVERRIDE, -400, 1000, &override_value)) {
         snapshot->temp_deci_c = (int)override_value;
         snapshot->temp_valid = 1;
@@ -334,9 +339,21 @@ int flip_battery_read(
         }
     }
 
-    read_external_power(snapshot);
+    read_external_power(snapshot, allow_dev_overrides);
 
     return 0;
+}
+
+int flip_battery_read(flip_battery_snapshot_t *snapshot)
+{
+    return read_battery_snapshot(snapshot, 1);
+}
+
+int flip_battery_read_hardware(flip_battery_snapshot_t *snapshot)
+{
+    /* Charging policy must never take its thermistor or USB state from
+     * development-only /tmp override files. */
+    return read_battery_snapshot(snapshot, 0);
 }
 
 const char *flip_battery_status_name(

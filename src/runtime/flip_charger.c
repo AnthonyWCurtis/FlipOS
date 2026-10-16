@@ -75,6 +75,19 @@ int flip_charger_update(
     if (!charger->helper_available)
         return 0;
 
+    /*
+     * Uncertain supply state or missing battery temperature while plugged
+     * in cannot establish that the last thermal cap is safe to remove.
+     * Keep the existing helper setting unchanged until a trustworthy
+     * sample arrives. A verified unplug may still release the cap.
+     *
+     * The stock RK817 charger remains the ultimate safety authority;
+     * this is a conservative hold, not proof that charging was stopped.
+     */
+    if (!battery->external_power_valid ||
+        (battery->external_power_online && !battery->temp_valid))
+        return 0;
+
     flip_charge_decision_t decision;
     if (flip_charge_policy_evaluate(
             &charger->policy,

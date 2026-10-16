@@ -22,3 +22,16 @@ print("RK817 charge-current helper architecture passed")
 assert 'override_active' in module
 assert 'target_ma = baseline_ma < ma ? baseline_ma : ma' in module
 assert 'if (!override_active)' in module
+
+# Charger supervision must not consume simulated development-only /tmp sensor
+# overrides, and a failed thermal cap write must never trigger a stock release.
+charge_service = (ROOT / "src/runtime/flip_charge_service.c").read_text()
+battery_reader = (ROOT / "src/runtime/flip_battery.c").read_text()
+assert "flip_battery_read_hardware(&battery)" in charge_service
+assert "read_battery_snapshot(snapshot, 0)" in battery_reader
+assert "read_external_power(snapshot, allow_dev_overrides)" in battery_reader
+assert "!battery->external_power_valid" in charger
+assert "(battery->external_power_online && !battery->temp_valid)" in charger
+assert "if (update_result < 0) {" in charge_service
+failure_branch = charge_service.split("if (update_result < 0) {", 1)[1].split("} else if", 1)[0]
+assert "flip_charger_restore(" not in failure_branch

@@ -34,10 +34,12 @@ def make_package(base: Path, files: dict[str, bytes]) -> Path:
     return package
 
 
-def run(installer_root: Path, package: Path):
+def run(installer_root: Path, package: Path, path_prefix: Path | None = None):
     env = os.environ.copy()
     env["FLIP_UPDATE_ROOT"] = str(installer_root)
     env["FLIP_UPDATE_PROGRESS"] = str(installer_root / "progress")
+    if path_prefix is not None:
+        env["PATH"] = str(path_prefix) + os.pathsep + env.get("PATH", "")
     return subprocess.run(
         [str(INSTALLER), str(package)],
         env=env,
@@ -71,6 +73,39 @@ with tempfile.TemporaryDirectory(prefix="flipos-update-") as tmp:
     assert not (install / "state/update/available").exists()
     assert not (install / "state/update/online-available").exists()
     assert (install / ".update-rollback/current/files/bin/flip-frontend").read_bytes() == b"old-frontend"
+
+# Simulate a rename which replaces the active file, but whose caller then
+# receives an error. A pre-recorded rollback journal must restore the old file.
+with tempfile.TemporaryDirectory(prefix="flipos-update-post-rename-") as tmp:
+    base = Path(tmp)
+    install = base / "install"
+    (install / "bin").mkdir(parents=True)
+    (install / "bin/flip-frontend").write_bytes(b"old-frontend")
+
+    shim_dir = base / "shims"
+    shim_dir.mkdir()
+    shim = shim_dir / "mv"
+    shim.write_text(
+        "#!/bin/sh\n"
+        "case \"$2:$3\" in\n"
+        "  */bin/flip-frontend.new:*/bin/flip-frontend)\n"
+        "    /bin/mv \"$@\"\n"
+        "    exit 1;;\n"
+        "esac\n"
+        "exec /bin/mv \"$@\"\n"
+    )
+    shim.chmod(0o755)
+
+    package = make_package(base, {"bin/flip-frontend": b"new-frontend"})
+    result = run(install, package, path_prefix=shim_dir)
+    assert result.returncode != 0, "rename failure should abort the update"
+    assert (install / "bin/flip-frontend").read_bytes() == b"old-frontend", (
+        "rollback must restore a file even if replacement landed before error"
+    )
+    journal = install / ".update-rollback/current/installed.list"
+    assert journal.exists()
+    assert "bin/flip-frontend" in journal.read_text().splitlines()
+    assert "phase=failed" in (install / "progress").read_text()
 
 with tempfile.TemporaryDirectory(prefix="flipos-update-bad-") as tmp:
     base = Path(tmp)

@@ -35,6 +35,18 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/flipos-pycache" \
             python3 -m compileall -q tests tools
 
+      - name: Combined offsite safety regression models and release evidence verifier
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_release_readiness.py' -v
+          python3 -m unittest discover -s tests/models -p 'test_update_powerloss_model.py' -v
+          python3 -m unittest discover -s tests/diagnostics -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/charger_audit -p 'test_*.py' -v
+          python3 -m unittest discover -s tests -p 'test_charge_readonly_inventory.py' -v
+          python3 -m unittest discover -s tests -p 'test_charge_observation.py' -v
+          python3 -m unittest discover -s tests -p 'test_charge_collect_adb.py' -v
+          sh -n tools/device/flip-charge-readonly-inventory.sh
+
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
       - name: Verify clean checkout (55 host checks and ARM64 builds)
