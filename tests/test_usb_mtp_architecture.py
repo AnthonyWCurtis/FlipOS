@@ -32,7 +32,7 @@ for token in [
 ]:
     assert token in config, token
 
-for token in ["flip-usb-mtp", "umtprd", "umtprd.conf", "FLIP_MTP: startup complete"]:
+for token in ["flip-usb-mtp", "FLIP_USB: startup ADB-only complete", '"$USB_MODE_SERVICE" adb']:
     assert token in launcher, token
 
 assert "etc/umtprd.conf" in installer
@@ -48,3 +48,15 @@ assert "GNU GENERAL PUBLIC LICENSE" in license_text
 assert "2241a803c27f1fff7537cb9504befeb810b880d3" in upstream
 
 print("USB MTP architecture passed")
+
+# USB boot mode is ADB-only, and MTP is an explicit Connectivity action.
+frontend = Path("src/frontend/flip_frontend.c").read_text()
+assert '"USB FILE TRANSFER"' in frontend
+assert 'flip-usb-mtp", "mtp"' in frontend
+assert 'MODE=${1:-adb}' in script
+assert 'status)' in script
+assert 'if [ "$MODE" = mtp ]; then' in script
+assert 'adb-only refused while MTP active' in script
+assert 'unexpected gadget function' in script
+assert 'rm -f "$CONFIG"/f-*' not in script
+assert 'FLIP_MTP: startup complete' not in launcher
