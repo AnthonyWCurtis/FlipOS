@@ -35,6 +35,17 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/flipos-pycache" \
             python3 -m compileall -q tests tools
 
+      - name: Guard experimental gpSP isolation and default mGBA behaviour
+        run: python3 -m unittest discover -s tests -p 'test_gpsp_experimental_architecture.py' -v
+
+      - name: Cross-compile experimental gpSP ARM64 binary (not packaged)
+        run: |
+          set -euo pipefail
+          make gba-gpsp-experimental
+          test -s build/flip-gba-gpsp-test
+          aarch64-linux-gnu-readelf -h build/flip-gba-gpsp-test | grep -q 'AArch64'
+          test "$(git -C build/gpsp-source rev-parse HEAD)" = "5819380c2ffb0900219d700a382ee68c464ebb99"
+
       # This runs before the release modules are downloaded: it proves
       # development verification works on a fresh checkout by itself.
       - name: Verify clean checkout (55 host checks and ARM64 builds)
