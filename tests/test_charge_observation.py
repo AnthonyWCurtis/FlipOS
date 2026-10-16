@@ -95,6 +95,11 @@ class ChargeObservationTests(unittest.TestCase):
         self.write(observer.PID_PATH, "7131\n")
         self.assertEqual(observer.service_health(self.root), "pid_not_running")
 
+    def test_existing_process_without_accessible_exe_is_unverified(self):
+        self.write(observer.PID_PATH, "7131\n")
+        (self.root / "proc/7131").mkdir(parents=True)
+        self.assertEqual(observer.service_health(self.root), "identity_unavailable")
+
     def test_malformed_pid_never_influences_filesystem_path(self):
         for value in ("", "0\n", "1\n", "-3\n", "../secret\n", "999999999999\n", "2;rm\n"):
             with self.subTest(pid=value):
@@ -126,6 +131,8 @@ class ChargeObservationTests(unittest.TestCase):
             observer.validate(0, 10, self.root)
         with self.assertRaises(ValueError):
             observer.validate(2, 0, Path("relative"))
+        with self.assertRaises(ValueError):
+            observer.validate(2, 0, Path("/"))
 
     def test_no_fixture_mutation(self):
         temp = self.write("/sys/class/power_supply/battery/temp", "250\n")
