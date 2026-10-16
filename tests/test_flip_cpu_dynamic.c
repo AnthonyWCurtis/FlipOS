@@ -1,6 +1,7 @@
 #include "flip_cpu_dynamic.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -391,6 +392,90 @@ static void test_failed_lower_probe_learns_session_floor(void)
     assert(read_unsigned_value("scaling_max_freq") == 600000);
 }
 
+static void test_invalid_fps_does_not_consume_warmup(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    const unsigned original_warmup = controller.warmup_windows;
+
+    assert(sample(&controller, NAN, 59.728, 10000, 0) == 0);
+    assert(sample(&controller, INFINITY, 59.728, 10000, 0) == 0);
+    assert(sample(&controller, 59.728, INFINITY, 10000, 0) == 0);
+    assert(sample(&controller, 0.0, 59.728, 10000, 0) == 0);
+    assert(sample(&controller, 59.728, 0.0, 10000, 0) == 0);
+
+    assert(controller.warmup_windows == original_warmup);
+    assert(read_unsigned_value("scaling_max_freq") == 1104000);
+    consume_warmup(&controller);
+    assert(controller.warmup_windows == 0);
+}
+
+static void test_invalid_fps_breaks_healthy_lowering_streak(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    consume_warmup(&controller);
+
+    assert(sample(&controller, 53.0, 59.728, 19000, 0) == 1);
+    assert(read_unsigned_value("scaling_max_freq") == 1416000);
+
+    for (unsigned i = 0; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER - 1; ++i) {
+        assert(sample(&controller, 59.728, 59.728, 7000, 0) == 0);
+    }
+    assert(controller.good_windows == FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER - 1);
+
+    assert(sample(&controller, NAN, 59.728, 7000, 0) == 0);
+    assert(controller.good_windows == 0);
+    assert(sample(&controller, 59.728, 59.728, 7000, 0) == 0);
+    assert(read_unsigned_value("scaling_max_freq") == 1416000);
+
+    for (unsigned i = 1; i < FLIP_CPU_DYNAMIC_GOOD_WINDOWS_TO_LOWER - 1; ++i) {
+        assert(sample(&controller, 59.728, 59.728, 7000, 0) == 0);
+    }
+    assert(sample(&controller, 59.728, 59.728, 7000, 0) == 2);
+    assert(read_unsigned_value("scaling_max_freq") == 1104000);
+}
+
+static void test_invalid_fps_breaks_bad_window_streak(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    consume_warmup(&controller);
+
+    assert(sample(&controller, 59.20, 59.728, 16000, 0) == 0);
+    assert(controller.bad_windows == 1);
+
+    assert(sample(&controller, 59.728, NAN, 16000, 0) == 0);
+    assert(controller.bad_windows == 0);
+
+    assert(sample(&controller, 59.20, 59.728, 16000, 0) == 0);
+    assert(read_unsigned_value("scaling_max_freq") == 1104000);
+
+    assert(sample(&controller, 59.20, 59.728, 16000, 0) == 1);
+    assert(read_unsigned_value("scaling_max_freq") == 1416000);
+}
+
+static void test_invalid_sample_does_not_short_circuit_audio_pressure(void)
+{
+    reset_policy(1104000);
+
+    flip_cpu_dynamic_t controller;
+    assert(flip_cpu_dynamic_init(&controller, 1992000) == 1);
+    consume_warmup(&controller);
+
+    /* Missing FPS cannot prove that clock escalation will fix an audio drop. */
+    assert(sample(&controller, NAN, 59.728, 13000, 2) == 0);
+    assert(read_unsigned_value("scaling_max_freq") == 1104000);
+    assert(sample(&controller, 59.728, 59.728, 13000, 2) == 1);
+    assert(read_unsigned_value("scaling_max_freq") == 1416000);
+}
+
 static void test_controller_does_not_lower_policy(void)
 {
     reset_policy(1608000);
@@ -425,6 +510,10 @@ int main(void)
     test_lowering_never_goes_below_session_base();
     test_failed_lower_probe_learns_session_floor();
     test_controller_does_not_lower_policy();
+    test_invalid_fps_does_not_consume_warmup();
+    test_invalid_fps_breaks_healthy_lowering_streak();
+    test_invalid_fps_breaks_bad_window_streak();
+    test_invalid_sample_does_not_short_circuit_audio_pressure();
 
     puts("flip_cpu_dynamic tests passed");
     return EXIT_SUCCESS;
