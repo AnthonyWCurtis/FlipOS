@@ -52,7 +52,7 @@ LIMITS = {
 STATUSES = {"Charging", "Discharging", "Not charging", "Full", "Unknown"}
 FIELDS = set(LIMITS) | {"battery_status", "kernel_release", "module_file_sha256"}
 DEV_LINE = re.compile(r"^([^\s\t]+)\tdevice(?:\s|$)")
-FIELD_LINE = re.compile(r"([a-z_]+)=([^\r\n]{0,80})\Z")
+FIELD_LINE = re.compile(r"([a-z_][a-z_0-9]*)=([^\r\n]{0,80})\Z")
 
 
 class CollectionError(RuntimeError):
