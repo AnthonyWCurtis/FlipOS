@@ -59,6 +59,7 @@ done
 "$ADB" push build/flip-charge-service "$ROOT/bin/flip-charge-service" >/dev/null
 "$ADB" push build/umtprd "$ROOT/bin/umtprd" >/dev/null
 "$ADB" push tools/device/flip-usb-mtp "$ROOT/bin/flip-usb-mtp" >/dev/null
+"$ADB" push tools/device/flip-usb-mode "$ROOT/bin/flip-usb-mode" >/dev/null
 "$ADB" push tools/device/umtprd.conf "$ROOT/etc/umtprd.conf" >/dev/null
 "$ADB" push build/flip-optimizer-supervisor "$ROOT/bin/flip-optimizer-supervisor" >/dev/null
 "$ADB" push build/flip-optimizer-deadman "$ROOT/bin/flip-optimizer-deadman" >/dev/null
@@ -84,6 +85,7 @@ done
         '$ROOT/bin/flip-charge-service' \
         '$ROOT/bin/umtprd' \
         '$ROOT/bin/flip-usb-mtp' \
+        '$ROOT/bin/flip-usb-mode' \
         '$ROOT/bin/flip-update-install' \
         '$ROOT/bin/flip-update-fetch' \
         '$ROOT/bin/flip-optimizer-supervisor' \
