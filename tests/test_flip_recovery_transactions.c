@@ -6,6 +6,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+int flip_recovery_test_build_path(
+    const flip_recovery_context_t *context,
+    const char *suffix,
+    char *path,
+    size_t path_size);
+
 int flip_save_test_build_path(
     const flip_save_context_t *context,
     const char *suffix,
