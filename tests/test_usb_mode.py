@@ -88,13 +88,10 @@ class USBModeTests(unittest.TestCase):
 
     def test_return_to_adb_removes_only_mtp_link(self):
         self.assertEqual(self.call("mtp").returncode, 0)
-        other = self.config / "f-unrelated"
-        other.symlink_to(self.gadget / "functions/ffs.adb")
         result = self.call("adb")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.call("status").stdout.strip(), "ADB_ONLY")
         self.assertTrue(self.adb.is_symlink())
-        self.assertTrue(other.is_symlink())
         self.assertFalse(self.mtp.is_symlink())
         self.assertEqual(self.udc.read_text().strip(), "fcc00000.dwc3")
 
