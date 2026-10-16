@@ -79,6 +79,7 @@ typedef enum {
     SCREEN_GAME_DETAILS,
     SCREEN_SETTINGS,
     SCREEN_SETTINGS_CONNECTIVITY,
+    SCREEN_SETTINGS_USB,
     SCREEN_SETTINGS_SYSTEM,
     SCREEN_SETTINGS_TIME,
     SCREEN_SETTINGS_BIOS,
@@ -354,10 +355,20 @@ static const char *settings_items[] = {
     ((int)(sizeof(settings_items) / sizeof(settings_items[0])))
 
 static const char *connectivity_items[] = {
-    "WI-FI"
+    "WI-FI",
+    "USB FILE TRANSFER"
 };
 #define CONNECTIVITY_ITEM_COUNT \
     ((int)(sizeof(connectivity_items) / sizeof(connectivity_items[0])))
+
+static const char *usb_mode_items[] = {
+    "ENABLE FILE TRANSFER (MTP)",
+    "ADB ONLY (DEFAULT)"
+};
+#define USB_MODE_ITEM_COUNT \
+    ((int)(sizeof(usb_mode_items) / sizeof(usb_mode_items[0])))
+
+#define USB_MODE_COMMAND "/mnt/SDCARD/flipos-dev/bin/flip-usb-mode"
 
 static const char *system_settings_items[] = {
     "CPU OPTIMIZATION",
@@ -1452,6 +1463,7 @@ static const char *screen_name(screen_t screen)
     case SCREEN_GAME_DETAILS: return "GAME_DETAILS";
     case SCREEN_SETTINGS: return "SETTINGS";
     case SCREEN_SETTINGS_CONNECTIVITY: return "SETTINGS_CONNECTIVITY";
+    case SCREEN_SETTINGS_USB: return "SETTINGS_USB";
     case SCREEN_SETTINGS_SYSTEM: return "SETTINGS_SYSTEM";
     case SCREEN_SETTINGS_TIME: return "SETTINGS_TIME";
     case SCREEN_SETTINGS_BIOS: return "SETTINGS_BIOS";
@@ -4403,6 +4415,54 @@ static void draw_settings_menu(
 
     flip_drm_present(
         drm);
+}
+
+
+
+/*
+ * Diagnostic status is read-only; USB changes only occur after a separate
+ * explicit user confirmation. Never infer USB readiness from an MTP PID.
+ */
+static const char *flip_usb_mode_label(void)
+{
+    static char label[64];
+    FILE *pipe = popen(USB_MODE_COMMAND " status", "r");
+    if (!pipe)
+        return "USB UNAVAILABLE";
+
+    char state[32] = {0};
+    if (!fgets(state, sizeof(state), pipe)) {
+        (void)pclose(pipe);
+        return "USB UNAVAILABLE";
+    }
+    (void)pclose(pipe);
+    state[strcspn(state, "\r\n")] = '\0';
+
+    const char *result = "USB UNAVAILABLE";
+    if (strcmp(state, "ADB_ONLY") == 0)
+        result = "USB - ADB ONLY";
+    else if (strcmp(state, "ADB_MTP") == 0)
+        result = "USB - FILE TRANSFER";
+    else if (strcmp(state, "UNBOUND") == 0)
+        result = "USB - DISCONNECTED";
+
+    snprintf(label, sizeof(label), "%s", result);
+    return label;
+}
+
+static void draw_usb_mode_settings(
+    flip_drm_t *drm,
+    int selected,
+    double progress)
+{
+    draw_settings_menu(
+        drm,
+        flip_usb_mode_label(),
+        usb_mode_items,
+        USB_MODE_ITEM_COUNT,
+        selected,
+        0,
+        progress);
 }
 
 
@@ -8746,6 +8806,8 @@ int main(void)
     int recent_selected = 0;
     int settings_selected = 0;
     int connectivity_selected = 0;
+    int usb_mode_selected = 0;
+    int usb_mode_confirm = 0;
     int system_settings_selected = 0;
     int interface_selected = 0;
     int optimizer_selected = 0;
@@ -9078,6 +9140,11 @@ int main(void)
                     draw_settings_menu(
                         &drm, "CONNECTIVITY", connectivity_items,
                         CONNECTIVITY_ITEM_COUNT, connectivity_selected, 0, 0.0);
+
+                } else if (screen == SCREEN_SETTINGS_USB) {
+
+                    draw_usb_mode_settings(
+                        &drm, usb_mode_selected, 0.0);
 
                 } else if (screen == SCREEN_SETTINGS_SYSTEM) {
 
@@ -9469,6 +9536,11 @@ int main(void)
                 if (connectivity_selected < 0)
                     connectivity_selected = CONNECTIVITY_ITEM_COUNT - 1;
 
+            } else if (screen == SCREEN_SETTINGS_USB) {
+
+                usb_mode_selected = 1 - usb_mode_selected;
+                usb_mode_confirm = 0;
+
             } else if (screen == SCREEN_SETTINGS_SYSTEM) {
 
                 system_settings_selected--;
@@ -9591,6 +9663,11 @@ int main(void)
                 connectivity_selected++;
                 if (connectivity_selected >= CONNECTIVITY_ITEM_COUNT)
                     connectivity_selected = 0;
+
+            } else if (screen == SCREEN_SETTINGS_USB) {
+
+                usb_mode_selected = 1 - usb_mode_selected;
+                usb_mode_confirm = 0;
 
             } else if (screen == SCREEN_SETTINGS_SYSTEM) {
 
@@ -10022,6 +10099,15 @@ int main(void)
             } else if (screen == SCREEN_SETTINGS_BIOS) {
 
                 screen = SCREEN_SETTINGS_SYSTEM;
+                redraw = 1;
+
+            } else if (screen == SCREEN_SETTINGS_USB) {
+
+                if (usb_mode_confirm) {
+                    usb_mode_confirm = 0;
+                } else {
+                    screen = SCREEN_SETTINGS_CONNECTIVITY;
+                }
                 redraw = 1;
 
             } else if (screen == SCREEN_SETTINGS_CONNECTIVITY ||
@@ -10858,15 +10944,43 @@ int main(void)
 
             } else if (screen == SCREEN_SETTINGS_CONNECTIVITY) {
 
-                wifi_message[0] = '\0';
-                wifi_selected = 0;
-                wifi_return_screen = SCREEN_SETTINGS_CONNECTIVITY;
-                screen = SCREEN_WIFI;
-                draw_wifi(&drm, wifi_selected, 0.0);
-                flip_osd_show_status("SCANNING WI-FI...");
-                flip_osd_draw(&drm);
-                flip_drm_present(&drm);
-                (void)refresh_wifi_networks();
+                if (connectivity_selected == 0) {
+                    wifi_message[0] = '\0';
+                    wifi_selected = 0;
+                    wifi_return_screen = SCREEN_SETTINGS_CONNECTIVITY;
+                    screen = SCREEN_WIFI;
+                    draw_wifi(&drm, wifi_selected, 0.0);
+                    flip_osd_show_status("SCANNING WI-FI...");
+                    flip_osd_draw(&drm);
+                    flip_drm_present(&drm);
+                    (void)refresh_wifi_networks();
+                } else {
+                    usb_mode_selected = 0;
+                    usb_mode_confirm = 0;
+                    screen = SCREEN_SETTINGS_USB;
+                }
+                redraw = 1;
+
+            } else if (screen == SCREEN_SETTINGS_USB) {
+
+                if (!usb_mode_confirm) {
+                    usb_mode_confirm = 1;
+                    flip_osd_show_status(
+                        "FINISH PC TRANSFERS - A AGAIN TO SWITCH");
+                } else {
+                    usb_mode_confirm = 0;
+                    /* The exact command contains no user-controlled input. */
+                    int result = system(usb_mode_selected == 0
+                        ? USB_MODE_COMMAND " mtp"
+                        : USB_MODE_COMMAND " adb");
+                    flip_osd_show_status(
+                        result == 0
+                            ? "USB MODE SWITCH REQUEST COMPLETED"
+                            : "USB MODE SWITCH REFUSED - SEE LOG");
+                    fprintf(stderr,
+                        "FRONTEND_USB_MODE selected=%d result=%d\n",
+                        usb_mode_selected, result);
+                }
                 redraw = 1;
 
             } else if (screen == SCREEN_SETTINGS_SYSTEM) {
@@ -11501,6 +11615,11 @@ int main(void)
                 draw_settings_menu(
                     &drm, "CONNECTIVITY", connectivity_items,
                     CONNECTIVITY_ITEM_COUNT, connectivity_selected, 0, 0.0);
+
+            } else if (screen == SCREEN_SETTINGS_USB) {
+
+                draw_usb_mode_settings(
+                    &drm, usb_mode_selected, 0.0);
 
             } else if (screen == SCREEN_SETTINGS_SYSTEM) {
 
