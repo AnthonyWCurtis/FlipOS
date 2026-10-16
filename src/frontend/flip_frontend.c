@@ -368,7 +368,7 @@ static const char *usb_mode_items[] = {
 #define USB_MODE_ITEM_COUNT \
     ((int)(sizeof(usb_mode_items) / sizeof(usb_mode_items[0])))
 
-#define USB_MODE_COMMAND "/mnt/SDCARD/flipos-dev/bin/flip-usb-mode"
+#define USB_MODE_COMMAND FLIP_BIN_ROOT "/flip-usb-mode"
 
 static const char *system_settings_items[] = {
     "CPU OPTIMIZATION",
