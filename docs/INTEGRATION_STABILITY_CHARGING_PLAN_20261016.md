@@ -25,9 +25,10 @@ any of those source branches.
 Combined CI preserves PR #49's 46 Python validation/model/privacy scenarios,
 adds the 6 + 7 + 13 charging scenarios, and continues `make verify`, ARM64
 userland compilation and the package dry run. Total extra Python scenarios:
-**72**, counting six release-safe-model suites by their currently declared
-test methods, not excluding the baseline `make verify` suites.
-[Review note: use the CI logs for exact test counts.]
+**72** in those six suites. This integration branch additionally includes
+`tools/device/flip-charge-collect-adb.py` and **12 mocked-ADB host tests**,
+bringing the extra Python test-method total to **84**. These host tests do
+not run commands on the real handheld. Check CI logs for the exact count.
 
 ## Hard blockers not resolved by this branch
 
