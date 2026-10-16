@@ -1,5 +1,6 @@
 #include "flip_cpu_dynamic.h"
 
+#include <math.h>
 #include <string.h>
 
 static void sort_frequencies(
@@ -124,6 +125,22 @@ int flip_cpu_dynamic_sample(
     if (!controller->enabled)
         return 0;
 
+    /*
+     * Never treat a missing or non-finite timing sample as a healthy window.
+     * It must not consume warmup/probe/cooldown counters or contribute toward
+     * the sustained-good streak that authorises a lower frequency. Clear the
+     * consecutive streaks so no lowering/raising threshold bridges a gap in
+     * reliable measurements.
+     */
+    if (!isfinite(measured_fps) ||
+        !isfinite(target_fps) ||
+        target_fps < 1.0 ||
+        measured_fps < 1.0) {
+        controller->bad_windows = 0;
+        controller->good_windows = 0;
+        return 0;
+    }
+
     if (controller->warmup_windows > 0) {
         controller->warmup_windows--;
         return 0;
@@ -135,9 +152,6 @@ int flip_cpu_dynamic_sample(
     int lower_probe_active = controller->lower_probe_windows > 0;
     if (controller->lower_probe_windows > 0)
         controller->lower_probe_windows--;
-
-    if (target_fps < 1.0 || measured_fps < 1.0)
-        return 0;
 
     double frame_budget_us =
         1000000.0 / target_fps;
