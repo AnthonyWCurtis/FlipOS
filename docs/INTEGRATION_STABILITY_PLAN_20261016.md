@@ -30,7 +30,7 @@ The existing release-package dry run remains unchanged.
 python3 -m unittest discover -s tests -p 'test_release_readiness.py' -v
 python3 -m unittest discover -s tests/models -p 'test_update_powerloss_model.py' -v
 python3 -m unittest discover -s tests/diagnostics -p 'test_*.py' -v
-make test-flip-recovery-transactions test-update-installer test-cpu-dynamic
+make test-recovery test-update-installer test-cpu-dynamic
 make verify
 make test-release-package
 git diff --check
