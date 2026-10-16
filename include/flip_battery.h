@@ -72,6 +72,13 @@ typedef struct {
 int flip_battery_read(
     flip_battery_snapshot_t *snapshot);
 
+/*
+ * Physical-sensor snapshot for charger supervision. No /tmp development
+ * override may influence temperature or external-power charging decisions.
+ */
+int flip_battery_read_hardware(
+    flip_battery_snapshot_t *snapshot);
+
 const char *flip_battery_status_name(
     flip_battery_status_t status);
 
