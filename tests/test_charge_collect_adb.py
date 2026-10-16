@@ -60,6 +60,12 @@ class ChargeADBCollectorTests(unittest.TestCase):
         self.assertNotIn("rom", parsed)
         self.assertNotIn("ssid", parsed)
 
+    def test_module_file_hash_is_parsed_without_claiming_loaded_identity(self):
+        synthetic_hash = "a" * 64
+        parsed = collector.parse("module_file_sha256=" + synthetic_hash + "\n")
+        self.assertEqual(parsed["module_file_sha256"], synthetic_hash)
+        self.assertIsNone(parsed["module_loaded"])
+
     def test_out_of_range_and_unrecognized_status_are_null(self):
         parsed = collector.parse("temp_deci_c=9999\npercent=102\n"
                                  "requested_cap_ma=9999\nbattery_status=SECRET\n"
