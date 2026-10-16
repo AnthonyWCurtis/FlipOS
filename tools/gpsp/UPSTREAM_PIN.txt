@@ -1,0 +1,15 @@
+Experimental gpSP dependency (not installed into releases)
+
+Upstream: https://github.com/libretro/gpsp
+Git commit: 5819380c2ffb0900219d700a382ee68c464ebb99
+License: GNU GPL version 2 (consult upstream COPYING)
+
+The Makefile retrieves this exact Git commit into build/gpsp-source, checks
+HEAD matches it and builds platform=arm64 STATIC_LINKING=1 using the FlipOS
+aarch64-linux-gnu cross compiler. Building this experimental target requires
+network access to upstream GitHub (or a pre-populated checkout at that path).
+No automatic update of the source/ref is allowed.
+
+Do NOT add this target to FlipOS' default installer/release packages until
+source licence/distribution obligations, software persistence and physical
+RK3566 benchmark/compatibility tests are reviewed.
