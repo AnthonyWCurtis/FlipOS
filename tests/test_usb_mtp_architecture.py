@@ -32,8 +32,13 @@ for token in [
 ]:
     assert token in config, token
 
-for token in ["flip-usb-mtp", "umtprd", "umtprd.conf", "FLIP_MTP: startup complete"]:
+for token in ["flip-usb-mode", "USB_MODE_SERVICE", '"$USB_MODE_SERVICE" boot']:
     assert token in launcher, token
+
+mode = Path("tools/device/flip-usb-mode").read_text()
+assert "flip-usb-mtp" in mode
+assert "MTP_HELPER" in mode
+assert "status)" in mode and "boot)" in mode
 
 assert "etc/umtprd.conf" in installer
 assert "build/umtprd" in builder
