@@ -169,6 +169,51 @@ static void test_invalid_values_are_ignored(void)
     assert(!snapshot.external_power_valid);
 }
 
+static void write_absolute_path(const char *path, const char *value)
+{
+    FILE *f = fopen(path, "w");
+    assert(f != NULL);
+    assert(fputs(value, f) >= 0);
+    assert(fclose(f) == 0);
+}
+
+static void test_charger_read_ignores_all_dev_overrides(void)
+{
+    reset_root();
+    write_value("capacity", "72\n");
+    write_value("voltage_now", "4012000\n");
+    write_value("temp", "250\n");
+    write_value_at(FLIP_AC_ROOT, "online", "0\n");
+    write_value_at(FLIP_USB_ROOT, "online", "0\n");
+
+    write_absolute_path(FLIP_BATTERY_PERCENT_OVERRIDE, "1\n");
+    write_absolute_path(FLIP_BATTERY_VOLTAGE_OVERRIDE, "3000000\n");
+    write_absolute_path(FLIP_BATTERY_TEMP_OVERRIDE, "510\n");
+    write_absolute_path(FLIP_EXTERNAL_POWER_OVERRIDE, "1\n");
+
+    flip_battery_snapshot_t simulated;
+    flip_battery_snapshot_t physical;
+    assert(flip_battery_read(&simulated) == 0);
+    assert(simulated.percent_valid && simulated.percent == 1);
+    assert(simulated.voltage_valid && simulated.voltage_uv == 3000000L);
+    assert(simulated.temp_valid && simulated.temp_deci_c == 510);
+    assert(simulated.external_power_valid && simulated.external_power_online);
+
+    assert(flip_battery_read_hardware(&physical) == 0);
+    assert(physical.percent_valid && physical.percent == 72);
+    assert(physical.voltage_valid && physical.voltage_uv == 4012000L);
+    assert(physical.temp_valid && physical.temp_deci_c == 250);
+    assert(physical.external_power_valid && !physical.external_power_online);
+
+    /* A synthetic /tmp temperature must not mask a missing thermistor. */
+    remove_value("temp");
+    assert(flip_battery_read_hardware(&physical) == 0);
+    assert(!physical.temp_valid);
+    assert(flip_battery_read(&simulated) == 0);
+    assert(simulated.temp_valid && simulated.temp_deci_c == 510);
+    reset_root();
+}
+
 static void test_status_names(void)
 {
     assert(strcmp(
@@ -220,6 +265,7 @@ int main(void)
     test_missing_is_nonfatal();
     test_complete_snapshot();
     test_invalid_values_are_ignored();
+    test_charger_read_ignores_all_dev_overrides();
     test_status_names();
     test_capacity_level_names();
 
