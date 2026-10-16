@@ -98,6 +98,17 @@ class USBModeTests(unittest.TestCase):
         self.assertFalse(self.mtp.is_symlink())
         self.assertEqual(self.udc.read_text().strip(), "fcc00000.dwc3")
 
+    def test_unknown_usb_function_prevents_a_mode_change(self):
+        extra = self.config / "f-rndis.net"
+        extra.symlink_to(self.gadget / "functions/ffs.adb")
+        self.assertEqual(self.call("status").stdout.strip(), "UNKNOWN")
+        result = self.call("mtp")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(extra.is_symlink())
+        self.assertTrue(self.adb.is_symlink())
+        self.assertFalse(self.mtp.is_symlink())
+        self.assertEqual(self.udc.read_text().strip(), "fcc00000.dwc3")
+
     def test_return_to_adb_refuses_unknown_owner(self):
         self.assertEqual(self.call("mtp").returncode, 0)
         self.owner.unlink()
