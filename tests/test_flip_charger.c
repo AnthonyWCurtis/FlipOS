@@ -63,6 +63,35 @@ int main(void)
     assert(flip_charger_update(&charger, &battery) == 1);
     assert(read_current() == 500);
 
+    /*
+     * Transient loss of battery thermistor data must never release
+     * an existing protective cap on a plugged-in console.
+     */
+    battery.temp_valid = 0;
+    assert(flip_charger_update(&charger, &battery) == 0);
+    assert(read_current() == 500);
+    assert(charger.applied_current_ma == 500);
+
+    /* Unknown USB/AC status is not proof that charging has stopped. */
+    battery.temp_valid = 1;
+    battery.external_power_valid = 0;
+    battery.temp_deci_c = 250;
+    assert(flip_charger_update(&charger, &battery) == 0);
+    assert(read_current() == 500);
+    assert(charger.applied_current_ma == 500);
+
+    /* Reliable cool + plugged in sample permits normal stock release. */
+    battery.external_power_valid = 1;
+    assert(flip_charger_update(&charger, &battery) == 1);
+    assert(read_current() == -1);
+
+    /* Normal thermal cap can still be established after telemetry recovery. */
+    battery.temp_deci_c = 410;
+    assert(flip_charger_update(&charger, &battery) == 1);
+    assert(read_current() == 1500);
+
+    /* Known unplug permits release even if temperature is no longer valid. */
+    battery.temp_valid = 0;
     battery.external_power_online = 0;
     assert(flip_charger_update(&charger, &battery) == 1);
     assert(read_current() == -1);
