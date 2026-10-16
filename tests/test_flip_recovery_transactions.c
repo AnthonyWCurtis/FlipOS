@@ -6,6 +6,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+int flip_recovery_test_build_path(
+    const flip_recovery_context_t *context,
+    const char *suffix,
+    char *path,
+    size_t path_size);
+
 int flip_save_test_build_path(
     const flip_save_context_t *context,
     const char *suffix,
@@ -211,6 +217,67 @@ static void test_restore_previous_preserves_paired_timeline_and_blocks_resume(vo
     assert(flip_recovery_resume_blocked(&recovery) == 1);
 }
 
+/*
+ * A failed resume marker must not allow recovery to touch the active timeline.
+ * Simulate storage failure without privileges by placing a directory where the
+ * marker's temporary file must be created.
+ */
+static void test_restore_previous_marker_failure_leaves_save_and_state_unchanged(void)
+{
+    flip_save_context_t save;
+    flip_state_context_t state;
+    flip_recovery_context_t recovery;
+    const char *rom = "/mnt/SDCARD/Roms/GB/Marker-Failure.gb";
+    flip_save_context_init(&save, "gb", rom);
+    flip_state_context_init(&state, "gb", rom);
+    flip_recovery_context_init(&recovery, "gb", rom);
+    reset_roots(&save, &state);
+
+    fake_core_t fake;
+    memset(&fake, 0, sizeof(fake));
+    fake.save_memory_size = sizeof(fake.save_memory);
+    flip_core_adapter_t core = make_core(&fake);
+
+    unsigned char current[32];
+    unsigned char previous[32];
+    const unsigned char current_state[] = { 0x12, 0x34, 0x56, 0x78 };
+    memset(current, 0x31, sizeof(current));
+    memset(previous, 0x92, sizeof(previous));
+
+    char current_path[640];
+    char previous_path[640];
+    char state_path_buf[640];
+    char recovery_state_path[640];
+    char failed_marker_tmp[640];
+    save_path(&save, ".sav", current_path, sizeof(current_path));
+    save_path(&save, ".sav.prev", previous_path, sizeof(previous_path));
+    state_path(&state, ".state", state_path_buf, sizeof(state_path_buf));
+    state_path(&state, ".state.recovery",
+               recovery_state_path, sizeof(recovery_state_path));
+    assert(flip_recovery_test_build_path(
+        &recovery, ".restore-pending.tmp",
+        failed_marker_tmp, sizeof(failed_marker_tmp)) == 0);
+
+    write_file(current_path, current, sizeof(current));
+    write_file(previous_path, previous, sizeof(previous));
+    write_file(state_path_buf, current_state, sizeof(current_state));
+
+    assert(mkdir(failed_marker_tmp, 0700) == 0);
+    assert(flip_recovery_restore_previous(
+        &core, &save, &state, &recovery) == FLIP_RECOVERY_ERROR);
+
+    unsigned char got[32];
+    read_file(current_path, got, sizeof(got));
+    assert(memcmp(got, current, sizeof(current)) == 0);
+    read_file(previous_path, got, sizeof(got));
+    assert(memcmp(got, previous, sizeof(previous)) == 0);
+    unsigned char got_state[sizeof(current_state)];
+    read_file(state_path_buf, got_state, sizeof(got_state));
+    assert(memcmp(got_state, current_state, sizeof(got_state)) == 0);
+    assert(!state_exists(&state, ".state.recovery"));
+    assert(rmdir(failed_marker_tmp) == 0);
+}
+
 static void test_restore_previous_without_current_state_clears_stale_recovery_state(void)
 {
     flip_save_context_t save;
@@ -324,6 +391,7 @@ static void test_save_only_undo_keeps_resume_blocked_and_quarantines_current_sta
 int main(void)
 {
     test_restore_previous_preserves_paired_timeline_and_blocks_resume();
+    test_restore_previous_marker_failure_leaves_save_and_state_unchanged();
     test_restore_previous_without_current_state_clears_stale_recovery_state();
     test_undo_restores_paired_recovery_and_clears_marker();
     test_save_only_undo_keeps_resume_blocked_and_quarantines_current_state();
