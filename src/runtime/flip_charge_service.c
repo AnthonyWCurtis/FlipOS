@@ -57,17 +57,32 @@ int main(void)
 
     flip_charge_mode_t last_mode = (flip_charge_mode_t)-1;
     int last_applied_ma = -999;
+    int inputs_uncertain_logged = 0;
 
     while (running) {
         flip_battery_snapshot_t battery;
-        if (flip_battery_read(&battery) == 0) {
+        if (flip_battery_read_hardware(&battery) == 0) {
+            int inputs_uncertain =
+                !battery.external_power_valid ||
+                (battery.external_power_online && !battery.temp_valid);
+            if (inputs_uncertain && !inputs_uncertain_logged) {
+                flip_log_write(
+                    FLIP_LOG_WARN,
+                    "FLIP_CHARGE",
+                    "sensor/power input unavailable; preserving existing cap");
+            }
+            inputs_uncertain_logged = inputs_uncertain;
             int update_result = flip_charger_update(&charger, &battery);
             if (update_result < 0) {
+                /*
+                 * Releasing the cap after a write failure can increase the
+                 * allowed charging current while the battery is still hot.
+                 * Preserve the last setting and retry on the next sample.
+                 */
                 flip_log_write(
                     FLIP_LOG_ERROR,
                     "FLIP_CHARGE",
-                    "charge policy apply failed; attempting stock release");
-                (void)flip_charger_restore(&charger);
+                    "charge policy apply failed; retaining last cap and retrying");
             } else if (charger.mode != last_mode ||
                        charger.applied_current_ma != last_applied_ma) {
                 flip_log_write(
