@@ -180,16 +180,16 @@ static void write_absolute_path(const char *path, const char *value)
 static void test_charger_read_ignores_all_dev_overrides(void)
 {
     reset_root();
-    write_value("capacity", "72\\n");
-    write_value("voltage_now", "4012000\\n");
-    write_value("temp", "250\\n");
-    write_value_at(FLIP_AC_ROOT, "online", "0\\n");
-    write_value_at(FLIP_USB_ROOT, "online", "0\\n");
+    write_value("capacity", "72\n");
+    write_value("voltage_now", "4012000\n");
+    write_value("temp", "250\n");
+    write_value_at(FLIP_AC_ROOT, "online", "0\n");
+    write_value_at(FLIP_USB_ROOT, "online", "0\n");
 
-    write_absolute_path(FLIP_BATTERY_PERCENT_OVERRIDE, "1\\n");
-    write_absolute_path(FLIP_BATTERY_VOLTAGE_OVERRIDE, "3000000\\n");
-    write_absolute_path(FLIP_BATTERY_TEMP_OVERRIDE, "510\\n");
-    write_absolute_path(FLIP_EXTERNAL_POWER_OVERRIDE, "1\\n");
+    write_absolute_path(FLIP_BATTERY_PERCENT_OVERRIDE, "1\n");
+    write_absolute_path(FLIP_BATTERY_VOLTAGE_OVERRIDE, "3000000\n");
+    write_absolute_path(FLIP_BATTERY_TEMP_OVERRIDE, "510\n");
+    write_absolute_path(FLIP_EXTERNAL_POWER_OVERRIDE, "1\n");
 
     flip_battery_snapshot_t simulated;
     flip_battery_snapshot_t physical;
