@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "version": "0.0.0-rc.0",
+  "source_sha": "0000000000000000000000000000000000000000",
+  "artifacts": {
+    "update": {
+      "path": "artifacts/FlipOS-Update.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "fresh_install": {
+      "path": "artifacts/FlipOS-Fresh_Install.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "gates": {
+    "integrated_source_ci": {
+      "status": "pending",
+      "proofs": []
+    },
+    "release_artifacts_modules": {
+      "status": "pending",
+      "proofs": []
+    },
+    "native_gb_gbc_gba_regression": {
+      "status": "pending",
+      "proofs": []
+    },
+    "sram_state_rtc_integrity": {
+      "status": "pending",
+      "proofs": []
+    },
+    "save_restore_interruption": {
+      "status": "pending",
+      "proofs": []
+    },
+    "updater_powerloss_recovery": {
+      "status": "pending",
+      "proofs": []
+    },
+    "sleep_lid_resume_soak": {
+      "status": "pending",
+      "proofs": []
+    },
+    "gpu_cold_start_frame_pacing": {
+      "status": "pending",
+      "proofs": []
+    },
+    "audio_volume_resume": {
+      "status": "pending",
+      "proofs": []
+    },
+    "battery_charge_thermal": {
+      "status": "pending",
+      "proofs": []
+    },
+    "wifi_setup_time_rtc": {
+      "status": "pending",
+      "proofs": []
+    },
+    "diagnostic_review_and_privacy": {
+      "status": "pending",
+      "proofs": []
+    }
+  }
+}
