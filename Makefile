@@ -119,6 +119,15 @@ GBA_OBJS := \
 	$(BUILD)/flip_mgba_core.o \
 	$(EMULATOR_OBJS)
 
+# Separate opt-in gpSP runner. The default GBA build/launcher stays on mGBA.
+GPSP_OBJS := \
+	$(BUILD)/flip_gba_gpsp.o \
+	$(BUILD)/flip_gpsp_core.o \
+	$(EMULATOR_OBJS)
+
+GPSP_REF := 5819380c2ffb0900219d700a382ee68c464ebb99
+GPSP_SOURCE := $(BUILD)/gpsp-source
+
 PERF_CAPTURE_OBJS := \
 	$(BUILD)/flip_perf_capture.o \
 	$(BUILD)/flip_telemetry.o \
@@ -143,7 +152,7 @@ HOST_TEST_TARGETS := \
 
 DEPS := $(wildcard $(BUILD)/*.d)
 
-.PHONY: test-host verify-package all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-module-inputs test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
+.PHONY: gba-gpsp-experimental test-host verify-package all frontend gb gba charge-service mtp-responder gpu-service gpu-sender perf-capture cpu-policy-tool optimizer-guard-tool optimizer-supervisor-tool optimizer-deadman-tool optimizer-calibration-tool optimizer-candidate-tool optimizer-session-tool optimizer-progress-tool optimizer-validation-progress-tool optimizer-runtime-tool wifi-tool opp-voltage-module runtime-profile-module tsadc-recovery-module rk817-charger-module verify test-controls test-timing test-audio test-audio-queue test-audio-resampler test-paths test-log test-battery test-power-policy test-charger test-wifi test-keyboard test-setup test-update-installer test-update-fetch test-release-module-inputs test-release-package test-performance test-cpu-policy test-cpu-profile test-cpu-dynamic test-optimizer test-optimizer-pmu-token test-optimizer-quiesce test-optimizer-panic-policy test-optimizer-guard test-optimizer-supervisor test-optimizer-calibration test-optimizer-calibration-session test-bios test-settings test-osd test-power test-library-cache test-exit-protocol test-lifecycle test-core test-core-host test-video-layout test-gpu-protocol test-gpu-client test-state test-state-manager test-state-recovery-health test-save test-save-manager test-recovery test-session-persistence test-session-registry test-session-adapter test-game-stats test-system-registry test-session-save-safety test-perf-diag test-telemetry test-perf-capture-tools test-architecture clean clean-objects
 
 all: frontend gb gba mtp-responder
 
@@ -156,6 +165,9 @@ mtp-responder: $(BUILD)/umtprd
 gb: $(BUILD)/flip-gb
 
 gba: $(BUILD)/flip-gba
+
+# Experimental, never part of the default build/install/update package.
+gba-gpsp-experimental: $(BUILD)/flip-gba-gpsp-test
 
 gpu-service: $(BUILD)/flip-gpu-service
 
@@ -932,6 +944,12 @@ $(BUILD)/flip_gba.o: src/emulators/flip_gba.c include/flip_emulator_runner.h inc
 $(BUILD)/flip_mgba_core.o: src/emulators/flip_mgba_core.c include/flip_mgba_core.h include/flip_libretro_core.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/flip_gba_gpsp.o: src/emulators/flip_gba_gpsp.c include/flip_emulator_runner.h include/flip_gpsp_core.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/flip_gpsp_core.o: src/emulators/flip_gpsp_core.c include/flip_gpsp_core.h include/flip_libretro_core.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/flip_libretro_core.o: src/emulators/flip_libretro_core.c include/flip_libretro_core.h include/libretro/libretro.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -1219,6 +1237,27 @@ $(BUILD)/flip-gba: $(GBA_OBJS) $(BUILD)/mgba_libretro.a
 		-pthread \
 		-lm
 
+# Verify the exact source commit before building. The dependency is never
+# downloaded for 'make all', 'make verify' or release packaging.
+$(BUILD)/gpsp_libretro.a: tools/gpsp/UPSTREAM_PIN.txt | $(BUILD)
+	@if [ ! -d "$(GPSP_SOURCE)/.git" ]; then \
+		git clone --no-checkout https://github.com/libretro/gpsp.git "$(GPSP_SOURCE)"; \
+	fi
+	@git -C "$(GPSP_SOURCE)" fetch --depth=1 origin "$(GPSP_REF)"
+	@git -C "$(GPSP_SOURCE)" checkout --detach "$(GPSP_REF)"
+	@test "$(git -C "$(GPSP_SOURCE)" rev-parse HEAD)" = "$(GPSP_REF)"
+	$(MAKE) -C "$(GPSP_SOURCE)" -j$(nproc) \
+		platform=arm64 STATIC_LINKING=1 TARGET="$(abspath $@)" \
+		CC=$(CC) CXX=$(CXX) AR=$(CROSS)ar
+	@test -s "$@"
+
+$(BUILD)/flip-gba-gpsp-test: $(GPSP_OBJS) $(BUILD)/gpsp_libretro.a
+	$(CXX) -static -o $@ \
+		$(GPSP_OBJS) \
+		$(BUILD)/gpsp_libretro.a \
+		-pthread \
+		-lm
+
 -include $(DEPS)
 
 clean-objects:
@@ -1231,6 +1270,7 @@ clean:
 		$(BUILD)/flip-frontend \
 		$(BUILD)/flip-gb \
 		$(BUILD)/flip-gba \
+		$(BUILD)/flip-gba-gpsp-test \
 		$(BUILD)/flip-gpu-service \
 		$(BUILD)/flip-gpu-sender \
 		$(BUILD)/flip-perf-capture \
@@ -1290,4 +1330,5 @@ clean:
 		$(BUILD)/test-flip-perf-diag \
 		$(BUILD)/test-flip-telemetry
 	rm -rf $(BUILD)/mgba
+	rm -rf $(BUILD)/gpsp-source
 	$(MAKE) -C external/gambatte-libretro -f Makefile.libretro clean >/dev/null
