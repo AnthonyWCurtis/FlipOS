@@ -25,6 +25,22 @@ MTP_LINK="$CONFIG/f-ffs.mtp"
 MTP_HELPER="$ROOT/bin/flip-usb-mtp"
 LOG="$ROOT/logs/usb-mode.log"
 
+known_functions_only() {
+    # Do not take ownership of unknown USB interfaces (e.g. networking).
+    for link in "$CONFIG"/f-*; do
+        [ -e "$link" ] || [ -L "$link" ] || continue
+        case "$link" in
+            "$ADB_LINK"|"$MTP_LINK")
+                [ -L "$link" ] || return 1
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    done
+    return 0
+}
+
 current_mode() {
     if [ ! -r "$GADGET/UDC" ]; then
         echo UNAVAILABLE
@@ -33,6 +49,8 @@ current_mode() {
     udc=$(cat "$GADGET/UDC" 2>/dev/null || true)
     if [ -z "$udc" ]; then
         echo UNBOUND
+    elif ! known_functions_only; then
+        echo UNKNOWN
     elif [ -L "$ADB_LINK" ] && [ -L "$MTP_LINK" ]; then
         echo ADB_MTP
     elif [ -L "$ADB_LINK" ] && [ ! -e "$MTP_LINK" ] && [ ! -L "$MTP_LINK" ]; then
