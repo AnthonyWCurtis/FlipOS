@@ -1,0 +1,146 @@
+#!/bin/sh
+# FlipOS USB modes: preserve stock ADB at boot, opt-in temporary ADB+MTP.
+# Settings transitions are deliberately disruptive to USB; no unattended
+# transition, automatic retries, battery/power policy or device flashing.
+set -eu
+
+TEST_ROOT=${FLIP_USB_TEST_ROOT:-}
+if [ -n "$TEST_ROOT" ]; then
+    [ "$TEST_ROOT" != / ] || exit 2
+    ROOT="$TEST_ROOT/mnt/SDCARD/flipos-dev"
+    GADGET="$TEST_ROOT/sys/kernel/config/usb_gadget/rockchip"
+    ANDROID_STATE="$TEST_ROOT/sys/class/android_usb/android0/state"
+    OWNER_MARKER="$TEST_ROOT/tmp/flipos-usb-owned"
+    GUARD_ROOT="$TEST_ROOT/tmp"
+else
+    ROOT=/mnt/SDCARD/flipos-dev
+    GADGET=/sys/kernel/config/usb_gadget/rockchip
+    ANDROID_STATE=/sys/class/android_usb/android0/state
+    OWNER_MARKER=/tmp/flipos-usb-owned
+    GUARD_ROOT=/tmp
+fi
+CONFIG="$GADGET/configs/b.1"
+ADB_LINK="$CONFIG/f-ffs.adb"
+MTP_LINK="$CONFIG/f-ffs.mtp"
+MTP_HELPER="$ROOT/bin/flip-usb-mtp"
+LOG="$ROOT/logs/usb-mode.log"
+
+current_mode() {
+    if [ ! -r "$GADGET/UDC" ]; then
+        echo UNAVAILABLE
+        return
+    fi
+    udc=$(cat "$GADGET/UDC" 2>/dev/null || true)
+    if [ -z "$udc" ]; then
+        echo UNBOUND
+    elif [ -L "$ADB_LINK" ] && [ -L "$MTP_LINK" ]; then
+        echo ADB_MTP
+    elif [ -L "$ADB_LINK" ] && [ ! -e "$MTP_LINK" ] && [ ! -L "$MTP_LINK" ]; then
+        echo ADB_ONLY
+    else
+        echo UNKNOWN
+    fi
+}
+record() {
+    # Logging is optional, never a reason to alter gadget behaviour.
+    if [ -d "$ROOT/logs" ]; then
+        printf '%s FLIP_USB_MODE: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG" 2>/dev/null || true
+    fi
+}
+busy_runtime() {
+    if [ -n "$TEST_ROOT" ]; then
+        [ ! -f "$TEST_ROOT/busy-runtime" ]
+        return $?
+    fi
+    for name in flip-gba flip-gb flip-update-install flip-optimizer-candidate flip-optimizer-runtime; do
+        if pidof "$name" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+acquire_lock() {
+    mkdir "$GUARD_ROOT/flipos-usb-mode.lock" 2>/dev/null || return 1
+    trap 'rmdir "$GUARD_ROOT/flipos-usb-mode.lock" 2>/dev/null || true' EXIT HUP INT TERM
+}
+guard_transition() {
+    [ -f "$OWNER_MARKER" ] || [ "$1" = mtp ] || { echo 'REFUSED not_flipos_owned' >&2; return 1; }
+    [ -L "$ADB_LINK" ] || { echo 'REFUSED missing_adb' >&2; return 1; }
+    [ -r "$GADGET/UDC" ] || { echo 'REFUSED missing_udc' >&2; return 1; }
+    [ -n "$(cat "$GADGET/UDC" 2>/dev/null || true)" ] || {
+        echo 'REFUSED unbound_or_disconnected' >&2; return 1;
+    }
+    [ -r "$ANDROID_STATE" ] && [ "$(cat "$ANDROID_STATE" 2>/dev/null)" = CONFIGURED ] || {
+        echo 'REFUSED not_configured' >&2; return 1;
+    }
+    if busy_runtime; then
+        echo 'REFUSED active_game_or_updater' >&2
+        return 1
+    fi
+    return 0
+}
+
+case "${1:-status}" in
+status)
+    current_mode
+    ;;
+boot)
+    # Rockchip's stock usbdevice owns the initial ADB gadget. NEVER stop
+    # stock usbdevice at boot and never rebind a healthy ADB connection.
+    mode=$(current_mode)
+    record "boot mode=$mode default=ADB_ONLY no_transition=1"
+    [ "$mode" = ADB_ONLY ] || { echo "BOOT_CHECK $mode" >&2; exit 1; }
+    ;;
+mtp)
+    acquire_lock || { echo 'REFUSED transition_busy' >&2; exit 1; }
+    mode=$(current_mode)
+    [ "$mode" != ADB_MTP ] || exit 0
+    [ "$mode" = ADB_ONLY ] || { echo "REFUSED mode=$mode" >&2; exit 1; }
+    guard_transition mtp || exit 1
+    [ -x "$MTP_HELPER" ] || { echo 'REFUSED mtp_helper_missing' >&2; exit 1; }
+    # One explicit activation; the existing helper handles endpoint startup.
+    record "mtp requested; expected_host_disconnect=1"
+    if ! "$MTP_HELPER"; then
+        record 'mtp helper_failed; manual_reboot_recommended=1'
+        exit 1
+    fi
+    [ "$(current_mode)" = ADB_MTP ] || {
+        record 'mtp mode_verification_failed'
+        exit 1
+    }
+    record 'mtp active'
+    ;;
+adb)
+    acquire_lock || { echo 'REFUSED transition_busy' >&2; exit 1; }
+    mode=$(current_mode)
+    [ "$mode" != ADB_ONLY ] || exit 0
+    [ "$mode" = ADB_MTP ] || { echo "REFUSED mode=$mode" >&2; exit 1; }
+    guard_transition adb || exit 1
+    [ -f "$OWNER_MARKER" ] || { echo 'REFUSED not_flipos_owned' >&2; exit 1; }
+    # Only remove the exact MTP function; NEVER rm all functions / stop ADB.
+    bound=$(cat "$GADGET/UDC")
+    [ -n "$bound" ] || exit 1
+    [ -L "$MTP_LINK" ] || exit 1
+    record 'adb requested; ensure no PC file transfer is active'
+    # The UI requires explicit confirmation from the user. This briefly
+    # disconnects BOTH USB interfaces. No extra USB rebind on boot.
+    printf '\n' > "$GADGET/UDC" || exit 1
+    if ! rm "$MTP_LINK"; then
+        record 'adb unlink_failed; manual_reboot_recommended=1'
+        exit 1
+    fi
+    if ! printf '%s\n' "$bound" > "$GADGET/UDC"; then
+        record 'adb bind_failed; manual_reboot_recommended=1'
+        exit 1
+    fi
+    [ "$(current_mode)" = ADB_ONLY ] || {
+        record 'adb mode_verification_failed'
+        exit 1
+    }
+    record 'adb-only active; MTP responder may remain until reboot'
+    ;;
+*)
+    echo 'usage: flip-usb-mode status|boot|mtp|adb' >&2
+    exit 2
+    ;;
+esac
